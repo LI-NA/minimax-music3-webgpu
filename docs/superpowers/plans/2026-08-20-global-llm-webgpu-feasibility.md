@@ -444,7 +444,7 @@ Expected: PASS with no MiniMax checkpoint download.
 - [ ] **Step 7: Commit the reduced decoder tooling**
 
 ```powershell
-git add tools/converter/src/minimax_music3_webgpu tests/python
+git add tools/converter/src/minimax_music3_webgpu tests/python tests/fixtures/prompt-contract.json
 git commit -m "feat(converter): build reduced q4 decoder"
 ```
 
