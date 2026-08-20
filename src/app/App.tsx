@@ -5,6 +5,7 @@ import type {
   FlowSmokeResult,
   FrameGenerationResult,
   GlobalSmokeResult,
+  MusicGenerationWorkerResult,
   RvqSmokeResult,
   VocoderSmokeResult,
   WorkerResponse,
@@ -21,10 +22,16 @@ export function App() {
   const [conditionResult, setConditionResult] = useState<ConditionSmokeResult | null>(null);
   const [flowResult, setFlowResult] = useState<FlowSmokeResult | null>(null);
   const [vocoderResult, setVocoderResult] = useState<VocoderSmokeResult | null>(null);
+  const [musicResult, setMusicResult] = useState<MusicGenerationWorkerResult | null>(null);
+  const [musicUrl, setMusicUrl] = useState<string | null>(null);
+  const musicUrlRef = useRef<string | null>(null);
   const worker = useRef<Worker | null>(null);
 
   useEffect(() => {
     void inspectWebGpu(navigator.gpu).then(setCapability);
+    return () => {
+      if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
+    };
   }, []);
 
   const cancel = () => {
@@ -147,6 +154,31 @@ export function App() {
       manifestUrl: 'http://127.0.0.1:5178/manifest.json',
     });
   };
+  const generateMusic = () => {
+    cancel();
+    setMusicResult(null);
+    if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
+    musicUrlRef.current = null;
+    setMusicUrl(null);
+    setProgress('Starting five-second music generation');
+    const next = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), { type: 'module' });
+    worker.current = next;
+    next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
+      if (data.type === 'progress') setProgress(`${data.stage}: ${data.detail}`);
+      else if (data.type === 'music-result') {
+        const url = URL.createObjectURL(new Blob([data.result.wav], { type: 'audio/wav' }));
+        musicUrlRef.current = url;
+        setMusicUrl(url);
+        setMusicResult(data.result);
+        setProgress('Five-second music generation complete');
+      } else if (data.type === 'error') setProgress(`Error: ${data.message}`);
+    };
+    next.postMessage({
+      type: 'generate-music-5s',
+      manifestUrl: 'http://127.0.0.1:5174/manifest.json',
+      seed: 7,
+    });
+  };
 
   const status =
     capability === null
@@ -181,6 +213,9 @@ export function App() {
           </button>
           <button type="button" disabled={!capability?.supported} onClick={runVocoder}>
             Run vocoder smoke
+          </button>
+          <button type="button" disabled={!capability?.supported} onClick={generateMusic}>
+            Generate five-second music
           </button>
           <button type="button" className="secondary" disabled={!worker.current} onClick={cancel}>
             Cancel worker
@@ -218,6 +253,15 @@ export function App() {
           <pre data-testid="vocoder-smoke-result" className="result">
             {`waveform: ${vocoderResult.outputType} ${vocoderResult.shape.join(', ')}\nfinite: ${vocoderResult.finite ? 'yes' : 'no'}\nWAV bytes: ${vocoderResult.wavBytes}\naudio: ${vocoderResult.sampleRate} Hz, ${vocoderResult.channels} channels, ${vocoderResult.samples} samples, ${vocoderResult.bitsPerSample}-bit PCM\n${JSON.stringify(vocoderResult, null, 2)}`}
           </pre>
+        )}
+        {musicResult && musicUrl && (
+          <section data-testid="music-generation-result" className="result">
+            <audio data-testid="generated-audio" controls src={musicUrl} />
+            <a data-testid="download-music" download="minimax-music3-5s.wav" href={musicUrl}>
+              Download WAV
+            </a>
+            <pre>{JSON.stringify({ ...musicResult, wav: undefined }, null, 2)}</pre>
+          </section>
         )}
       </section>
     </main>

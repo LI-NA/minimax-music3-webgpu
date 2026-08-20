@@ -3,6 +3,7 @@ import {
   parseConditionManifest,
   parseFlowManifest,
   parseModelManifest,
+  parseMusicManifest,
   parseRvqStageManifest,
   parseVocoderManifest,
 } from '../../../src/runtime/model/manifest';
@@ -251,5 +252,66 @@ describe('parseVocoderManifest', () => {
         requiredLimits: { maxStorageBufferBindingSize: 64 * 1024 * 1024 },
       },
     })).toThrow('requiredLimits');
+  });
+});
+
+describe('parseMusicManifest', () => {
+  const combined = {
+    ...manifest,
+    model: {
+      id: 'MiniMaxAI/MiniMax-Music3',
+      revision: 'fbdf52fbaaca799592917417eb05f1899f1255ec',
+      diffusersRevision: '3681e65996b4d2589219720101a6acbfd25073f8',
+    },
+    rvqDepth: { ...manifest.graph, gpuOutputs: ['depth_hidden'] },
+    feedback: { ...manifest.reducedHead, gpuOutputs: ['inputs_embeds'] },
+    rvqEmbedding: manifest.embedding,
+    conditionEncoder: { ...manifest.graph, gpuOutputs: ['condition'] },
+    flow: { ...manifest.graph, gpuOutputs: ['next_latents'] },
+    vocoder: { ...manifest.graph, gpuOutputs: [] },
+    tokenizerFiles: [{ path: 'global/tokenizer.json', bytes: 2, sha256: sha }],
+    licenseFile: { path: 'global/LICENSE', bytes: 7, sha256: sha },
+    slice: {
+      semanticFrames: 125,
+      latentLength: 430,
+      outputSamples: 220_160,
+      sampleRate: 44_100,
+      channels: 2,
+      flowSteps: 30,
+      globalGuidance: 1.5,
+      flowGuidance: 1.7,
+    },
+    quantization: { bits: 4, blockSize: 128, accuracyLevel: 4, symmetric: true },
+    precision: {
+      convolution: 'float16',
+      fp32Snakes: ['blocks.0.snake1', 'blocks.1.snake1'],
+    },
+    webgpu: {
+      requiredFeatures: ['shader-f16'],
+      requiredLimits: {
+        maxStorageBufferBindingSize: 128 * 1024 * 1024,
+        maxStorageBuffersPerShaderStage: 9,
+      },
+    },
+  };
+
+  it('parses every fixed stage and release support artifact from one namespace', () => {
+    const parsed = parseMusicManifest(combined);
+
+    expect(parsed.model.revision).toBe(combined.model.revision);
+    expect(parsed.conditionEncoder.gpuOutputs).toEqual(['condition']);
+    expect(parsed.flow.gpuOutputs).toEqual(['next_latents']);
+    expect(parsed.vocoder.gpuOutputs).toEqual([]);
+    expect(parsed.slice.outputSamples).toBe(220_160);
+    expect(parsed.tokenizerFiles[0].path).toBe('global/tokenizer.json');
+  });
+
+  it('rejects a substitute checkpoint or changed fixed five-second shape', () => {
+    expect(() => parseMusicManifest({ ...combined, model: { ...combined.model, revision: 'other' } }))
+      .toThrow('revision');
+    expect(() => parseMusicManifest({
+      ...combined,
+      slice: { ...combined.slice, semanticFrames: 124 },
+    })).toThrow('slice');
   });
 });

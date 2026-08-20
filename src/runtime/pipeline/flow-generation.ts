@@ -46,7 +46,7 @@ export function exactFlowSchedule(): FlowSchedule {
   };
 }
 
-function float32ToFloat16Bits(value: number) {
+export function float32ToFloat16Bits(value: number) {
   const f32 = new Float32Array([value]);
   const bits = new Uint32Array(f32.buffer)[0];
   const sign = (bits >>> 16) & 0x8000;

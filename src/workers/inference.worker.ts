@@ -4,6 +4,7 @@ import { OpfsFp16EmbeddingTable } from '../runtime/model/embedding-table';
 import {
   parseConditionManifest,
   parseFlowManifest,
+  parseMusicManifest,
   parseModelManifest,
   parseRvqStageManifest,
   parseVocoderManifest,
@@ -11,6 +12,7 @@ import {
 import { createWebGpuDevice } from '../runtime/model/webgpu-device';
 import { runConditionSmoke } from '../runtime/pipeline/condition-smoke';
 import { runFlowSmoke } from '../runtime/pipeline/flow-generation';
+import { runFixedFlowGeneration } from '../runtime/pipeline/flow-generation';
 import { runGlobalSmoke } from '../runtime/pipeline/global-smoke';
 import { runRvqSmoke } from '../runtime/pipeline/rvq-smoke';
 import {
@@ -23,9 +25,14 @@ import {
   EarlyAudioEndError,
   readConditionalGpuFp16,
 } from '../runtime/pipeline/rvq-generation';
+import {
+  deterministicGaussianFp16,
+  generateFiveSecondMusic,
+  readExactGpuFp16,
+} from '../runtime/pipeline/music-generation';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 
-const send = (message: WorkerResponse) => self.postMessage(message);
+const send = (message: WorkerResponse, transfer?: Transferable[]) => self.postMessage(message, transfer ?? []);
 const hashText = async (text: string) =>
   Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))))
     .map((value) => value.toString(16).padStart(2, '0'))
@@ -39,6 +46,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   );
 };
 async function run(request: WorkerRequest) {
+  if (request.type === 'generate-music-5s') return runMusicGeneration(request);
   if (request.type === 'run-vocoder-smoke') return runVocoder(request.manifestUrl);
   if (request.type === 'run-flow-smoke') return runFlow(request.manifestUrl);
   if (request.type === 'run-condition-smoke') return runCondition(request.manifestUrl);
@@ -406,6 +414,202 @@ async function runFrameGeneration(request: Extract<WorkerRequest, { type: 'gener
     await decoder?.release();
     device.destroy();
   }
+}
+
+async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'generate-music-5s' }>) {
+  send({ type: 'progress', stage: 'manifest', detail: 'Reading five-second music release manifest' });
+  const release = await readManifest(request.manifestUrl, 'Music release manifest is unavailable');
+  const manifestHash = await hashText(release.text);
+  const manifest = parseMusicManifest(JSON.parse(release.text));
+  const allArtifacts = [
+    manifest.graph,
+    ...manifest.graph.externalData,
+    manifest.reducedHead,
+    ...manifest.reducedHead.externalData,
+    ...manifest.embedding.shards,
+    manifest.rvqDepth,
+    ...manifest.rvqDepth.externalData,
+    manifest.feedback,
+    ...manifest.feedback.externalData,
+    ...manifest.rvqEmbedding.shards,
+    manifest.conditionEncoder,
+    ...manifest.conditionEncoder.externalData,
+    manifest.flow,
+    ...manifest.flow.externalData,
+    manifest.vocoder,
+    ...manifest.vocoder.externalData,
+    ...manifest.tokenizerFiles,
+    manifest.licenseFile,
+  ];
+  const artifacts = [...new Map(allArtifacts.map((artifact) => [artifact.path, artifact])).values()];
+  const artifactFetches = await cacheArtifacts(artifacts, release.base, release.cache);
+  const artifactBytes = artifacts.reduce((total, artifact) => total + artifact.bytes, 0);
+  const { createOrtSession } = await import('../runtime/model/ort-session');
+  const ort = await import('onnxruntime-web/jspi');
+  const adapters: string[] = [];
+  const sessionCreateMs = { autoregressive: 0, condition: 0, flow: 0, vocoder: 0 };
+  const stageMs = { autoregressive: 0, condition: 0, flow: 0, vocoder: 0 };
+  const inferenceMs = { autoregressive: 0, condition: 0, flow: 0, vocoder: 0 };
+  const flowStepMs: number[] = [];
+  const adapterName = (adapter: GPUAdapter) =>
+    adapter.info.description || adapter.info.vendor || 'WebGPU adapter';
+
+  const generated = await generateFiveSecondMusic(
+    {
+      async autoregressive(seed) {
+        const stageStarted = performance.now();
+        send({ type: 'progress', stage: 'autoregressive', detail: `Creating autoregressive sessions for seed ${seed}` });
+        const { adapter, device } = await createWebGpuDevice(navigator.gpu, manifest.webgpu.requiredLimits);
+        adapters.push(adapterName(adapter));
+        let decoder: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+        let head: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+        let rvqDepth: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+        let feedback: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+        try {
+          const sessionStarted = performance.now();
+          decoder = await createOrtSession(manifest.graph, release.cache, device);
+          head = await createOrtSession(manifest.reducedHead, release.cache, device);
+          rvqDepth = await createOrtSession(manifest.rvqDepth, release.cache, device);
+          feedback = await createOrtSession(manifest.feedback, release.cache, device);
+          sessionCreateMs.autoregressive += performance.now() - sessionStarted;
+          const generationStarted = performance.now();
+          const frames = await createFrameGenerator({
+            ort,
+            decoder,
+            head,
+            rvqDepth,
+            feedback,
+            globalEmbedding: await OpfsFp16EmbeddingTable.open(
+              manifest.embedding,
+              (path) => release.cache.openSyncFile(path),
+            ),
+            rvqEmbedding: await OpfsFp16EmbeddingTable.open(
+              manifest.rvqEmbedding,
+              (path) => release.cache.openSyncFile(path),
+            ),
+            embeddingColumns: manifest.embedding.columns,
+            kvPairs: manifest.kvPairs,
+            readConditionalHidden: (tensor) => readConditionalGpuFp16(device, tensor),
+          }).generateFrames({ maxFrames: 125, seed, guidance: 1.5, topK: 50 });
+          inferenceMs.autoregressive += performance.now() - generationStarted;
+          return frames;
+        } finally {
+          await feedback?.release();
+          await rvqDepth?.release();
+          await head?.release();
+          await decoder?.release();
+          device.destroy();
+          stageMs.autoregressive += performance.now() - stageStarted;
+        }
+      },
+      async condition(frameBits) {
+        const stageStarted = performance.now();
+        send({ type: 'progress', stage: 'condition', detail: 'Creating condition encoder session' });
+        const { adapter, device } = await createWebGpuDevice(navigator.gpu, manifest.webgpu.requiredLimits);
+        adapters.push(adapterName(adapter));
+        let session: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+        const input = new ort.Tensor('float16', frameBits, [1, 125, 32_768]);
+        let output: InstanceType<typeof ort.Tensor> | undefined;
+        try {
+          const sessionStarted = performance.now();
+          session = await createOrtSession(manifest.conditionEncoder, release.cache, device);
+          sessionCreateMs.condition = performance.now() - sessionStarted;
+          const inferenceStarted = performance.now();
+          const outputs = await session.run({ frame_hiddens: input });
+          inferenceMs.condition = performance.now() - inferenceStarted;
+          output = outputs.condition;
+          if (!output) throw new Error('condition encoder did not return condition');
+          return await readExactGpuFp16(device, output, [1, 430, 2048], 'condition');
+        } finally {
+          output?.dispose();
+          input.dispose();
+          await session?.release();
+          device.destroy();
+          stageMs.condition = performance.now() - stageStarted;
+        }
+      },
+      async flow(conditionBits, seed, onStep) {
+        const stageStarted = performance.now();
+        send({ type: 'progress', stage: 'flow', detail: 'Creating flow transformer session' });
+        const { adapter, device } = await createWebGpuDevice(navigator.gpu, manifest.webgpu.requiredLimits);
+        adapters.push(adapterName(adapter));
+        let session: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+        const condition = new ort.Tensor('float16', conditionBits, [1, 430, 2048]);
+        let final: InstanceType<typeof ort.Tensor> | undefined;
+        try {
+          const sessionStarted = performance.now();
+          session = await createOrtSession(manifest.flow, release.cache, device);
+          sessionCreateMs.flow = performance.now() - sessionStarted;
+          const initial = new ort.Tensor(
+            'float16',
+            deterministicGaussianFp16(seed, 128 * 430),
+            [1, 128, 430],
+          );
+          let previous = performance.now();
+          const inferenceStarted = performance.now();
+          final = await runFixedFlowGeneration({ ort, session }, initial, condition, (completed) => {
+            const now = performance.now();
+            flowStepMs.push(now - previous);
+            previous = now;
+            onStep(completed);
+          });
+          inferenceMs.flow = performance.now() - inferenceStarted;
+          return await readExactGpuFp16(device, final, [1, 128, 430], 'latents');
+        } finally {
+          final?.dispose();
+          condition.dispose();
+          await session?.release();
+          device.destroy();
+          stageMs.flow = performance.now() - stageStarted;
+        }
+      },
+      async vocoder(latentBits) {
+        const stageStarted = performance.now();
+        send({ type: 'progress', stage: 'vocoder', detail: 'Creating vocoder session' });
+        const { adapter, device } = await createWebGpuDevice(navigator.gpu, manifest.webgpu.requiredLimits);
+        adapters.push(adapterName(adapter));
+        let session: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+        try {
+          const sessionStarted = performance.now();
+          session = await createOrtSession(manifest.vocoder, release.cache, device);
+          sessionCreateMs.vocoder = performance.now() - sessionStarted;
+          const inferenceStarted = performance.now();
+          const wav = await generateFixedVocoderWav({ ort, session }, latentBits);
+          inferenceMs.vocoder = performance.now() - inferenceStarted;
+          validateVocoderWav(wav);
+          return wav;
+        } finally {
+          await session?.release();
+          device.destroy();
+          stageMs.vocoder = performance.now() - stageStarted;
+        }
+      },
+    },
+    request.seed,
+    (progress) => {
+      if (progress.stage === 'autoregressive')
+        send({ type: 'progress', stage: 'autoregressive', detail: `Retained ${progress.retainedFrames} frames` });
+      else if (progress.stage === 'flow')
+        send({ type: 'progress', stage: 'flow', detail: `Completed flow step ${progress.completedSteps}/30` });
+      else send({ type: 'progress', stage: progress.stage, detail: progress.stage === 'complete' ? 'Five-second music generation complete' : `Starting ${progress.stage} stage` });
+    },
+  );
+  const result = {
+    ...generated,
+    adapters,
+    wavBytes: generated.wav.byteLength,
+    artifactBytes,
+    artifactFetches,
+    manifestHash,
+    sessionCreateMs,
+    stageMs,
+    inferenceMs,
+    flowStepMs,
+    browser: navigator.userAgent,
+    ortVersion: '1.30.0-dev.20260813-72e1c9c9b8',
+    status: 'passed' as const,
+  };
+  send({ type: 'music-result', result }, [generated.wav]);
 }
 
 async function runRvq(manifestUrl: string) {

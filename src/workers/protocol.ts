@@ -10,10 +10,11 @@ export type WorkerRequest =
       rvqManifestUrl: string;
       maxFrames: number;
       seed: number;
-    };
+    }
+  | { type: 'generate-music-5s'; manifestUrl: string; seed: number };
 export type WorkerProgress = {
   type: 'progress';
-  stage: 'manifest' | 'artifact' | 'adapter' | 'session';
+  stage: 'manifest' | 'artifact' | 'adapter' | 'session' | 'autoregressive' | 'condition' | 'flow' | 'vocoder' | 'wav' | 'complete';
   detail: string;
   loaded?: number;
   total?: number;
@@ -94,6 +95,25 @@ export type VocoderSmokeResult = {
   artifactFetches: number;
   status: 'passed';
 };
+export type MusicGenerationWorkerResult = {
+  wav: ArrayBuffer;
+  adapters: readonly string[];
+  attemptedSeeds: readonly number[];
+  hiddenBytes: number;
+  conditionBytes: number;
+  latentBytes: number;
+  wavBytes: number;
+  artifactBytes: number;
+  artifactFetches: number;
+  manifestHash: string;
+  sessionCreateMs: Readonly<Record<'autoregressive' | 'condition' | 'flow' | 'vocoder', number>>;
+  stageMs: Readonly<Record<'autoregressive' | 'condition' | 'flow' | 'vocoder', number>>;
+  inferenceMs: Readonly<Record<'autoregressive' | 'condition' | 'flow' | 'vocoder', number>>;
+  flowStepMs: readonly number[];
+  browser: string;
+  ortVersion: string;
+  status: 'passed';
+};
 export type WorkerResponse =
   | WorkerProgress
   | { type: 'result'; result: GlobalSmokeResult }
@@ -102,4 +122,5 @@ export type WorkerResponse =
   | { type: 'condition-result'; result: ConditionSmokeResult }
   | { type: 'flow-result'; result: FlowSmokeResult }
   | { type: 'vocoder-result'; result: VocoderSmokeResult }
+  | { type: 'music-result'; result: MusicGenerationWorkerResult }
   | { type: 'error'; message: string };
