@@ -123,7 +123,7 @@
 
 Use React `19.2.8`, Vite `8.2.2`, Vitest `4.1.11`, Playwright `1.62.1`, `@webgpu/types`, `@noble/hashes` `2.3.0`, ESLint, TypeScript, and `onnxruntime-web` `1.30.0-dev.20260813-72e1c9c9b8`. Add `node_modules/`, `.venv/`, `dist/`, `coverage/`, `playwright-report/`, and `test-results/` to `.gitignore`. Add the reproducible large dependency directories `node_modules/` and `.venv/` to `.kopiaignore` before installing dependencies.
 
-Set Python to `>=3.11,<3.14` and add `huggingface-hub==1.27.0`, `safetensors==0.8.0`, `torch==2.13.0`, `transformers==5.15.0`, `onnx==1.22.0`, `onnxscript==0.7.1`, `onnxruntime==1.27.0`, `onnxruntime-genai==0.15.2`, `numpy`, and `pytest`. Register `music3-convert = "minimax_music3_webgpu.cli:main"`, configure the package root as `tools/converter/src`, and create an `argparse` entry point whose `--help` exits successfully. These versions are the newest required-compatible releases admitted by the repository owner's global uv rule that excludes packages published within the last seven days.
+Set Python to `>=3.11,<3.14` and add `huggingface-hub==1.27.0`, `safetensors==0.8.0`, `torch==2.13.0`, `transformers==5.15.0`, `onnx==1.22.0`, `onnxscript==0.7.1`, `onnxruntime==1.28.0`, `onnxruntime-genai==0.15.2`, `numpy`, and `pytest`. Register `music3-convert = "minimax_music3_webgpu.cli:main"`, configure the package root as `tools/converter/src`, and create an `argparse` entry point whose `--help` exits successfully. These versions are the newest required-compatible releases admitted by the repository owner's global uv rule that excludes packages published within the last seven days.
 
 - [ ] **Step 2: Install and lock dependencies**
 
