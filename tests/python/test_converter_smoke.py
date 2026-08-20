@@ -30,6 +30,7 @@ def test_tiny_qwen3_builder_prefill_and_cached_decode_are_finite(tmp_path) -> No
     fused_report = validate_global_decoder(fused, expected_layers=2)
     unfused_report = validate_global_decoder(unfused, expected_layers=2)
     assert fused_report.attention_nodes == unfused_report.attention_nodes == 2
+    assert fused_report.matmul_nbits_nodes == unfused_report.matmul_nbits_nodes
 
     fused_session = ort.InferenceSession(str(fused), providers=["CPUExecutionProvider"])
     unfused_session = ort.InferenceSession(str(unfused), providers=["CPUExecutionProvider"])
@@ -45,7 +46,7 @@ def test_tiny_qwen3_builder_prefill_and_cached_decode_are_finite(tmp_path) -> No
         if "past" in item.name:
             inputs[item.name] = np.zeros((1, 2, 0, 16), dtype=np.float16)
     outputs = session.run(None, inputs)
-    assert np.isfinite(outputs[0]).all()
+    assert all(np.isfinite(output).all() for output in outputs)
     first_cache = {item.name: value for item, value in zip(session.get_outputs(), outputs, strict=True) if "present" in item.name}
 
     for expected_length in (3, 4):
@@ -57,7 +58,7 @@ def test_tiny_qwen3_builder_prefill_and_cached_decode_are_finite(tmp_path) -> No
             if "past" in item.name:
                 step_inputs[item.name] = first_cache[item.name.replace("past_key_values", "present")]
         outputs = session.run(None, step_inputs)
-        assert np.isfinite(outputs[0]).all()
+        assert all(np.isfinite(output).all() for output in outputs)
         first_cache = {item.name: value for item, value in zip(session.get_outputs(), outputs, strict=True) if "present" in item.name}
         assert {value.shape[2] for value in first_cache.values()} == {expected_length}
 

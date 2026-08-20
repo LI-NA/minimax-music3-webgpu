@@ -21,6 +21,7 @@ class GraphReport:
     past_inputs: int
     present_outputs: int
     hidden_output: str
+    matmul_nbits_nodes: int
     external_locations: tuple[str, ...]
 
 
@@ -59,7 +60,7 @@ def builder_arguments(source: Path, output: Path, cache: Path, num_hidden_layers
 def build_global_decoder(paths: ArtifactPaths, num_hidden_layers: int = 36) -> GlobalDecoderReceipt:
     if num_hidden_layers not in {1, 36}:
         raise ValueError("num_hidden_layers must be 1 or 36")
-    output = paths.work / "global-builder"
+    output = paths.work / f"global-builder-{num_hidden_layers}"
     cache = paths.work / "ortgenai-cache"
     paths.validate_write_targets(output, cache, paths.receipts)
     output.mkdir(parents=True, exist_ok=True)
@@ -77,11 +78,12 @@ def build_global_decoder(paths: ArtifactPaths, num_hidden_layers: int = 36) -> G
     built = output / "global_decoder.onnx"
     if not built.is_file():
         raise FileNotFoundError(f"ORT GenAI builder did not produce {built}")
-    release = paths.release / ("global-one-layer" if num_hidden_layers == 1 else "global")
-    repacked = repack_external_data(built, release, ARTIFACT_FILE_LIMIT)
+    packed_dir = paths.work / f"global-packed-{num_hidden_layers}"
+    paths.validate_write_targets(packed_dir)
+    repacked = repack_external_data(built, packed_dir, ARTIFACT_FILE_LIMIT)
     report = validate_global_decoder(repacked.model_path, expected_layers=num_hidden_layers)
     receipt = GlobalDecoderReceipt(
-        built, repacked, report, tuple(arguments), process.stdout, process.stderr, elapsed,
+        repacked.model_path, repacked, report, tuple(arguments), process.stdout, process.stderr, elapsed,
         process.returncode,
         {name: importlib.metadata.version(name) for name in ("onnxruntime", "onnxruntime-genai")},
     )
@@ -124,11 +126,23 @@ def validate_global_decoder(model_path: Path, expected_layers: int = 36) -> Grap
             location = fields.get("location")
             if not location:
                 raise ValueError("decoder external initializer has no location")
+            relative = Path(location)
+            external = (model_path.parent.resolve() / relative).resolve()
+            if relative.is_absolute() or not external.is_relative_to(model_path.parent.resolve()):
+                raise ValueError("decoder external initializer location escapes graph directory")
+            if "offset" not in fields or "length" not in fields:
+                raise ValueError("decoder external initializer requires offset and length")
+            try:
+                offset = int(fields["offset"])
+                length = int(fields["length"])
+            except ValueError as error:
+                raise ValueError("decoder external initializer has invalid range") from error
+            if offset < 0 or length < 0 or not external.is_file() or offset + length > external.stat().st_size:
+                raise ValueError("decoder external initializer has invalid range")
             locations.add(location)
-            length = int(fields.get("length", 0))
             if length > ARTIFACT_FILE_LIMIT:
                 raise ValueError("decoder initializer exceeds artifact limit")
-    return GraphReport(attention, past, present, hidden, tuple(sorted(locations)))
+    return GraphReport(attention, past, present, hidden, len(q4_nodes), tuple(sorted(locations)))
 
 
 def _receipt_payload(receipt: GlobalDecoderReceipt) -> dict:
