@@ -43,7 +43,7 @@ Phase 1 will not include:
 
 ## 4. Source model
 
-The browser port is based on the official Diffusers implementation and official converted checkpoint layout.
+The browser port is based on Diffusers commit `3681e65996b4d2589219720101a6acbfd25073f8` and official checkpoint revision `fbdf52fbaaca799592917417eb05f1899f1255ec`. Conversion receipts and browser manifests retain both revisions.
 
 The generation pipeline contains:
 
@@ -108,10 +108,10 @@ The Global LLM first processes the conditional and unconditional prompts as a ba
 
 Sampling, vocabulary masks, top-k selection, end-token handling, and seeded random-number generation remain in TypeScript. ONNX graphs perform only deterministic tensor computation.
 
-The exported graph set is:
+The exported artifact set is:
 
-- a temporary full prompt-embedding graph;
-- a q4 Global LLM decoder core with shared past and present KV buffers;
+- a row-sharded FP16 prompt-embedding table;
+- a q4 Global LLM decoder core with GPU-resident past and present tensors;
 - an exact reduced LM head containing only the 16,384 semantic rows and end-token row used by inference;
 - a small audio-feedback embedding graph;
 - an FP16 RVQ depth graph; and
@@ -119,13 +119,15 @@ The exported graph set is:
 
 Reducing the LM head is exact because the official inference code masks every other output row before sampling. It does not change the probability distribution.
 
-The full prompt-embedding session is released after prefill. The smaller audio-feedback embedding remains available during frame generation.
+One FP16 embedding row is 8,192 bytes. The converter stores the 200,000-row prompt table as twelve 16,384-row files of exactly 128 MiB and one final partial file. The inference Worker uses synchronous OPFS random access to gather only the requested prompt rows and passes the resulting `inputs_embeds` tensor to the Global LLM. ONNX external data cannot concatenate multiple files for one initializer, so keeping the full embedding inside an ONNX graph would violate the shard rule and create unnecessary GPU allocation.
+
+The smaller audio-feedback embedding remains available during frame generation. KV outputs remain as WebGPU tensors and are fed directly into the next decoder call. This is a GPU-resident tensor chain, not an in-place aliased past and present buffer. The previous cache tensors are disposed after the dependent run completes.
 
 ### 6.3 Acoustic stage
 
 The condition encoder mixes the eight hidden-state groups and resamples them from 25 semantic frames per second to the Flow-VAE latent rate.
 
-Semantic frames are processed in 200-frame windows with a 100-frame hop. Each window runs 30 Euler flow-matching steps with guidance scale 1.7. Conditional and unconditional passes may be batched only if measurement confirms the combined activation peak remains below 12 GB. Sequential passes are the safe default.
+Semantic frames are processed in 200-frame windows with a 100-frame hop. Each window runs 30 Euler flow-matching steps with guidance scale 1.7. Conditional and unconditional passes may be batched only if measurement confirms the combined activation peak remains below 12 GB. Sequential passes are the safe default. For a latent window of length `L`, the next window carries the 172-latent slice `[L - 344:L - 172)`, not the final 172 latents.
 
 For a 30-second request without an early end token, the stage processes 750 semantic frames across seven overlapping chunks. Shorter output uses fewer chunks.
 
@@ -143,23 +145,23 @@ The initial quality-oriented conversion target is:
 
 | Component | Representation | Estimated artifact size |
 | --- | ---: | ---: |
-| Temporary full prompt embedding | FP16 | 1.64 GB |
+| Row-sharded prompt embedding table | FP16 | 1.64 GB |
 | Global decoder core and reduced head | q4 weights, FP16 norms and cache | 3.65 to 3.8 GB |
 | Audio-feedback embeddings | FP16 | 0.19 GB |
 | RVQ depth decoder | FP16 | 1.29 GB |
-| Flow transformer | q8 linear weights, FP16 supporting paths | 2.45 to 2.6 GB |
+| Flow transformer | q8 candidate or FP16 fallback | 2.45 to 4.86 GB |
 | Condition encoder | FP16 | 0.05 GB |
 | Vocoder | FP16 | 0.108 GB |
 | Tokenizer, graphs, and metadata | Mixed | 0.02 to 0.15 GB |
 
-The expected OPFS cache is approximately 9.4 to 9.8 GB. Selective additional q4 conversion is deferred until a complete song has been generated and the user has identified a real memory or quality need.
+Current ONNX Runtime WebGPU coverage confirms 4-bit `MatMulNBits`, but not an 8-bit WebGPU kernel. A small q8 operator smoke test must pass before q8 is used for the flow transformer. If it fails, phase 1 uses FP16 flow weights first and tests q4 only if the measured GPU peak exceeds 12 GB. The expected OPFS cache is therefore approximately 9.4 to 12.1 GB. Additional q4 conversion is deferred until measurement demonstrates a real memory need.
 
 ## 8. GPU-memory strategy
 
 All model stages will not be resident at once.
 
-1. Load the temporary prompt embedding and Global LLM resources.
-2. Release the temporary embedding after prefill.
+1. Gather the requested prompt rows from the OPFS embedding table.
+2. Load the Global LLM and run prefill from `inputs_embeds`.
 3. Generate semantic frames and frame hidden states.
 4. Release all autoregressive sessions and KV buffers.
 5. Load the condition encoder and flow transformer.
@@ -167,9 +169,9 @@ All model stages will not be resident at once.
 7. Release the flow stage.
 8. Load the vocoder, decode chunks, then release it.
 
-For 30 seconds, the retained FP16 frame-conditioning tensor is about 49 MB. A typical prompt plus 750-frame batch-two KV cache is estimated around 0.3 GB. Current estimates place the autoregressive peak between 6.5 and 9.5 GB and the flow-stage peak between 4 and 6 GB. These estimates include uncertainty from q4 prepacking and ONNX Runtime buffer pooling, so measured browser allocation decides acceptance.
+For 30 seconds, the retained FP16 frame-conditioning tensor is about 49 MB. A typical prompt plus 750-frame batch-two KV cache is estimated around 0.3 GB. Current estimates place the autoregressive peak between 5 and 9 GB and the flow-stage peak between 4 and 8 GB, depending on whether q8 or FP16 is selected. These estimates include uncertainty from q4 prepacking, non-aliased KV outputs, and ONNX Runtime buffer pooling, so measured browser allocation decides acceptance.
 
-The Worker will use GPU-resident past and present buffers and conservative ONNX Runtime Web buffer-cache settings. Dynamic decoder length means graph capture is not part of phase 1.
+The Worker will keep past and present tensors on the GPU, dispose superseded cache tensors promptly, and use conservative ONNX Runtime Web buffer-cache settings. Dynamic decoder length means graph capture and fixed-capacity in-place KV aliasing are not part of phase 1.
 
 ## 9. Artifact download and cache
 
@@ -184,7 +186,7 @@ The manifest records:
 - required WebGPU features and limits; and
 - the MiniMax model-license revision.
 
-External-data shards will be at most 128 MiB. The downloader streams directly into OPFS, tracks completed shards, verifies hashes, and retries only incomplete or invalid shards. It will not create an IndexedDB or service-worker copy.
+External-data and embedding-table shards will be at most 128 MiB. Each ONNX initializer must fit entirely inside one external-data shard. The downloader streams directly into OPFS, tracks completed shards, verifies hashes, and retries only incomplete or invalid shards. It will not create an IndexedDB or service-worker copy.
 
 On first use, the app requests persistent storage and confirms that enough quota is available. A manifest hash selects the cache version. The UI provides one explicit action to remove the project's cached model artifacts.
 
@@ -293,4 +295,6 @@ Phase 1 is complete when all of the following are true:
 - [ONNX Runtime Web large-model guidance](https://onnxruntime.ai/docs/tutorials/web/large-models.html)
 - [ONNX Runtime WebGPU operator support](https://github.com/microsoft/onnxruntime/blob/main/js/web/docs/webgpu-operators.md)
 - [ONNX Runtime WebGPU GPU-tensor guidance](https://onnxruntime.ai/docs/tutorials/web/ep-webgpu.html)
+- [ONNX Runtime JSPI external-data range loading](https://github.com/microsoft/onnxruntime/pull/29477)
+- [Chrome OPFS synchronous access handles](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access#accessing_files_optimized_for_performance_from_the_origin_private_file_system)
 - [WebGPU specification and default limits](https://www.w3.org/TR/webgpu/)
