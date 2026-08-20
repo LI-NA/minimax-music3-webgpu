@@ -100,6 +100,48 @@ def test_repack_external_data_keeps_published_package_when_staging_copy_fails(
     assert list(tmp_path.glob(".packed-staging-*")) == []
 
 
+def test_repack_external_data_keeps_old_package_on_shard_promotion_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    (tmp_path / "source.bin").write_bytes(b"abcdefghijkl")
+    model_path = tmp_path / "source.onnx"
+    onnx.save_model(
+        _model([_external_tensor("first", 0, 6), _external_tensor("second", 6, 6)]),
+        model_path,
+    )
+    output_dir = tmp_path / "packed"
+    output_dir.mkdir()
+    published = output_dir / "source.onnx"
+    onnx.save_model(
+        _model([_published_tensor("old_first", "weights-000.bin", 3), _published_tensor("old_second", "weights-001.bin", 3)]),
+        published,
+    )
+    old_graph = published.read_bytes()
+    old_shards = {
+        output_dir / "weights-000.bin": b"old",
+        output_dir / "weights-001.bin": b"old",
+    }
+    for path, contents in old_shards.items():
+        path.write_bytes(contents)
+
+    original_replace = Path.replace
+
+    def fail_after_first_promotion(path: Path, target: Path) -> Path:
+        result = original_replace(path, target)
+        if path.parent.name.startswith(".packed-staging-") and Path(target).parent == output_dir:
+            raise OSError("promotion failed")
+        return result
+
+    monkeypatch.setattr(Path, "replace", fail_after_first_promotion)
+
+    with pytest.raises(OSError, match="promotion failed"):
+        repack_external_data(model_path, output_dir, max_file_bytes=8)
+
+    assert published.read_bytes() == old_graph
+    assert {path: path.read_bytes() for path in old_shards} == old_shards
+    assert list(output_dir.glob("weights-*-*.bin")) == []
+
+
 def _external_tensor(name: str, offset: int, length: int) -> TensorProto:
     tensor = TensorProto(name=name, data_type=TensorProto.UINT8)
     tensor.dims.extend([length])
@@ -117,6 +159,20 @@ def _external_tensor(name: str, offset: int, length: int) -> TensorProto:
 def _model(initializers: list[TensorProto]) -> onnx.ModelProto:
     graph = helper.make_graph([], "test", [], [], initializer=initializers)
     return helper.make_model(graph)
+
+
+def _published_tensor(name: str, location: str, length: int) -> TensorProto:
+    tensor = TensorProto(name=name, data_type=TensorProto.UINT8)
+    tensor.dims.extend([length])
+    tensor.data_location = TensorProto.EXTERNAL
+    tensor.external_data.extend(
+        [
+            onnx.StringStringEntryProto(key="location", value=location),
+            onnx.StringStringEntryProto(key="offset", value="0"),
+            onnx.StringStringEntryProto(key="length", value=str(length)),
+        ]
+    )
+    return tensor
 
 
 def _external_fields(tensor: TensorProto) -> tuple[str, int, int]:

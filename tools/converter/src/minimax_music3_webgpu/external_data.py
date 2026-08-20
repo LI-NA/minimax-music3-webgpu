@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from uuid import uuid4
 
 import onnx
 from onnx import numpy_helper
@@ -41,15 +42,24 @@ def repack_external_data(
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix=f".{output_dir.name}-staging-", dir=output_dir.parent) as staging:
         staging_dir = Path(staging)
-        shards = _write_staged_shards(sources, staging_dir, max_file_bytes)
+        generation = f"weights-{uuid4().hex}"
+        shards = _write_staged_shards(sources, staging_dir, max_file_bytes, generation)
         staged_model = staging_dir / model_path.name
         onnx.save_model(model, staged_model)
         _validate_ranges(staged_model, max_file_bytes)
         output_dir.mkdir(parents=True, exist_ok=True)
         packed_path = output_dir / model_path.name
-        for shard in shards:
-            shard.path.replace(output_dir / shard.path.name)
-        staged_model.replace(packed_path)
+        promoted = []
+        try:
+            for shard in shards:
+                target = output_dir / shard.path.name
+                promoted.append(target)
+                _promote_shard(shard.path, target)
+            staged_model.replace(packed_path)
+        except Exception:
+            for path in promoted:
+                path.unlink(missing_ok=True)
+            raise
         return RepackedModel(
             model_path=packed_path,
             shards=tuple(
@@ -87,7 +97,7 @@ def _source_path(model_dir: Path, location: str) -> Path:
 
 
 def _write_staged_shards(
-    sources: list[_TensorSource], staging_dir: Path, max_file_bytes: int
+    sources: list[_TensorSource], staging_dir: Path, max_file_bytes: int, generation: str
 ) -> list[ExternalDataShard]:
     shards: list[ExternalDataShard] = []
     current_file = None
@@ -95,7 +105,7 @@ def _write_staged_shards(
     try:
         for source in sources:
             if current_file is None or current_size + source.length > max_file_bytes:
-                path = staging_dir / f"weights-{len(shards):03d}.bin"
+                path = staging_dir / f"{generation}-{len(shards):03d}.bin"
                 current_file = path.open("wb")
                 shards.append(ExternalDataShard(path, 0))
                 current_size = 0
@@ -106,6 +116,10 @@ def _write_staged_shards(
         if current_file is not None:
             current_file.close()
     return [ExternalDataShard(shard.path, shard.path.stat().st_size) for shard in shards]
+
+
+def _promote_shard(staged_path: Path, target: Path) -> None:
+    staged_path.replace(target)
 
 
 def _copy_source(source: _TensorSource, destination) -> None:
