@@ -14,6 +14,12 @@ test('generates and decodes the fixed five-second WAV and reuses the combined re
     await page.goto('http://127.0.0.1:5173/');
     const generate = page.getByRole('button', { name: 'Generate five-second music' });
     await generate.click();
+    const progress = page.getByTestId('music-progress');
+    await expect(page.locator('output')).toContainText(/Autoregressive frames \d+\/125/, {
+      timeout: 4 * 60 * 60_000,
+    });
+    await expect(progress).toHaveAttribute('max', '125');
+    await expect(progress).toHaveAttribute('value', /\d+/);
     await page.waitForFunction(
       () =>
         document.querySelector('[data-testid="music-generation-result"]')
