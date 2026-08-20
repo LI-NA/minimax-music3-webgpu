@@ -4,7 +4,7 @@
 
 **Goal:** Generate one approximately five-second vocal and accompaniment WAV in desktop Chrome with the exact MiniMax-Music3 checkpoint, entirely through WebGPU after automatic local artifact download.
 
-**Architecture:** Extend the passing q4 Global LLM pipeline with one FP16 RVQ depth session, an OPFS residual embedding table, a small feedback graph, a fixed-shape condition graph, a fixed-length q4 flow graph, and a mixed-precision FP16 vocoder. TypeScript owns sampling and the 30-step loop. One inference Worker loads and releases stage groups so total device usage stays below 12 GB. The first slice uses the committed prompt fixture and one deterministic seed, then returns a PCM16 stereo WAV for manual listening.
+**Architecture:** Extend the passing q4 Global LLM pipeline with one FP16 RVQ depth session, an OPFS residual embedding table, a small feedback graph, a fixed-shape condition graph, a fixed-length q4 flow graph, and a mixed-precision FP16 vocoder. TypeScript owns sampling and the 30-step loop. One inference Worker loads and releases stage groups so total device usage stays below 12 GB. The first slice uses the committed prompt fixture and one deterministic seed, then returns a structurally valid PCM16 stereo WAV. Manual listening follows the runtime optimization plan.
 
 **Tech stack:** Python 3.11+, uv, pinned Diffusers source, PyTorch, Safetensors, ONNX, ONNX Runtime desktop, React, TypeScript, Vite, Vitest, Playwright, ONNX Runtime Web JSPI, WebGPU, OPFS
 
@@ -360,6 +360,6 @@ docs: record acoustic WebGPU gate
 - [ ] Run existing external-data, q4, Global, RVQ, condition, flow, and vocoder browser gates in branded Chrome with one worker.
 - [ ] Run the final music-generation browser gate from a persistent profile.
 - [ ] Check the final Git diff and working tree.
-- [ ] Provide the generated WAV to the user and ask them to play it once and report whether the vocals and accompaniment sound correct.
+- [ ] Verify that the browser produces a non-empty, structurally valid WAV that can be decoded by the browser. Defer the user listening check until the follow-up runtime optimization goal is complete.
 
-Do not inspect the waveform for musical quality, run audio classifiers, compare it with a reference song, or add further UI before the user listening check.
+Do not inspect the waveform for musical quality, run audio classifiers, or compare it with a reference song. After this plan produces a valid WAV, continue with [WebGPU runtime optimization and progress UX](2026-08-21-webgpu-runtime-optimization-and-progress-ux.md). Perform the single user listening check only after that follow-up plan is complete.
