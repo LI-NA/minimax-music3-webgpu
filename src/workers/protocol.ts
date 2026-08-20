@@ -12,12 +12,26 @@ export type WorkerRequest =
       seed: number;
     }
   | { type: 'generate-music-5s'; manifestUrl: string; seed: number };
+export type MusicStage = 'autoregressive' | 'condition' | 'flow' | 'vocoder' | 'wav';
 export type WorkerProgress = {
   type: 'progress';
-  stage: 'manifest' | 'artifact' | 'adapter' | 'session' | 'autoregressive' | 'condition' | 'flow' | 'vocoder' | 'wav' | 'complete';
+  stage: 'manifest' | 'artifact' | 'adapter' | 'session' | MusicStage | 'complete';
   detail: string;
   loaded?: number;
   total?: number;
+  name?: MusicStage;
+  activity?: 'indeterminate';
+  currentFile?: string;
+  completedBytes?: number;
+  totalBytes?: number;
+  cacheHit?: boolean;
+  completed?: number;
+  elapsedMs?: number;
+  rate?: number;
+  stepMs?: number;
+  etaMs?: number;
+  wavBytes?: number;
+  totalElapsedMs?: number;
 };
 export type GlobalSmokeResult = {
   adapter: string;

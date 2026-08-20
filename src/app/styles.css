@@ -90,6 +90,13 @@ button:disabled {
     monospace;
   white-space: pre-wrap;
 }
+progress {
+  display: block;
+  width: 100%;
+  height: 0.75rem;
+  margin-top: 0.75rem;
+  accent-color: #8fe0b1;
+}
 .result {
   border-left: 3px solid #8fe0b1;
   padding-left: 1rem;

@@ -30,6 +30,7 @@ import {
   generateFiveSecondMusic,
   readExactGpuFp16,
 } from '../runtime/pipeline/music-generation';
+import { createMusicProgressTracker } from './music-progress';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 
 const send = (message: WorkerResponse, transfer?: Transferable[]) => self.postMessage(message, transfer ?? []);
@@ -292,18 +293,49 @@ async function cacheArtifacts(
   cache: OpfsArtifactStore,
 ) {
   let fetches = 0;
-  for (const artifact of artifacts)
+  let completedBytes = 0;
+  let reportedBytes = 0;
+  const totalBytes = artifacts.reduce((total, artifact) => total + artifact.bytes, 0);
+  for (const artifact of artifacts) {
+    let fetched = false;
     await ensureArtifact(
       artifact,
       new URL(artifact.path, base),
       cache,
-      ({ path, loaded, total }) =>
-        send({ type: 'progress', stage: 'artifact', detail: path, loaded, total }),
+      ({ path, loaded, total }) => {
+        reportedBytes = Math.max(reportedBytes, completedBytes + loaded);
+        send({
+          type: 'progress',
+          stage: 'artifact',
+          detail: path,
+          loaded,
+          total,
+          currentFile: path,
+          completedBytes: reportedBytes,
+          totalBytes,
+          cacheHit: false,
+        });
+      },
       async (input, init) => {
+        fetched = true;
         fetches++;
         return fetch(input, init);
       },
     );
+    completedBytes += artifact.bytes;
+    reportedBytes = Math.max(reportedBytes, completedBytes);
+    send({
+      type: 'progress',
+      stage: 'artifact',
+      detail: artifact.path,
+      loaded: artifact.bytes,
+      total: artifact.bytes,
+      currentFile: artifact.path,
+      completedBytes: reportedBytes,
+      totalBytes,
+      cacheHit: !fetched,
+    });
+  }
   return fetches;
 }
 
@@ -417,6 +449,7 @@ async function runFrameGeneration(request: Extract<WorkerRequest, { type: 'gener
 }
 
 async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'generate-music-5s' }>) {
+  const progressTracker = createMusicProgressTracker(send);
   send({ type: 'progress', stage: 'manifest', detail: 'Reading five-second music release manifest' });
   const release = await readManifest(request.manifestUrl, 'Music release manifest is unavailable');
   const manifestHash = await hashText(release.text);
@@ -451,6 +484,7 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
   const stageMs = { autoregressive: 0, condition: 0, flow: 0, vocoder: 0 };
   const inferenceMs = { autoregressive: 0, condition: 0, flow: 0, vocoder: 0 };
   const flowStepMs: number[] = [];
+  let reportedFrames = 0;
   const adapterName = (adapter: GPUAdapter) =>
     adapter.info.description || adapter.info.vendor || 'WebGPU adapter';
 
@@ -458,7 +492,7 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
     {
       async autoregressive(seed) {
         const stageStarted = performance.now();
-        send({ type: 'progress', stage: 'autoregressive', detail: `Creating autoregressive sessions for seed ${seed}` });
+        progressTracker.session('autoregressive');
         const { adapter, device } = await createWebGpuDevice(navigator.gpu, manifest.webgpu.requiredLimits);
         adapters.push(adapterName(adapter));
         let decoder: Awaited<ReturnType<typeof createOrtSession>> | undefined;
@@ -472,6 +506,7 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
           rvqDepth = await createOrtSession(manifest.rvqDepth, release.cache, device);
           feedback = await createOrtSession(manifest.feedback, release.cache, device);
           sessionCreateMs.autoregressive += performance.now() - sessionStarted;
+          progressTracker.beginAutoregressive();
           const generationStarted = performance.now();
           const frames = await createFrameGenerator({
             ort,
@@ -490,6 +525,12 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
             embeddingColumns: manifest.embedding.columns,
             kvPairs: manifest.kvPairs,
             readConditionalHidden: (tensor) => readConditionalGpuFp16(device, tensor),
+            onFrameRetained: (count) => {
+              if (count > reportedFrames) {
+                reportedFrames = count;
+                progressTracker.autoregressive(count);
+              }
+            },
           }).generateFrames({ maxFrames: 125, seed, guidance: 1.5, topK: 50 });
           inferenceMs.autoregressive += performance.now() - generationStarted;
           return frames;
@@ -504,7 +545,7 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
       },
       async condition(frameBits) {
         const stageStarted = performance.now();
-        send({ type: 'progress', stage: 'condition', detail: 'Creating condition encoder session' });
+        progressTracker.session('condition');
         const { adapter, device } = await createWebGpuDevice(navigator.gpu, manifest.webgpu.requiredLimits);
         adapters.push(adapterName(adapter));
         let session: Awaited<ReturnType<typeof createOrtSession>> | undefined;
@@ -514,6 +555,7 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
           const sessionStarted = performance.now();
           session = await createOrtSession(manifest.conditionEncoder, release.cache, device);
           sessionCreateMs.condition = performance.now() - sessionStarted;
+          progressTracker.condition();
           const inferenceStarted = performance.now();
           const outputs = await session.run({ frame_hiddens: input });
           inferenceMs.condition = performance.now() - inferenceStarted;
@@ -530,7 +572,7 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
       },
       async flow(conditionBits, seed, onStep) {
         const stageStarted = performance.now();
-        send({ type: 'progress', stage: 'flow', detail: 'Creating flow transformer session' });
+        progressTracker.session('flow');
         const { adapter, device } = await createWebGpuDevice(navigator.gpu, manifest.webgpu.requiredLimits);
         adapters.push(adapterName(adapter));
         let session: Awaited<ReturnType<typeof createOrtSession>> | undefined;
@@ -546,6 +588,7 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
             [1, 128, 430],
           );
           let previous = performance.now();
+          progressTracker.beginFlow();
           const inferenceStarted = performance.now();
           final = await runFixedFlowGeneration({ ort, session }, initial, condition, (completed) => {
             const now = performance.now();
@@ -565,7 +608,7 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
       },
       async vocoder(latentBits) {
         const stageStarted = performance.now();
-        send({ type: 'progress', stage: 'vocoder', detail: 'Creating vocoder session' });
+        progressTracker.session('vocoder');
         const { adapter, device } = await createWebGpuDevice(navigator.gpu, manifest.webgpu.requiredLimits);
         adapters.push(adapterName(adapter));
         let session: Awaited<ReturnType<typeof createOrtSession>> | undefined;
@@ -573,6 +616,7 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
           const sessionStarted = performance.now();
           session = await createOrtSession(manifest.vocoder, release.cache, device);
           sessionCreateMs.vocoder = performance.now() - sessionStarted;
+          progressTracker.vocoder();
           const inferenceStarted = performance.now();
           const wav = await generateFixedVocoderWav({ ort, session }, latentBits);
           inferenceMs.vocoder = performance.now() - inferenceStarted;
@@ -587,11 +631,9 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
     },
     request.seed,
     (progress) => {
-      if (progress.stage === 'autoregressive')
-        send({ type: 'progress', stage: 'autoregressive', detail: `Retained ${progress.retainedFrames} frames` });
-      else if (progress.stage === 'flow')
-        send({ type: 'progress', stage: 'flow', detail: `Completed flow step ${progress.completedSteps}/30` });
-      else send({ type: 'progress', stage: progress.stage, detail: progress.stage === 'complete' ? 'Five-second music generation complete' : `Starting ${progress.stage} stage` });
+      if (progress.stage === 'flow') progressTracker.flow(progress.completedSteps);
+      else if (progress.stage === 'wav') progressTracker.wav();
+      else if (progress.stage === 'complete') progressTracker.complete(880_684);
     },
   );
   const result = {

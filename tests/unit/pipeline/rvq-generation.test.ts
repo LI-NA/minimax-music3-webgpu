@@ -22,7 +22,7 @@ class FakeTensor {
   dispose() { this.disposed = true; }
 }
 
-function runtime(decisions: number) {
+function runtime(decisions: number, onFrameRetained?: (count: number) => void) {
   let decoderCalls = 0;
   let headCalls = 0;
   let depthCalls = 0;
@@ -83,6 +83,7 @@ function runtime(decisions: number) {
     readConditionalHidden: async (tensor) =>
       new Uint16Array(4096).fill(0x3c00 + (tensor as unknown as FakeTensor).conditional!),
     onCacheLength: (length) => cacheLengths.push(length),
+    onFrameRetained,
   });
   return {
     generator,
@@ -125,6 +126,15 @@ describe('RVQ frame generation', () => {
     expect(frames).toHaveLength(125);
     expect(fixture.counts()).toEqual({ decoderCalls: 126, headCalls: 126, depthCalls: 882, feedbackCalls: 125 });
     expect(frames.reduce((bytes, frame) => bytes + frame.hiddenGroups.byteLength, 0)).toBe(8_192_000);
+  });
+
+  it('reports each retained frame after its hidden groups are ready', async () => {
+    const retained: number[] = [];
+    const fixture = runtime(2, (count) => retained.push(count));
+
+    await fixture.generator.generateFrames({ maxFrames: 2, seed: 11, guidance: 1.5, topK: 50 });
+
+    expect(retained).toEqual([1, 2]);
   });
 
   it('uses residual embedding offsets and repeats sampled codes across both CFG lanes', async () => {

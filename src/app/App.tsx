@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { inspectWebGpu, type WebGpuCapability } from '../runtime/model/webgpu-device';
+import {
+  cancelWorker,
+  progressView,
+  type ProgressView,
+} from '../workers/music-progress';
 import type {
   ConditionSmokeResult,
   FlowSmokeResult,
@@ -23,9 +28,11 @@ export function App() {
   const [flowResult, setFlowResult] = useState<FlowSmokeResult | null>(null);
   const [vocoderResult, setVocoderResult] = useState<VocoderSmokeResult | null>(null);
   const [musicResult, setMusicResult] = useState<MusicGenerationWorkerResult | null>(null);
+  const [musicProgress, setMusicProgress] = useState<ProgressView | null>(null);
   const [musicUrl, setMusicUrl] = useState<string | null>(null);
   const musicUrlRef = useRef<string | null>(null);
   const worker = useRef<Worker | null>(null);
+  const musicRunning = useRef(false);
 
   useEffect(() => {
     void inspectWebGpu(navigator.gpu).then(setCapability);
@@ -35,9 +42,21 @@ export function App() {
   }, []);
 
   const cancel = () => {
-    worker.current?.terminate();
+    const wasMusicRunning = musicRunning.current;
+    musicRunning.current = false;
+    if (wasMusicRunning) {
+      const cancelled = cancelWorker(worker.current, musicProgress ?? {
+        status: 'running',
+        text: 'Music generation running',
+        indeterminate: true,
+      });
+      setMusicProgress(cancelled);
+      setProgress(cancelled.text);
+    } else {
+      worker.current?.terminate();
+      setProgress('Diagnostic cancelled');
+    }
     worker.current = null;
-    setProgress('Diagnostic cancelled');
   };
   const run = () => {
     cancel();
@@ -161,17 +180,35 @@ export function App() {
     musicUrlRef.current = null;
     setMusicUrl(null);
     setProgress('Starting five-second music generation');
+    setMusicProgress({
+      status: 'running',
+      text: 'Starting five-second music generation',
+      indeterminate: true,
+    });
     const next = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), { type: 'module' });
     worker.current = next;
+    musicRunning.current = true;
     next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
-      if (data.type === 'progress') setProgress(`${data.stage}: ${data.detail}`);
+      if (data.type === 'progress') {
+        const view = progressView(data);
+        setMusicProgress(view);
+        setProgress(view.text);
+      }
       else if (data.type === 'music-result') {
         const url = URL.createObjectURL(new Blob([data.result.wav], { type: 'audio/wav' }));
         musicUrlRef.current = url;
         setMusicUrl(url);
         setMusicResult(data.result);
         setProgress('Five-second music generation complete');
-      } else if (data.type === 'error') setProgress(`Error: ${data.message}`);
+        musicRunning.current = false;
+        next.terminate();
+        worker.current = null;
+      } else if (data.type === 'error') {
+        setProgress(`Error: ${data.message}`);
+        musicRunning.current = false;
+        next.terminate();
+        worker.current = null;
+      }
     };
     next.postMessage({
       type: 'generate-music-5s',
@@ -224,6 +261,17 @@ export function App() {
         <output aria-live="polite" className="progress">
           {progress}
         </output>
+        {musicProgress?.indeterminate && musicProgress.status === 'running' && (
+          <progress data-testid="music-progress" aria-label="Music generation progress" />
+        )}
+        {musicProgress?.value !== undefined && musicProgress.max !== undefined && (
+          <progress
+            data-testid="music-progress"
+            aria-label="Music generation progress"
+            value={musicProgress.value}
+            max={musicProgress.max}
+          />
+        )}
         {result && (
           <pre data-testid="global-smoke-result" className="result">
             {`steps: ${result.stepMs.length - 1}\nfinite logits: ${result.finiteLogits ? 'yes' : 'no'}\nKV location: ${result.tensorLocations.every((location) => location === 'gpu-buffer') ? 'gpu-buffer' : 'non-GPU'}\n${JSON.stringify(result, null, 2)}`}

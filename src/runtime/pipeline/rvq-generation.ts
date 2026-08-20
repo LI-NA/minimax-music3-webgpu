@@ -38,6 +38,7 @@ export interface FrameGenerationRuntime {
   kvPairs: readonly KvPairSpec[];
   readConditionalHidden: HiddenReader;
   onCacheLength?: (length: number) => void;
+  onFrameRetained?: (count: number) => void;
 }
 
 export class EarlyAudioEndError extends Error {
@@ -226,6 +227,7 @@ export function createFrameGenerator(runtime: FrameGenerationRuntime) {
               residual: residual as unknown as GeneratedFrame['residual'],
               hiddenGroups: groups,
             });
+          if (groups) runtime.onFrameRetained?.(frames.length);
           if (frames.length === options.maxFrames) break;
 
           const feedbackSemantic = new runtime.ort.Tensor('float16', semanticRows, [batchSize, 1, hiddenSize]);
