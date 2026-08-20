@@ -104,6 +104,8 @@
 - Create: `playwright.config.ts`
 - Create: `pyproject.toml`
 - Create: `uv.lock`
+- Create: `tools/converter/src/minimax_music3_webgpu/__init__.py`
+- Create: `tools/converter/src/minimax_music3_webgpu/cli.py`
 - Create: `src/main.tsx`
 - Create: `src/app/App.tsx`
 - Create: `src/app/styles.css`
@@ -117,7 +119,21 @@
 - Produces: npm commands `dev`, `build`, `lint`, `typecheck`, `test`, and `test:browser`.
 - Produces: the `music3-convert` Python entry point used by every later converter task.
 
-- [ ] **Step 1: Write the WebGPU capability test**
+- [ ] **Step 1: Create the pinned project configuration and ignore rules**
+
+Use React `19.2.8`, Vite `8.2.2`, Vitest `4.1.11`, Playwright `1.62.1`, `@webgpu/types`, `@noble/hashes` `2.3.0`, ESLint, TypeScript, and `onnxruntime-web` `1.30.0-dev.20260813-72e1c9c9b8`. Add `node_modules/`, `.venv/`, `dist/`, `coverage/`, `playwright-report/`, and `test-results/` to `.gitignore`. Add the reproducible large dependency directories `node_modules/` and `.venv/` to `.kopiaignore` before installing dependencies.
+
+Set Python to `>=3.11,<3.14` and add `huggingface-hub==1.28.0`, `safetensors==0.8.0`, `torch==2.13.0`, `transformers==5.15.1`, `onnx==1.22.0`, `onnxscript==0.7.1`, `onnxruntime==1.27.0`, `onnxruntime-genai==0.15.2`, `numpy`, and `pytest`. Register `music3-convert = "minimax_music3_webgpu.cli:main"`, configure the package root as `tools/converter/src`, and create an `argparse` entry point whose `--help` exits successfully.
+
+- [ ] **Step 2: Install and lock dependencies**
+
+Run: `npm install`
+
+Run: `uv sync`
+
+Expected: `package-lock.json` and `uv.lock` are created without dependency-resolution errors.
+
+- [ ] **Step 3: Write the WebGPU capability test**
 
 ```ts
 import { describe, expect, it, vi } from 'vitest';
@@ -140,17 +156,15 @@ describe('inspectWebGpu', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and verify the missing module failure**
+- [ ] **Step 4: Run the test and verify the missing module failure**
 
 Run: `npm test -- tests/unit/model/webgpu-device.test.ts`
 
 Expected: FAIL because `src/runtime/model/webgpu-device.ts` does not exist.
 
-- [ ] **Step 3: Create the pinned Node project and minimal React application**
+- [ ] **Step 5: Implement the minimal React application and WebGPU capability contract**
 
-Use React `19.2.8`, Vite `8.2.2`, Vitest `4.1.11`, Playwright `1.62.1`, `@webgpu/types`, `@noble/hashes` `2.3.0`, ESLint, TypeScript, and `onnxruntime-web` `1.30.0-dev.20260813-72e1c9c9b8`. The diagnostic page displays capability status and no generation controls. Add `node_modules/`, `.venv/`, `dist/`, `coverage/`, `playwright-report/`, and `test-results/` to `.gitignore`. Add the reproducible large dependency directories `node_modules/` and `.venv/` to `.kopiaignore` before installing dependencies.
-
-Implement the capability contract as:
+The diagnostic page displays capability status and no generation controls. Implement the capability contract as:
 
 ```ts
 export type WebGpuCapability =
@@ -167,19 +181,7 @@ export async function inspectWebGpu(gpu: GPU | undefined): Promise<WebGpuCapabil
 }
 ```
 
-- [ ] **Step 4: Create the pinned uv converter environment**
-
-Set Python to `>=3.11,<3.14` and add `huggingface-hub==1.28.0`, `safetensors==0.8.0`, `torch==2.13.0`, `transformers==5.15.1`, `onnx==1.22.0`, `onnxscript==0.7.1`, `onnxruntime==1.27.0`, `onnxruntime-genai==0.15.2`, `numpy`, and `pytest`. Register `music3-convert = "minimax_music3_webgpu.cli:main"` and configure the package root as `tools/converter/src`.
-
-- [ ] **Step 5: Install and lock dependencies**
-
-Run: `npm install`
-
-Run: `uv sync`
-
-Expected: `package-lock.json` and `uv.lock` are created without dependency-resolution errors.
-
-- [ ] **Step 6: Implement the smallest capability screen and run checks**
+- [ ] **Step 6: Run the foundation checks**
 
 Run: `npm test -- tests/unit/model/webgpu-device.test.ts`
 
@@ -189,21 +191,24 @@ Run: `npm run typecheck && npm run lint && npm run build`
 
 Expected: all commands exit 0 and Vite writes `dist/`.
 
+Run: `uv run music3-convert --help`
+
+Expected: exit 0 and display command help.
+
 - [ ] **Step 7: Commit the foundation**
 
 ```powershell
-git add package.json package-lock.json index.html tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.ts playwright.config.ts pyproject.toml uv.lock src tests/unit/model/webgpu-device.test.ts .gitignore .kopiaignore
+git add package.json package-lock.json index.html tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.ts playwright.config.ts pyproject.toml uv.lock tools/converter/src src tests/unit/model/webgpu-device.test.ts .gitignore .kopiaignore
 git commit -m "feat: scaffold WebGPU feasibility app"
 ```
 
 ### Task 2: Add the pinned selective source downloader
 
 **Files:**
-- Create: `tools/converter/src/minimax_music3_webgpu/__init__.py`
 - Create: `tools/converter/src/minimax_music3_webgpu/constants.py`
 - Create: `tools/converter/src/minimax_music3_webgpu/paths.py`
 - Create: `tools/converter/src/minimax_music3_webgpu/source.py`
-- Create: `tools/converter/src/minimax_music3_webgpu/cli.py`
+- Modify: `tools/converter/src/minimax_music3_webgpu/cli.py`
 - Create: `tests/python/test_paths.py`
 - Create: `tests/python/test_source.py`
 
@@ -285,6 +290,7 @@ git commit -m "feat(converter): add selective model downloader"
 - Create: `tests/python/test_reduced_head.py`
 
 **Interfaces:**
+- Produces: `shard_fp16_rows(rows: np.ndarray, output_dir: Path, max_file_bytes: int) -> EmbeddingTableReceipt`.
 - Produces: `export_embedding_table(source_shard: Path, output_dir: Path) -> EmbeddingTableReceipt`.
 - Produces: `repack_external_data(model_path: Path, output_dir: Path, max_file_bytes: int) -> RepackedModel`.
 - Produces: `export_reduced_head(source_shard: Path, output_dir: Path) -> RepackedModel`.
