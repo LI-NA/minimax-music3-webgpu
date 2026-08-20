@@ -7,6 +7,7 @@ name = "minimax-music3-webgpu-converter"
 version = "0.0.0"
 requires-python = ">=3.11,<3.14"
 dependencies = [
+  "diffusers @ git+https://github.com/huggingface/diffusers.git@3681e65996b4d2589219720101a6acbfd25073f8",
   "huggingface-hub==1.27.0",
   "numpy",
   "onnx==1.22.0",
@@ -24,6 +25,9 @@ music3-convert = "minimax_music3_webgpu.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tools/converter/src/minimax_music3_webgpu"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.pytest.ini_options]
 markers = ["converter_smoke: local ONNX Runtime conversion smoke"]

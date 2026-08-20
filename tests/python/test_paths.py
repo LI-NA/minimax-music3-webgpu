@@ -24,6 +24,15 @@ def test_artifact_paths_stay_below_artifacts_root(tmp_path: Path) -> None:
         assert path.is_relative_to(paths.root)
 
 
+def test_artifact_paths_reject_source_path_outside_source_root(tmp_path: Path) -> None:
+    repository_root = tmp_path / "repository"
+    repository_root.mkdir()
+    paths = ArtifactPaths.from_root(repository_root / "artifacts", repository_root)
+
+    with pytest.raises(ValueError, match="source root"):
+        paths.source_path("../receipts/source-acoustic.json")
+
+
 @pytest.mark.parametrize(
     "target_name", ("source", "work", "release", "receipts", "hf-cache")
 )

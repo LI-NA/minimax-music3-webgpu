@@ -14,9 +14,9 @@ class ArtifactPaths:
 
     @classmethod
     def from_root(
-        cls, root: Path, repository_root: Path = Path.cwd()
+        cls, root: Path, repository_root: Path | None = None
     ) -> "ArtifactPaths":
-        repository = repository_root.resolve()
+        repository = (repository_root or Path.cwd()).resolve()
         artifact_root = root.resolve()
         if not artifact_root.is_relative_to(repository):
             raise ValueError("artifact root must remain inside the repository")
@@ -41,3 +41,10 @@ class ArtifactPaths:
         for target in targets:
             if not target.resolve().is_relative_to(root):
                 raise ValueError("artifact write target must remain under artifact root")
+
+    def source_path(self, relative_path: str | Path) -> Path:
+        target = (self.source / relative_path).resolve()
+        if not target.is_relative_to(self.source.resolve()):
+            raise ValueError("source path must remain under source root")
+        self.validate_write_targets(target)
+        return target
