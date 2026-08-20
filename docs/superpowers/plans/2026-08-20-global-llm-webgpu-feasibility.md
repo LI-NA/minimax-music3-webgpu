@@ -375,7 +375,7 @@ def test_builder_arguments_target_webgpu_q4(tmp_path) -> None:
     assert "-e webgpu" in joined
     assert "exclude_embeds=true" in args
     assert "exclude_lm_head=true" in args
-    assert "include_hidden_states=true" in args
+    assert "include_hidden_states=true" not in args
     assert "block_size=128" in args
     assert "accuracy_level=4" in args
     assert "is_symmetric=true" in args
@@ -403,7 +403,6 @@ python -m onnxruntime_genai.models.builder
   --extra_options
   exclude_embeds=true
   exclude_lm_head=true
-  include_hidden_states=true
   filename=global_decoder.onnx
   block_size=128
   accuracy_level=4
@@ -411,6 +410,8 @@ python -m onnxruntime_genai.models.builder
   op_types_to_quantize=MatMul
   fuse_qk_norm_gqa=true
 ```
+
+In ORT GenAI 0.15.2, `exclude_lm_head=true` already exposes hidden states instead of logits and is mutually exclusive with `include_hidden_states=true`.
 
 Capture stdout, stderr, package versions, arguments, elapsed time, and exit code in the conversion receipt. When `num_hidden_layers` is 1, add `num_hidden_layers=1` to the extra options and publish a separate `global-one-layer` diagnostic manifest. Repack external data through Task 3 and run every graph invariant before publishing a release manifest.
 
