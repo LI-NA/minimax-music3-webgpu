@@ -47,7 +47,7 @@ def emit_manifest(
         "kvPairs": [{"pastInput": past, "presentOutput": present} for past, present in kv_pairs],
     }
     if reduced_head is not None:
-        payload["reducedHead"] = _onnx_graph(reduced_head, root, ["semantic_logits", "end_logit"])
+        payload["reducedHead"] = _onnx_graph(reduced_head, root, ["last_state"])
     _atomic_json(path, payload)
     return path
 

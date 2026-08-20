@@ -23,7 +23,7 @@ const manifest = {
     bytes: 16,
     sha256: sha,
     externalData: [],
-    gpuOutputs: ['semantic_logits'],
+    gpuOutputs: ['last_state'],
   },
   embedding: {
     rows: 4,
@@ -50,8 +50,17 @@ describe('parseModelManifest', () => {
   it('parses both graph artifacts and their GPU output contracts', () => {
     const parsed = parseModelManifest(manifest);
     expect(parsed.graph.path).toBe('graphs/global.onnx');
-    expect(parsed.reducedHead.gpuOutputs).toEqual(['semantic_logits']);
+    expect(parsed.reducedHead.gpuOutputs).toEqual(['last_state']);
     expect(parsed.webgpu.requiredLimits).toEqual({ maxStorageBufferBindingSize: 128 });
+  });
+
+  it('requires the gathered two-lane last state to remain GPU-resident', () => {
+    expect(() =>
+      parseModelManifest({
+        ...manifest,
+        reducedHead: { ...manifest.reducedHead, gpuOutputs: ['semantic_logits'] },
+      }),
+    ).toThrow('last_state');
   });
 
   it('requires the schema WebGPU feature contract', () => {

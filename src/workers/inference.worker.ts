@@ -5,6 +5,11 @@ import { parseModelManifest, parseRvqStageManifest } from '../runtime/model/mani
 import { createWebGpuDevice } from '../runtime/model/webgpu-device';
 import { runGlobalSmoke } from '../runtime/pipeline/global-smoke';
 import { runRvqSmoke } from '../runtime/pipeline/rvq-smoke';
+import {
+  createFrameGenerator,
+  EarlyAudioEndError,
+  readConditionalGpuFp16,
+} from '../runtime/pipeline/rvq-generation';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 
 const send = (message: WorkerResponse) => self.postMessage(message);
@@ -21,6 +26,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   );
 };
 async function run(request: WorkerRequest) {
+  if (request.type === 'generate-frames') return runFrameGeneration(request);
   if (request.type === 'run-rvq-smoke') return runRvq(request.manifestUrl);
   if (request.type !== 'run-global-smoke') return;
   send({
@@ -107,6 +113,152 @@ async function run(request: WorkerRequest) {
   } finally {
     await head?.release();
     await graph?.release();
+    device.destroy();
+  }
+}
+
+async function readManifest(url: string, unavailable: string) {
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch {
+    throw new Error(unavailable);
+  }
+  if (!response.ok) throw new Error(unavailable);
+  const text = await response.text();
+  return {
+    text,
+    base: new URL(url, self.location.href),
+    cache: await OpfsArtifactStore.open(await hashText(text)),
+  };
+}
+
+async function cacheArtifacts(
+  artifacts: readonly { path: string; bytes: number; sha256: string }[],
+  base: URL,
+  cache: OpfsArtifactStore,
+) {
+  let fetches = 0;
+  for (const artifact of artifacts)
+    await ensureArtifact(
+      artifact,
+      new URL(artifact.path, base),
+      cache,
+      ({ path, loaded, total }) =>
+        send({ type: 'progress', stage: 'artifact', detail: path, loaded, total }),
+      async (input, init) => {
+        fetches++;
+        return fetch(input, init);
+      },
+    );
+  return fetches;
+}
+
+async function runFrameGeneration(request: Extract<WorkerRequest, { type: 'generate-frames' }>) {
+  send({ type: 'progress', stage: 'manifest', detail: 'Reading Global and RVQ release manifests' });
+  const globalRelease = await readManifest(request.globalManifestUrl, 'Global release manifest is unavailable');
+  const rvqRelease = await readManifest(request.rvqManifestUrl, 'RVQ release manifest is unavailable');
+  const globalManifest = parseModelManifest(JSON.parse(globalRelease.text));
+  const rvqManifest = parseRvqStageManifest(JSON.parse(rvqRelease.text));
+  const globalArtifacts = [
+    globalManifest.graph,
+    ...globalManifest.graph.externalData,
+    globalManifest.reducedHead,
+    ...globalManifest.reducedHead.externalData,
+    ...globalManifest.embedding.shards,
+  ];
+  const rvqArtifacts = [
+    rvqManifest.rvqDepth,
+    ...rvqManifest.rvqDepth.externalData,
+    rvqManifest.feedback,
+    ...rvqManifest.feedback.externalData,
+    ...rvqManifest.rvqEmbedding.shards,
+  ];
+  const artifactFetches =
+    (await cacheArtifacts(globalArtifacts, globalRelease.base, globalRelease.cache)) +
+    (await cacheArtifacts(rvqArtifacts, rvqRelease.base, rvqRelease.cache));
+  send({ type: 'progress', stage: 'adapter', detail: 'Requesting shared shader-f16 WebGPU device' });
+  const requiredLimits = { ...globalManifest.webgpu.requiredLimits };
+  for (const [name, value] of Object.entries(rvqManifest.webgpu.requiredLimits))
+    requiredLimits[name] = Math.max(requiredLimits[name] ?? 0, value);
+  const { adapter, device } = await createWebGpuDevice(navigator.gpu, requiredLimits);
+  const { createOrtSession } = await import('../runtime/model/ort-session');
+  const ort = await import('onnxruntime-web/jspi');
+  let decoder: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+  let head: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+  let rvqDepth: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+  let feedback: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+  try {
+    send({ type: 'progress', stage: 'session', detail: 'Creating shared-device autoregressive sessions' });
+    decoder = await createOrtSession(globalManifest.graph, globalRelease.cache, device);
+    head = await createOrtSession(globalManifest.reducedHead, globalRelease.cache, device);
+    rvqDepth = await createOrtSession(rvqManifest.rvqDepth, rvqRelease.cache, device);
+    feedback = await createOrtSession(rvqManifest.feedback, rvqRelease.cache, device);
+    const attemptedSeeds: number[] = [];
+    let frames: Awaited<ReturnType<ReturnType<typeof createFrameGenerator>['generateFrames']>> | undefined;
+    let cacheLengths: number[] = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const seed = request.seed + attempt;
+      attemptedSeeds.push(seed);
+      cacheLengths = [];
+      try {
+        frames = await createFrameGenerator({
+          ort,
+          decoder,
+          head,
+          rvqDepth,
+          feedback,
+          globalEmbedding: await OpfsFp16EmbeddingTable.open(
+            globalManifest.embedding,
+            (path) => globalRelease.cache.openSyncFile(path),
+          ),
+          rvqEmbedding: await OpfsFp16EmbeddingTable.open(
+            rvqManifest.rvqEmbedding,
+            (path) => rvqRelease.cache.openSyncFile(path),
+          ),
+          embeddingColumns: globalManifest.embedding.columns,
+          kvPairs: globalManifest.kvPairs,
+          readConditionalHidden: (tensor) => readConditionalGpuFp16(device, tensor),
+          onCacheLength: (length) => cacheLengths.push(length),
+        }).generateFrames({ maxFrames: request.maxFrames, seed, guidance: 1.5, topK: 50 });
+        break;
+      } catch (error) {
+        if (!(error instanceof EarlyAudioEndError)) throw error;
+        if (attempt === 1)
+          throw new Error(`audio end sampled early for seeds ${attemptedSeeds.join(', ')}`);
+        send({ type: 'progress', stage: 'session', detail: `${error.message}; retrying seed ${seed + 1}` });
+      }
+    }
+    if (!frames) throw new Error(`audio end sampled early for seeds ${attemptedSeeds.join(', ')}`);
+    const finiteHiddenGroups = frames.every((frame) => frame.hiddenGroups.every(Number.isFinite));
+    const codesInRange = frames.every(
+      (frame) =>
+        frame.semantic >= 0 &&
+        frame.semantic < 16_384 &&
+        frame.residual.every((code) => code >= 0 && code < 1_024),
+    );
+    send({
+      type: 'frame-result',
+      result: {
+        adapter: adapter.info.description || adapter.info.vendor || 'WebGPU adapter',
+        frames: frames.length,
+        attemptedSeeds,
+        semanticDecisions: frames.length + 1,
+        rvqCalls: (frames.length + 1) * 7,
+        feedbackDecodes: frames.length,
+        cacheLengths,
+        finiteHiddenGroups,
+        codesInRange,
+        hiddenBytes: frames.reduce((total, frame) => total + frame.hiddenGroups.byteLength, 0),
+        artifactFetches,
+        status: 'passed',
+      },
+    });
+  } finally {
+    await feedback?.release();
+    await rvqDepth?.release();
+    await head?.release();
+    await decoder?.release();
     device.destroy();
   }
 }

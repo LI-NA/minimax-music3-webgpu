@@ -280,5 +280,6 @@ def _write_head_fixture(path) -> None:
     model = helper.make_model(helper.make_graph([], "head", [], [
         helper.make_tensor_value_info("semantic_logits", TensorProto.FLOAT16, [1, 1]),
         helper.make_tensor_value_info("end_logit", TensorProto.FLOAT16, [1, 1]),
+        helper.make_tensor_value_info("last_state", TensorProto.FLOAT16, [2, 4096]),
     ]))
     onnx.save_model(model, path)

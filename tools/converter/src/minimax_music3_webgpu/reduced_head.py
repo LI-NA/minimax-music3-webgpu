@@ -62,16 +62,17 @@ def _reduced_head_model(semantic: np.ndarray, end: np.ndarray) -> onnx.ModelProt
     return helper.make_model(
         helper.make_graph(
             [
-                helper.make_node("Gather", ["hidden_states", "last_index"], ["last_state"], axis=1),
-                helper.make_node("Flatten", ["last_state"], ["final_state"], axis=1),
-                helper.make_node("MatMul", ["final_state", "semantic_weight"], ["semantic_logits"]),
-                helper.make_node("MatMul", ["final_state", "end_weight"], ["end_logit"]),
+                helper.make_node("Gather", ["hidden_states", "last_index"], ["last_row"], axis=1),
+                helper.make_node("Flatten", ["last_row"], ["last_state"], axis=1),
+                helper.make_node("MatMul", ["last_state", "semantic_weight"], ["semantic_logits"]),
+                helper.make_node("MatMul", ["last_state", "end_weight"], ["end_logit"]),
             ],
             "reduced_head",
             [helper.make_tensor_value_info("hidden_states", TensorProto.FLOAT16, [None, None, HIDDEN_SIZE])],
             [
                 helper.make_tensor_value_info("semantic_logits", TensorProto.FLOAT16, [None, SEMANTIC_TOKEN_COUNT]),
                 helper.make_tensor_value_info("end_logit", TensorProto.FLOAT16, [None, 1]),
+                helper.make_tensor_value_info("last_state", TensorProto.FLOAT16, [None, HIDDEN_SIZE]),
             ],
             initializer=[
                 numpy_helper.from_array(np.array([-1], dtype=np.int64), "last_index"),

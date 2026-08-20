@@ -168,10 +168,13 @@ export function parseModelManifest(value: unknown): ModelManifest {
   )
     throw new Error('kvPairs are invalid');
   const webgpu = webgpuContract(root.webgpu);
+  const reducedHead = graph(root.reducedHead, 'reducedHead');
+  if (!reducedHead.gpuOutputs.includes('last_state'))
+    throw new Error('reducedHead must keep last_state at gpu-buffer');
   return {
     schemaVersion: 1,
     graph: graph(root.graph, 'graph'),
-    reducedHead: graph(root.reducedHead, 'reducedHead'),
+    reducedHead,
     embedding,
     kvPairs: root.kvPairs as KvPairSpec[],
     webgpu: {

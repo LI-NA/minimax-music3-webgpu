@@ -45,6 +45,9 @@ def test_export_reduced_head_uses_ort_compatible_opset_and_external_initializers
         assert initializers[name].raw_data == b""
     np.testing.assert_array_equal(outputs[0], np.array([[46, 60, 74]], dtype=np.float16))
     np.testing.assert_array_equal(outputs[1], np.array([[18]], dtype=np.float16))
+    np.testing.assert_array_equal(outputs[2], np.array([[3, 4]], dtype=np.float16))
+    assert session.get_outputs()[2].name == "last_state"
+    assert session.get_outputs()[2].shape == [None, 2]
 
 
 def _safe_open(weights: np.ndarray):
