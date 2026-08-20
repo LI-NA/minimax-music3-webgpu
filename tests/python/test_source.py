@@ -34,8 +34,16 @@ def test_download_global_source_writes_pinned_receipt(
             "cache_dir": paths.root / "hf-cache",
         }
         (paths.source / "tokenizer").mkdir(parents=True)
+        (paths.source / ".cache" / "huggingface").mkdir(parents=True)
+        (paths.source / "transformer").mkdir()
         (paths.source / "LICENSE").write_text("license", encoding="utf-8")
         (paths.source / "tokenizer" / "vocab.json").write_text("{}", encoding="utf-8")
+        (paths.source / ".cache" / "huggingface" / "control").write_text(
+            "control", encoding="utf-8"
+        )
+        (paths.source / "transformer" / "stale.bin").write_text(
+            "stale", encoding="utf-8"
+        )
         return str(paths.source)
 
     monkeypatch.setattr("minimax_music3_webgpu.source.snapshot_download", fake_snapshot_download)

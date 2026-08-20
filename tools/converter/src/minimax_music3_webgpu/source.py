@@ -36,26 +36,45 @@ def global_source_patterns() -> tuple[str, ...]:
 
 
 def download_global_source(paths: ArtifactPaths) -> SourceReceipt:
+    cache_dir = paths.root / "hf-cache"
+    receipt_path = paths.receipts / "source-global.json"
+    paths.validate_write_targets(
+        paths.source,
+        paths.work,
+        paths.release,
+        paths.receipts,
+        cache_dir,
+        receipt_path,
+    )
     paths.source.mkdir(parents=True, exist_ok=True)
     snapshot_download(
         repo_id=MODEL_ID,
         revision=MODEL_REVISION,
         allow_patterns=global_source_patterns(),
         local_dir=paths.source,
-        cache_dir=paths.root / "hf-cache",
+        cache_dir=cache_dir,
     )
     source_files = tuple(
         _source_file(path, paths.source)
         for path in sorted(paths.source.rglob("*"))
         if path.is_file()
+        and _matches_global_source_path(path.relative_to(paths.source))
     )
     receipt = SourceReceipt(
         repository_id=MODEL_ID,
         revision=MODEL_REVISION,
         files=source_files,
     )
-    _write_receipt(paths.receipts / "source-global.json", receipt)
+    _write_receipt(receipt_path, receipt)
     return receipt
+
+
+def _matches_global_source_path(path: Path) -> bool:
+    relative_path = path.as_posix()
+    return (
+        relative_path in {"LICENSE", "modular_model_index.json"}
+        or relative_path.startswith(("language_model/", "tokenizer/"))
+    )
 
 
 def _source_file(path: Path, source_root: Path) -> SourceFile:
