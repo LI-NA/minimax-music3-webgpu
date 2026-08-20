@@ -17,4 +17,6 @@ $env:MINIMAX_RELEASE = 'global-one-layer' # or global
 npx playwright test tests/browser/global-decoder.spec.ts --project=chrome
 ```
 
+The real-model test launches branded Chrome with a persistent profile at `artifacts/browser-profile`. This keeps multi-gigabyte OPFS artifacts across test processes and exercises download resume and cache reuse. Set `MINIMAX_CHROME_PROFILE` to an alternate ignored profile path when isolation is required.
+
 `artifacts/` is excluded from Git and Kopia. The release manifest carries file hashes, the exact source revision, WebGPU requirements, and the artifacts used by the browser cache.
