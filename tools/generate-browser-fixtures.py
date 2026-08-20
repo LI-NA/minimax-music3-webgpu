@@ -15,15 +15,6 @@ model = helper.make_model(
 )
 onnx.save_model(model, root / 'external-add.onnx', save_as_external_data=True, all_tensors_to_one_file=True, location='external-add.bin', size_threshold=0)
 
-# TASK5_DIAGNOSTIC: This inline counterpart isolates JSPI/WebGPU session creation
-# from external-data loading. Remove after the Task 5 hang investigation.
-inline_weight = helper.make_tensor('weight', TensorProto.FLOAT, [1], [2.0])
-inline_model = helper.make_model(
-    helper.make_graph([helper.make_node('Add', ['input', 'weight'], ['output'])], 'inline-add', [helper.make_tensor_value_info('input', TensorProto.FLOAT, [1])], [helper.make_tensor_value_info('output', TensorProto.FLOAT, [1])], [inline_weight]),
-    opset_imports=[helper.make_opsetid('', 13)],
-)
-onnx.save(inline_model, root / 'inline-add.onnx')
-
 packed = np.stack((np.full((1, 64), 0x99, dtype=np.uint8), np.full((1, 64), 0xAA, dtype=np.uint8)))
 scales = np.ones((2, 1), dtype=np.float16)
 matmul = helper.make_model(

@@ -18,6 +18,17 @@ class MemoryStore implements ArtifactStore {
 }
 
 describe('ensureArtifact', () => {
+  it('marks a valid full file complete without fetching it again', async () => {
+    const data = encoder.encode('abcdefgh'); const store = new MemoryStore(); store.files.set('a.bin', data);
+    let calls = 0; await ensureArtifact({ path: 'a.bin', bytes: 8, sha256: await sha256(data) }, new URL('https://example.test/a.bin'), store, () => {}, async () => { calls++; return new Response(data); });
+    expect(calls).toBe(0); expect(await store.isComplete('a.bin')).toBe(true);
+  });
+
+  it('restarts an oversized existing file instead of requesting an invalid range', async () => {
+    const data = encoder.encode('abcdefgh'); const store = new MemoryStore(); store.files.set('a.bin', encoder.encode('too-long-data'));
+    const ranges: string[] = []; await ensureArtifact({ path: 'a.bin', bytes: 8, sha256: await sha256(data) }, new URL('https://example.test/a.bin'), store, () => {}, async (_url, init) => { ranges.push(new Headers(init?.headers).get('Range') ?? ''); return new Response(data); });
+    expect(ranges).toEqual(['']);
+  });
   it('resumes a partial file using a byte range', async () => {
     const data = encoder.encode('abcdefgh'); const store = new MemoryStore(); store.files.set('a.bin', data.slice(0, 3));
     const ranges: string[] = []; const source = new URL('https://example.test/a.bin');
@@ -32,6 +43,16 @@ describe('ensureArtifact', () => {
     const data = encoder.encode('abcdefgh'); const store = new MemoryStore(); store.files.set('a.bin', encoder.encode('abc'));
     const file = await ensureArtifact({ path: 'a.bin', bytes: 8, sha256: await sha256(data) }, new URL('https://example.test/a.bin'), store, () => {}, async () => new Response(data));
     expect(await file.text()).toBe('abcdefgh');
+  });
+
+  it('closes a partial writer after a read error and resumes it later', async () => {
+    const data = encoder.encode('abcdefgh'); const store = new MemoryStore();
+    const artifact = { path: 'a.bin', bytes: 8, sha256: await sha256(data) };
+    let sent = false; const broken = new ReadableStream<Uint8Array>({ pull(controller) { if (!sent) { sent = true; controller.enqueue(data.slice(0, 3)); } else controller.error(new Error('network lost')); } });
+    await expect(ensureArtifact(artifact, new URL('https://example.test/a.bin'), store, () => {}, async () => new Response(broken))).rejects.toThrow('network lost');
+    expect(await store.size('a.bin')).toBe(3);
+    const ranges: string[] = []; await ensureArtifact(artifact, new URL('https://example.test/a.bin'), store, () => {}, async (_url, init) => { ranges.push(new Headers(init?.headers).get('Range') ?? ''); return new Response(data.slice(3), { status: 206 }); });
+    expect(ranges).toEqual(['bytes=3-']);
   });
 
   it('retries only one hash-mismatched file and reuses a verified visit', async () => {
