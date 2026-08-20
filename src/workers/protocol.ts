@@ -3,6 +3,7 @@ export type WorkerRequest =
   | { type: 'run-rvq-smoke'; manifestUrl: string }
   | { type: 'run-condition-smoke'; manifestUrl: string }
   | { type: 'run-flow-smoke'; manifestUrl: string }
+  | { type: 'run-vocoder-smoke'; manifestUrl: string }
   | {
       type: 'generate-frames';
       globalManifestUrl: string;
@@ -78,6 +79,21 @@ export type FlowSmokeResult = {
   artifactFetches: number;
   status: 'passed';
 };
+export type VocoderSmokeResult = {
+  adapter: string;
+  sessionCreateMs: number;
+  generationMs: number;
+  outputType: 'float32';
+  shape: readonly [1, 2, 220160];
+  finite: true;
+  wavBytes: 880684;
+  sampleRate: 44100;
+  channels: 2;
+  samples: 220160;
+  bitsPerSample: 16;
+  artifactFetches: number;
+  status: 'passed';
+};
 export type WorkerResponse =
   | WorkerProgress
   | { type: 'result'; result: GlobalSmokeResult }
@@ -85,4 +101,5 @@ export type WorkerResponse =
   | { type: 'frame-result'; result: FrameGenerationResult }
   | { type: 'condition-result'; result: ConditionSmokeResult }
   | { type: 'flow-result'; result: FlowSmokeResult }
+  | { type: 'vocoder-result'; result: VocoderSmokeResult }
   | { type: 'error'; message: string };

@@ -6,12 +6,17 @@ import {
   parseFlowManifest,
   parseModelManifest,
   parseRvqStageManifest,
+  parseVocoderManifest,
 } from '../runtime/model/manifest';
 import { createWebGpuDevice } from '../runtime/model/webgpu-device';
 import { runConditionSmoke } from '../runtime/pipeline/condition-smoke';
 import { runFlowSmoke } from '../runtime/pipeline/flow-generation';
 import { runGlobalSmoke } from '../runtime/pipeline/global-smoke';
 import { runRvqSmoke } from '../runtime/pipeline/rvq-smoke';
+import {
+  analyticVocoderLatents,
+  generateFixedVocoderWav,
+} from '../runtime/pipeline/vocoder-generation';
 import {
   areFiniteFp16,
   createFrameGenerator,
@@ -34,6 +39,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   );
 };
 async function run(request: WorkerRequest) {
+  if (request.type === 'run-vocoder-smoke') return runVocoder(request.manifestUrl);
   if (request.type === 'run-flow-smoke') return runFlow(request.manifestUrl);
   if (request.type === 'run-condition-smoke') return runCondition(request.manifestUrl);
   if (request.type === 'generate-frames') return runFrameGeneration(request);
@@ -125,6 +131,69 @@ async function run(request: WorkerRequest) {
     await graph?.release();
     device.destroy();
   }
+}
+
+async function runVocoder(manifestUrl: string) {
+  send({ type: 'progress', stage: 'manifest', detail: 'Reading vocoder release manifest' });
+  const release = await readManifest(manifestUrl, 'Vocoder release manifest is unavailable');
+  const manifest = parseVocoderManifest(JSON.parse(release.text));
+  const artifacts = [manifest.vocoder, ...manifest.vocoder.externalData];
+  const artifactFetches = await cacheArtifacts(artifacts, release.base, release.cache);
+  send({ type: 'progress', stage: 'adapter', detail: 'Requesting shader-f16 WebGPU device' });
+  const { adapter, device } = await createWebGpuDevice(navigator.gpu, manifest.webgpu.requiredLimits);
+  const { createOrtSession } = await import('../runtime/model/ort-session');
+  const ort = await import('onnxruntime-web/jspi');
+  let vocoder: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+  try {
+    send({ type: 'progress', stage: 'session', detail: 'Creating WebGPU vocoder session' });
+    const sessionStarted = performance.now();
+    vocoder = await createOrtSession(manifest.vocoder, release.cache, device);
+    const sessionCreateMs = performance.now() - sessionStarted;
+    const generationStarted = performance.now();
+    const wav = await generateFixedVocoderWav(
+      { ort, session: vocoder },
+      analyticVocoderLatents(),
+    );
+    const generationMs = performance.now() - generationStarted;
+    validateVocoderWav(wav);
+    send({
+      type: 'vocoder-result',
+      result: {
+        adapter: adapter.info.description || adapter.info.vendor || 'WebGPU adapter',
+        sessionCreateMs,
+        generationMs,
+        outputType: 'float32',
+        shape: [1, 2, 220_160],
+        finite: true,
+        wavBytes: 880_684,
+        sampleRate: 44_100,
+        channels: 2,
+        samples: 220_160,
+        bitsPerSample: 16,
+        artifactFetches,
+        status: 'passed',
+      },
+    });
+  } finally {
+    await vocoder?.release();
+    device.destroy();
+  }
+}
+
+function validateVocoderWav(wav: ArrayBuffer) {
+  const view = new DataView(wav);
+  const text = (offset: number, length: number) =>
+    String.fromCharCode(...new Uint8Array(wav, offset, length));
+  if (
+    wav.byteLength !== 880_684
+    || text(0, 4) !== 'RIFF'
+    || text(8, 4) !== 'WAVE'
+    || view.getUint16(20, true) !== 1
+    || view.getUint16(22, true) !== 2
+    || view.getUint32(24, true) !== 44_100
+    || view.getUint16(34, true) !== 16
+    || view.getUint32(40, true) !== 880_640
+  ) throw new Error('vocoder WAV structure is invalid');
 }
 
 async function runFlow(manifestUrl: string) {

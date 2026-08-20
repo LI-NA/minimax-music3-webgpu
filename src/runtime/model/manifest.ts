@@ -64,6 +64,22 @@ export interface FlowManifest {
   };
   webgpu: ModelManifest['webgpu'];
 }
+export interface VocoderManifest {
+  schemaVersion: 1;
+  vocoder: OnnxGraphArtifact;
+  slice: {
+    latentChannels: 128;
+    latentLength: 430;
+    outputSamples: 220160;
+    sampleRate: 44100;
+    channels: 2;
+  };
+  precision: {
+    convolution: 'float16';
+    fp32Snakes: readonly ['blocks.0.snake1', 'blocks.1.snake1'];
+  };
+  webgpu: ModelManifest['webgpu'];
+}
 
 const SHA = /^[a-f0-9]{64}$/;
 const safePath = (value: unknown, label: string): string => {
@@ -276,6 +292,49 @@ export function parseFlowManifest(value: unknown): FlowManifest {
       blockSize: 128,
       accuracyLevel: 4,
       symmetric: true,
+    },
+    webgpu,
+  };
+}
+
+export function parseVocoderManifest(value: unknown): VocoderManifest {
+  const root = object(value, 'manifest');
+  if (root.schemaVersion !== 1) throw new Error('schemaVersion must be 1');
+  const vocoder = graph(root.vocoder, 'vocoder');
+  if (vocoder.gpuOutputs.length !== 0)
+    throw new Error('vocoder waveform must remain a CPU output');
+  const slice = object(root.slice, 'vocoder slice');
+  if (
+    slice.latentChannels !== 128
+    || slice.latentLength !== 430
+    || slice.outputSamples !== 220_160
+    || slice.sampleRate !== 44_100
+    || slice.channels !== 2
+  ) throw new Error('vocoder slice does not match the fixed contract');
+  const precision = object(root.precision, 'vocoder precision');
+  if (
+    precision.convolution !== 'float16'
+    || !Array.isArray(precision.fp32Snakes)
+    || precision.fp32Snakes.length !== 2
+    || precision.fp32Snakes[0] !== 'blocks.0.snake1'
+    || precision.fp32Snakes[1] !== 'blocks.1.snake1'
+  ) throw new Error('vocoder precision does not match the mixed contract');
+  const webgpu = webgpuContract(root.webgpu);
+  if (webgpu.requiredLimits.maxStorageBufferBindingSize !== 128 * 1024 * 1024)
+    throw new Error('vocoder webgpu requiredLimits are invalid');
+  return {
+    schemaVersion: 1,
+    vocoder,
+    slice: {
+      latentChannels: 128,
+      latentLength: 430,
+      outputSamples: 220_160,
+      sampleRate: 44_100,
+      channels: 2,
+    },
+    precision: {
+      convolution: 'float16',
+      fp32Snakes: ['blocks.0.snake1', 'blocks.1.snake1'],
     },
     webgpu,
   };

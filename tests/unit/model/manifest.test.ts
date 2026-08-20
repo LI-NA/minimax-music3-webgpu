@@ -4,6 +4,7 @@ import {
   parseFlowManifest,
   parseModelManifest,
   parseRvqStageManifest,
+  parseVocoderManifest,
 } from '../../../src/runtime/model/manifest';
 
 const sha = 'a'.repeat(64);
@@ -195,6 +196,59 @@ describe('parseFlowManifest', () => {
       webgpu: {
         ...flow.webgpu,
         requiredLimits: { ...flow.webgpu.requiredLimits, maxStorageBuffersPerShaderStage: 8 },
+      },
+    })).toThrow('requiredLimits');
+  });
+});
+
+describe('parseVocoderManifest', () => {
+  const vocoder = {
+    schemaVersion: 1,
+    vocoder: { ...manifest.graph, gpuOutputs: [] },
+    slice: {
+      latentChannels: 128,
+      latentLength: 430,
+      outputSamples: 220_160,
+      sampleRate: 44_100,
+      channels: 2,
+    },
+    precision: {
+      convolution: 'float16',
+      fp32Snakes: ['blocks.0.snake1', 'blocks.1.snake1'],
+    },
+    webgpu: {
+      requiredFeatures: ['shader-f16'],
+      requiredLimits: { maxStorageBufferBindingSize: 128 * 1024 * 1024 },
+    },
+  };
+
+  it('parses the exact fixed mixed-precision vocoder contract', () => {
+    const parsed = parseVocoderManifest(vocoder);
+
+    expect(parsed.vocoder.gpuOutputs).toEqual([]);
+    expect(parsed.slice).toEqual(vocoder.slice);
+    expect(parsed.precision).toEqual(vocoder.precision);
+    expect(parsed.webgpu.requiredLimits.maxStorageBufferBindingSize).toBe(128 * 1024 * 1024);
+  });
+
+  it('rejects changed audio, precision, output location, or buffer contracts', () => {
+    expect(() => parseVocoderManifest({
+      ...vocoder,
+      slice: { ...vocoder.slice, outputSamples: 220_161 },
+    })).toThrow('slice');
+    expect(() => parseVocoderManifest({
+      ...vocoder,
+      precision: { ...vocoder.precision, fp32Snakes: ['blocks.0.snake1'] },
+    })).toThrow('precision');
+    expect(() => parseVocoderManifest({
+      ...vocoder,
+      vocoder: { ...vocoder.vocoder, gpuOutputs: ['waveform'] },
+    })).toThrow('CPU output');
+    expect(() => parseVocoderManifest({
+      ...vocoder,
+      webgpu: {
+        ...vocoder.webgpu,
+        requiredLimits: { maxStorageBufferBindingSize: 64 * 1024 * 1024 },
       },
     })).toThrow('requiredLimits');
   });

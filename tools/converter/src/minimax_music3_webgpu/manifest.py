@@ -16,6 +16,7 @@ from .reduced_head import export_reduced_head
 from .embedding import EmbeddingTableReceipt
 from .external_data import RepackedModel
 from .rvq_depth import RvqStageReceipt
+from .vocoder import EXACT_FP32_SNAKES, validate_vocoder_graph
 
 
 def emit_manifest(
@@ -231,6 +232,69 @@ def emit_flow_release(paths: ArtifactPaths, flow_step: Path) -> Path:
         raise
 
 
+def emit_vocoder_manifest(path: Path, *, vocoder: Path) -> Path:
+    _validate_files([("vocoder", vocoder)])
+    validate_vocoder_graph(vocoder)
+    payload = {
+        "schemaVersion": 1,
+        "model": {
+            "id": MODEL_ID,
+            "revision": MODEL_REVISION,
+            "diffusersRevision": DIFFUSERS_REVISION,
+        },
+        "webgpu": {
+            "requiredFeatures": ["shader-f16"],
+            "requiredLimits": {"maxStorageBufferBindingSize": ARTIFACT_FILE_LIMIT},
+        },
+        "slice": {
+            "latentChannels": 128,
+            "latentLength": 430,
+            "outputSamples": 220_160,
+            "sampleRate": 44_100,
+            "channels": 2,
+        },
+        "precision": {
+            "convolution": "float16",
+            "fp32Snakes": list(EXACT_FP32_SNAKES),
+        },
+        "vocoder": _onnx_graph(vocoder, path.parent, []),
+    }
+    _atomic_json(path, payload)
+    return path
+
+
+def emit_vocoder_release(paths: ArtifactPaths, vocoder: Path) -> Path:
+    model = onnx.load_model(vocoder, load_external_data=False)
+    external = _external_files(model, vocoder)
+    _validate_files(
+        [("vocoder graph", vocoder), *(("vocoder external data", file) for _, file in external)]
+    )
+    if vocoder.stat().st_size > ARTIFACT_FILE_LIMIT or any(
+        file.stat().st_size > ARTIFACT_FILE_LIMIT for _, file in external
+    ):
+        raise ValueError("vocoder artifact exceeds the artifact limit")
+    release = paths.release / "vocoder"
+    staging = paths.release / f".vocoder-{uuid4().hex}.staging"
+    try:
+        graph_dir = staging / "vocoder"
+        graph_dir.mkdir(parents=True)
+        graph = graph_dir / "vocoder.onnx"
+        shutil.copy2(vocoder, graph)
+        for location, source in external:
+            target = (graph_dir / location).resolve()
+            if not target.is_relative_to(graph_dir.resolve()):
+                raise ValueError("vocoder external-data path escapes graph directory")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        manifest = emit_vocoder_manifest(staging / "manifest.json", vocoder=graph)
+        _validate_vocoder_release(manifest)
+        _promote_directory(staging, release)
+        return release / "manifest.json"
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
 def _validate_rvq_release(manifest: Path) -> None:
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     entries = [
@@ -264,6 +328,19 @@ def _validate_flow_release(manifest: Path) -> None:
             or _sha256(file) != entry["sha256"]
         ):
             raise ValueError("flow release manifest reference is invalid")
+
+
+def _validate_vocoder_release(manifest: Path) -> None:
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    graph = payload["vocoder"]
+    for entry in [graph, *graph["externalData"]]:
+        file = manifest.parent / entry["path"]
+        if (
+            not file.is_file()
+            or file.stat().st_size != entry["bytes"]
+            or _sha256(file) != entry["sha256"]
+        ):
+            raise ValueError("vocoder release manifest reference is invalid")
 
 
 def _validate_row_shards(shards: list[tuple[int, int, Path]], rows: int, columns: int) -> None:
@@ -344,6 +421,7 @@ def _copy_tree(source: Path, destination: Path) -> None:
 def _promote_directory(staging: Path, release: Path) -> None:
     backup = release.with_name(f".{release.name}-{uuid4().hex}.backup")
     moved_old = False
+    cleanup_backup = True
     try:
         if release.exists():
             release.replace(backup)
@@ -353,10 +431,14 @@ def _promote_directory(staging: Path, release: Path) -> None:
         if release.exists() and moved_old:
             shutil.rmtree(release, ignore_errors=True)
         if moved_old and backup.exists():
-            backup.replace(release)
+            try:
+                backup.replace(release)
+            except Exception:
+                cleanup_backup = False
+                raise
         raise
     finally:
-        if backup.exists():
+        if cleanup_backup and backup.exists():
             shutil.rmtree(backup, ignore_errors=True)
 
 

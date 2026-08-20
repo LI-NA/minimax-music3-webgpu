@@ -6,6 +6,7 @@ import type {
   FrameGenerationResult,
   GlobalSmokeResult,
   RvqSmokeResult,
+  VocoderSmokeResult,
   WorkerResponse,
 } from '../workers/protocol';
 
@@ -19,6 +20,7 @@ export function App() {
   const [frameResult, setFrameResult] = useState<FrameGenerationResult | null>(null);
   const [conditionResult, setConditionResult] = useState<ConditionSmokeResult | null>(null);
   const [flowResult, setFlowResult] = useState<FlowSmokeResult | null>(null);
+  const [vocoderResult, setVocoderResult] = useState<VocoderSmokeResult | null>(null);
   const worker = useRef<Worker | null>(null);
 
   useEffect(() => {
@@ -127,6 +129,24 @@ export function App() {
       manifestUrl: 'http://127.0.0.1:5177/manifest.json',
     });
   };
+  const runVocoder = () => {
+    cancel();
+    setVocoderResult(null);
+    setProgress('Starting isolated vocoder runtime worker');
+    const next = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), { type: 'module' });
+    worker.current = next;
+    next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
+      if (data.type === 'progress') setProgress(`${data.stage}: ${data.detail}`);
+      else if (data.type === 'vocoder-result') {
+        setVocoderResult(data.result);
+        setProgress('Vocoder runtime passed');
+      } else if (data.type === 'error') setProgress(`Error: ${data.message}`);
+    };
+    next.postMessage({
+      type: 'run-vocoder-smoke',
+      manifestUrl: 'http://127.0.0.1:5178/manifest.json',
+    });
+  };
 
   const status =
     capability === null
@@ -159,6 +179,9 @@ export function App() {
           <button type="button" disabled={!capability?.supported} onClick={runFlow}>
             Run flow transformer smoke
           </button>
+          <button type="button" disabled={!capability?.supported} onClick={runVocoder}>
+            Run vocoder smoke
+          </button>
           <button type="button" className="secondary" disabled={!worker.current} onClick={cancel}>
             Cancel worker
           </button>
@@ -189,6 +212,11 @@ export function App() {
         {flowResult && (
           <pre data-testid="flow-smoke-result" className="result">
             {`one-step shape: ${flowResult.shape.join(', ')}\none-step location: ${flowResult.oneStepLocation}\none-step finite: ${flowResult.oneStepFinite ? 'yes' : 'no'}\nsteps: ${flowResult.stepMs.length}\nfinal location: ${flowResult.finalLocation}\nfinal finite: ${flowResult.finalFinite ? 'yes' : 'no'}\n${JSON.stringify(flowResult, null, 2)}`}
+          </pre>
+        )}
+        {vocoderResult && (
+          <pre data-testid="vocoder-smoke-result" className="result">
+            {`waveform: ${vocoderResult.outputType} ${vocoderResult.shape.join(', ')}\nfinite: ${vocoderResult.finite ? 'yes' : 'no'}\nWAV bytes: ${vocoderResult.wavBytes}\naudio: ${vocoderResult.sampleRate} Hz, ${vocoderResult.channels} channels, ${vocoderResult.samples} samples, ${vocoderResult.bitsPerSample}-bit PCM\n${JSON.stringify(vocoderResult, null, 2)}`}
           </pre>
         )}
       </section>
