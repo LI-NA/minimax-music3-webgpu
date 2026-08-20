@@ -14,6 +14,7 @@ from .paths import ArtifactPaths
 from .embedding import export_embedding_table
 from .reduced_head import export_reduced_head
 from .embedding import EmbeddingTableReceipt
+from .external_data import RepackedModel
 from .rvq_depth import RvqStageReceipt
 
 
@@ -126,6 +127,46 @@ def emit_rvq_release(paths: ArtifactPaths, stage: RvqStageReceipt) -> Path:
         raise
 
 
+def emit_condition_manifest(path: Path, *, condition_encoder: Path) -> Path:
+    _validate_files([("condition encoder", condition_encoder)])
+    payload = {
+        "schemaVersion": 1,
+        "model": {
+            "id": MODEL_ID,
+            "revision": MODEL_REVISION,
+            "diffusersRevision": DIFFUSERS_REVISION,
+        },
+        "webgpu": {
+            "requiredFeatures": ["shader-f16"],
+            "requiredLimits": {"maxStorageBufferBindingSize": ARTIFACT_FILE_LIMIT},
+        },
+        "conditionEncoder": _onnx_graph(condition_encoder, path.parent, ["condition"]),
+    }
+    _atomic_json(path, payload)
+    return path
+
+
+def emit_condition_release(paths: ArtifactPaths, graph: RepackedModel) -> Path:
+    release = paths.release / "condition"
+    staging = paths.release / f".condition-{uuid4().hex}.staging"
+    try:
+        graph_dir = staging / "condition-encoder"
+        graph_dir.mkdir(parents=True)
+        shutil.copy2(graph.model_path, graph_dir / graph.model_path.name)
+        for shard in graph.shards:
+            shutil.copy2(shard.path, graph_dir / shard.path.name)
+        manifest = emit_condition_manifest(
+            staging / "manifest.json",
+            condition_encoder=graph_dir / graph.model_path.name,
+        )
+        _validate_condition_release(manifest)
+        _promote_directory(staging, release)
+        return release / "manifest.json"
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
 def _validate_rvq_release(manifest: Path) -> None:
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     entries = [
@@ -137,6 +178,15 @@ def _validate_rvq_release(manifest: Path) -> None:
         file = manifest.parent / entry["path"]
         if not file.is_file() or file.stat().st_size != entry["bytes"] or _sha256(file) != entry["sha256"]:
             raise ValueError("RVQ release manifest reference is invalid")
+
+
+def _validate_condition_release(manifest: Path) -> None:
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    graph = payload["conditionEncoder"]
+    for entry in [graph, *graph["externalData"]]:
+        file = manifest.parent / entry["path"]
+        if not file.is_file() or file.stat().st_size != entry["bytes"] or _sha256(file) != entry["sha256"]:
+            raise ValueError("condition release manifest reference is invalid")
 
 
 def _validate_row_shards(shards: list[tuple[int, int, Path]], rows: int, columns: int) -> None:

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { parseModelManifest, parseRvqStageManifest } from '../../../src/runtime/model/manifest';
+import {
+  parseConditionManifest,
+  parseModelManifest,
+  parseRvqStageManifest,
+} from '../../../src/runtime/model/manifest';
 
 const sha = 'a'.repeat(64);
 const manifest = {
@@ -114,5 +118,28 @@ describe('parseRvqStageManifest', () => {
   it('requires the GPU-resident hidden and feedback outputs', () => {
     expect(() => parseRvqStageManifest({ ...rvq, feedback: { ...rvq.feedback, gpuOutputs: [] } }))
       .toThrow('inputs_embeds');
+  });
+});
+
+describe('parseConditionManifest', () => {
+  const condition = {
+    schemaVersion: 1,
+    conditionEncoder: { ...manifest.graph, gpuOutputs: ['condition'] },
+    webgpu: manifest.webgpu,
+  };
+
+  it('parses the standalone fixed condition graph contract', () => {
+    const parsed = parseConditionManifest(condition);
+    expect(parsed.conditionEncoder.path).toBe('graphs/global.onnx');
+    expect(parsed.conditionEncoder.gpuOutputs).toEqual(['condition']);
+  });
+
+  it('requires the condition output to stay GPU-resident', () => {
+    expect(() =>
+      parseConditionManifest({
+        ...condition,
+        conditionEncoder: { ...condition.conditionEncoder, gpuOutputs: [] },
+      }),
+    ).toThrow('condition');
   });
 });

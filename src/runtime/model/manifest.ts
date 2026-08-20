@@ -42,6 +42,11 @@ export interface RvqStageManifest {
   feedback: OnnxGraphArtifact;
   webgpu: ModelManifest['webgpu'];
 }
+export interface ConditionManifest {
+  schemaVersion: 1;
+  conditionEncoder: OnnxGraphArtifact;
+  webgpu: ModelManifest['webgpu'];
+}
 
 const SHA = /^[a-f0-9]{64}$/;
 const safePath = (value: unknown, label: string): string => {
@@ -198,6 +203,19 @@ export function parseRvqStageManifest(value: unknown): RvqStageManifest {
     rvqDepth,
     rvqEmbedding: embeddingTable(root.rvqEmbedding, 'rvqEmbedding'),
     feedback,
+    webgpu: webgpuContract(root.webgpu),
+  };
+}
+
+export function parseConditionManifest(value: unknown): ConditionManifest {
+  const root = object(value, 'manifest');
+  if (root.schemaVersion !== 1) throw new Error('schemaVersion must be 1');
+  const conditionEncoder = graph(root.conditionEncoder, 'conditionEncoder');
+  if (!conditionEncoder.gpuOutputs.includes('condition'))
+    throw new Error('conditionEncoder must keep condition at gpu-buffer');
+  return {
+    schemaVersion: 1,
+    conditionEncoder,
     webgpu: webgpuContract(root.webgpu),
   };
 }

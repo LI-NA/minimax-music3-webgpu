@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 from pathlib import Path
 
@@ -15,6 +17,8 @@ from minimax_music3_webgpu.condition_encoder import (
     load_condition_encoder_weights,
     nearest_indices,
 )
+from minimax_music3_webgpu.manifest import emit_condition_release
+from minimax_music3_webgpu.paths import ArtifactPaths
 
 
 def test_nearest_indices_match_diffusers_interpolate_contract() -> None:
@@ -95,6 +99,37 @@ def test_export_packs_every_initializer_below_artifact_limit(tmp_path) -> None:
     )
     session = ort.InferenceSession(str(exported.model_path), providers=["CPUExecutionProvider"])
     assert session.get_outputs()[0].shape == [1, 17, 3]
+
+
+def test_condition_release_is_complete_and_failed_rebuild_preserves_it(tmp_path) -> None:
+    source = tmp_path / "tiny.safetensors"
+    save_file(_tiny_weights(), source)
+    exported = export_condition_encoder(
+        source,
+        tmp_path / "packed",
+        condition_hidden_dim=4,
+        out_dim=3,
+        frame_count=5,
+        latent_length=17,
+        max_file_bytes=256,
+    )
+    paths = ArtifactPaths.from_root(tmp_path / "artifacts", repository_root=tmp_path)
+
+    manifest = emit_condition_release(paths, exported)
+
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    graph = payload["conditionEncoder"]
+    assert graph["gpuOutputs"] == ["condition"]
+    for entry in [graph, *graph["externalData"]]:
+        artifact = manifest.parent / entry["path"]
+        assert artifact.stat().st_size == entry["bytes"]
+        assert hashlib.sha256(artifact.read_bytes()).hexdigest() == entry["sha256"]
+
+    original = manifest.read_bytes()
+    exported.shards[0].path.unlink()
+    with pytest.raises(FileNotFoundError):
+        emit_condition_release(paths, exported)
+    assert manifest.read_bytes() == original
 
 
 @pytest.mark.converter_smoke

@@ -1,6 +1,7 @@
 export type WorkerRequest =
   | { type: 'run-global-smoke'; manifestUrl: string }
   | { type: 'run-rvq-smoke'; manifestUrl: string }
+  | { type: 'run-condition-smoke'; manifestUrl: string }
   | {
       type: 'generate-frames';
       globalManifestUrl: string;
@@ -52,9 +53,20 @@ export type FrameGenerationResult = {
   artifactFetches: number;
   status: 'passed';
 };
+export type ConditionSmokeResult = {
+  adapter: string;
+  sessionCreateMs: number;
+  elapsedMs: number;
+  shape: readonly number[];
+  outputLocation: string;
+  finite: boolean;
+  artifactFetches: number;
+  status: 'passed';
+};
 export type WorkerResponse =
   | WorkerProgress
   | { type: 'result'; result: GlobalSmokeResult }
   | { type: 'rvq-result'; result: RvqSmokeResult }
   | { type: 'frame-result'; result: FrameGenerationResult }
+  | { type: 'condition-result'; result: ConditionSmokeResult }
   | { type: 'error'; message: string };

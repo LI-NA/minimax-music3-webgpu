@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { inspectWebGpu, type WebGpuCapability } from '../runtime/model/webgpu-device';
 import type {
+  ConditionSmokeResult,
   FrameGenerationResult,
   GlobalSmokeResult,
   RvqSmokeResult,
@@ -15,6 +16,7 @@ export function App() {
   const [result, setResult] = useState<GlobalSmokeResult | null>(null);
   const [rvqResult, setRvqResult] = useState<RvqSmokeResult | null>(null);
   const [frameResult, setFrameResult] = useState<FrameGenerationResult | null>(null);
+  const [conditionResult, setConditionResult] = useState<ConditionSmokeResult | null>(null);
   const worker = useRef<Worker | null>(null);
 
   useEffect(() => {
@@ -87,6 +89,24 @@ export function App() {
       seed: 7,
     });
   };
+  const runCondition = () => {
+    cancel();
+    setConditionResult(null);
+    setProgress('Starting isolated condition runtime worker');
+    const next = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), { type: 'module' });
+    worker.current = next;
+    next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
+      if (data.type === 'progress') setProgress(`${data.stage}: ${data.detail}`);
+      else if (data.type === 'condition-result') {
+        setConditionResult(data.result);
+        setProgress('Condition encoder runtime passed');
+      } else if (data.type === 'error') setProgress(`Error: ${data.message}`);
+    };
+    next.postMessage({
+      type: 'run-condition-smoke',
+      manifestUrl: 'http://127.0.0.1:5176/manifest.json',
+    });
+  };
 
   const status =
     capability === null
@@ -113,6 +133,9 @@ export function App() {
           <button type="button" disabled={!capability?.supported} onClick={generateFrames}>
             Generate RVQ frames
           </button>
+          <button type="button" disabled={!capability?.supported} onClick={runCondition}>
+            Run condition encoder smoke
+          </button>
           <button type="button" className="secondary" disabled={!worker.current} onClick={cancel}>
             Cancel worker
           </button>
@@ -133,6 +156,11 @@ export function App() {
         {frameResult && (
           <pre data-testid="frame-generation-result" className="result">
             {`frames: ${frameResult.frames}\nsemantic decisions: ${frameResult.semanticDecisions}\nRVQ calls: ${frameResult.rvqCalls}\nfeedback decodes: ${frameResult.feedbackDecodes}\ncache lengths: ${frameResult.cacheLengths.join(', ')}\nfinite hidden groups: ${frameResult.finiteHiddenGroups ? 'yes' : 'no'}\ncodes in range: ${frameResult.codesInRange ? 'yes' : 'no'}\n${JSON.stringify(frameResult, null, 2)}`}
+          </pre>
+        )}
+        {conditionResult && (
+          <pre data-testid="condition-smoke-result" className="result">
+            {`shape: ${conditionResult.shape.join(', ')}\noutput location: ${conditionResult.outputLocation}\nfinite: ${conditionResult.finite ? 'yes' : 'no'}\n${JSON.stringify(conditionResult, null, 2)}`}
           </pre>
         )}
       </section>

@@ -20,6 +20,12 @@ export default defineConfig({
       reuseExistingServer: false,
       env: { ...process.env, MINIMAX_RELEASE: 'rvq', MINIMAX_ARTIFACT_PORT: '5175' },
     },
+    {
+      command: 'node tools/serve-artifacts.mjs',
+      url: 'http://127.0.0.1:5176/manifest.json',
+      reuseExistingServer: false,
+      env: { ...process.env, MINIMAX_RELEASE: 'condition', MINIMAX_ARTIFACT_PORT: '5176' },
+    },
   ],
   use: {
     baseURL: 'http://127.0.0.1:5173',

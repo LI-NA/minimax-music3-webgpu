@@ -1,8 +1,13 @@
 /// <reference lib="webworker" />
 import { OpfsArtifactStore, ensureArtifact } from '../runtime/model/artifact-cache';
 import { OpfsFp16EmbeddingTable } from '../runtime/model/embedding-table';
-import { parseModelManifest, parseRvqStageManifest } from '../runtime/model/manifest';
+import {
+  parseConditionManifest,
+  parseModelManifest,
+  parseRvqStageManifest,
+} from '../runtime/model/manifest';
 import { createWebGpuDevice } from '../runtime/model/webgpu-device';
+import { runConditionSmoke } from '../runtime/pipeline/condition-smoke';
 import { runGlobalSmoke } from '../runtime/pipeline/global-smoke';
 import { runRvqSmoke } from '../runtime/pipeline/rvq-smoke';
 import {
@@ -27,6 +32,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   );
 };
 async function run(request: WorkerRequest) {
+  if (request.type === 'run-condition-smoke') return runCondition(request.manifestUrl);
   if (request.type === 'generate-frames') return runFrameGeneration(request);
   if (request.type === 'run-rvq-smoke') return runRvq(request.manifestUrl);
   if (request.type !== 'run-global-smoke') return;
@@ -114,6 +120,39 @@ async function run(request: WorkerRequest) {
   } finally {
     await head?.release();
     await graph?.release();
+    device.destroy();
+  }
+}
+
+async function runCondition(manifestUrl: string) {
+  send({ type: 'progress', stage: 'manifest', detail: 'Reading condition release manifest' });
+  const release = await readManifest(manifestUrl, 'Condition release manifest is unavailable');
+  const manifest = parseConditionManifest(JSON.parse(release.text));
+  const artifacts = [manifest.conditionEncoder, ...manifest.conditionEncoder.externalData];
+  const artifactFetches = await cacheArtifacts(artifacts, release.base, release.cache);
+  send({ type: 'progress', stage: 'adapter', detail: 'Requesting shader-f16 WebGPU device' });
+  const { adapter, device } = await createWebGpuDevice(navigator.gpu, manifest.webgpu.requiredLimits);
+  const { createOrtSession } = await import('../runtime/model/ort-session');
+  const ort = await import('onnxruntime-web/jspi');
+  let conditionEncoder: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+  try {
+    send({ type: 'progress', stage: 'session', detail: 'Creating WebGPU condition encoder session' });
+    const started = performance.now();
+    conditionEncoder = await createOrtSession(manifest.conditionEncoder, release.cache, device);
+    const sessionCreateMs = performance.now() - started;
+    const metrics = await runConditionSmoke({ ort, session: conditionEncoder });
+    send({
+      type: 'condition-result',
+      result: {
+        adapter: adapter.info.description || adapter.info.vendor || 'WebGPU adapter',
+        ...metrics,
+        sessionCreateMs,
+        artifactFetches,
+        status: 'passed',
+      },
+    });
+  } finally {
+    await conditionEncoder?.release();
     device.destroy();
   }
 }
