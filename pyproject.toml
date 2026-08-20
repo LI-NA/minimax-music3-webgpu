@@ -24,3 +24,6 @@ music3-convert = "minimax_music3_webgpu.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tools/converter/src/minimax_music3_webgpu"]
+
+[tool.pytest.ini_options]
+markers = ["converter_smoke: local ONNX Runtime conversion smoke"]

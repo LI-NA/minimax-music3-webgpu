@@ -5,6 +5,8 @@ from pathlib import Path
 
 from .paths import ArtifactPaths
 from .source import download_global_source
+from .global_decoder import build_global_decoder
+from .manifest import emit_global_release
 
 
 def main() -> None:
@@ -12,9 +14,16 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command")
     download_parser = subparsers.add_parser("download-global")
     download_parser.add_argument("--artifacts-dir", type=Path, default=Path("artifacts"))
+    build_parser = subparsers.add_parser("build-global")
+    build_parser.add_argument("--artifacts-dir", type=Path, default=Path("artifacts"))
+    build_parser.add_argument("--layers", type=int, choices=(1, 36), default=36)
     args = parser.parse_args()
     if args.command == "download-global":
         download_global_source(ArtifactPaths.from_root(args.artifacts_dir))
+    if args.command == "build-global":
+        paths = ArtifactPaths.from_root(args.artifacts_dir)
+        build_global_decoder(paths, args.layers)
+        emit_global_release(paths, args.layers)
 
 
 if __name__ == "__main__":
