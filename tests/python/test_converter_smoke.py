@@ -7,7 +7,7 @@ import pytest
 import torch
 from transformers import Qwen3Config, Qwen3ForCausalLM
 
-from minimax_music3_webgpu.global_decoder import builder_arguments, validate_global_decoder
+from minimax_music3_webgpu.global_decoder import builder_arguments, rewrite_attention_mask_for_gqa, validate_global_decoder
 
 
 @pytest.mark.converter_smoke
@@ -39,20 +39,22 @@ def test_tiny_qwen3_builder_prefill_and_cached_decode_are_finite(tmp_path) -> No
 
     session = unfused_session
     inputs = {
-        "inputs_embeds": np.zeros((1, 2, 64), dtype=np.float16),
-        "attention_mask": np.ones((1, 2), dtype=np.int64),
+        "inputs_embeds": np.zeros((2, 2, 64), dtype=np.float16),
+        "seqlens_k": np.array([1, 1], dtype=np.int32),
+        "total_seq_len": np.array(2, dtype=np.int32),
     }
     for item in session.get_inputs():
         if "past" in item.name:
-            inputs[item.name] = np.zeros((1, 2, 0, 16), dtype=np.float16)
+            inputs[item.name] = np.zeros((2, 2, 0, 16), dtype=np.float16)
     outputs = session.run(None, inputs)
     assert all(np.isfinite(output).all() for output in outputs)
     first_cache = {item.name: value for item, value in zip(session.get_outputs(), outputs, strict=True) if "present" in item.name}
 
     for expected_length in (3, 4):
         step_inputs = {
-            "inputs_embeds": np.zeros((1, 1, 64), dtype=np.float16),
-            "attention_mask": np.ones((1, expected_length), dtype=np.int64),
+            "inputs_embeds": np.zeros((2, 1, 64), dtype=np.float16),
+            "seqlens_k": np.array([expected_length - 1, expected_length - 1], dtype=np.int32),
+            "total_seq_len": np.array(expected_length, dtype=np.int32),
         }
         for item in session.get_inputs():
             if "past" in item.name:
@@ -72,4 +74,6 @@ def _build(source, root, name: str, fused: bool):
         check=False,
     )
     assert process.returncode == 0, process.stderr or process.stdout
-    return output / "global_decoder.onnx"
+    model = output / "global_decoder.onnx"
+    rewrite_attention_mask_for_gqa(model, batch_size=2)
+    return model

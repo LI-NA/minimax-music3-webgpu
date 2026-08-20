@@ -22,16 +22,7 @@ export async function createOrtSession(
   );
   return ort.InferenceSession.create(model, {
     externalData,
-    executionProviders: [
-      {
-        name: 'webgpu',
-        device,
-        storageBufferCacheMode: 'disabled',
-        uniformBufferCacheMode: 'disabled',
-        queryResolveBufferCacheMode: 'disabled',
-        defaultBufferCacheMode: 'disabled',
-      },
-    ],
+    executionProviders: ['webgpu'],
     executionMode: 'sequential',
     graphOptimizationLevel: 'all',
     enableMemPattern: false,

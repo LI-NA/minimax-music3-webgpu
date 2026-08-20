@@ -16,6 +16,10 @@ export interface ArtifactStore {
   markComplete(path: string): Promise<void>;
   file(path: string): Promise<File>;
 }
+export interface OpfsSyncFileHandle {
+  read(buffer: Uint8Array, options: { at: number }): number;
+  close(): void;
+}
 export type Fetcher = (input: URL, init?: RequestInit) => Promise<Response>;
 
 export async function ensureArtifact(
@@ -142,5 +146,11 @@ export class OpfsArtifactStore implements ArtifactStore {
   }
   async file(path: string) {
     return (await this.handle(path)).getFile();
+  }
+  async openSyncFile(path: string): Promise<OpfsSyncFileHandle> {
+    const handle = (await this.handle(path)) as FileSystemFileHandle & {
+      createSyncAccessHandle(): Promise<OpfsSyncFileHandle>;
+    };
+    return handle.createSyncAccessHandle();
   }
 }

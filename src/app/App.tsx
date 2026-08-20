@@ -36,7 +36,7 @@ export function App() {
     };
     next.postMessage({
       type: 'run-global-smoke',
-      manifestUrl: '/artifacts/manifest.json',
+      manifestUrl: 'http://127.0.0.1:5174/manifest.json',
     });
   };
 
@@ -57,7 +57,7 @@ export function App() {
         </p>
         <div className="command-row">
           <button type="button" disabled={!capability?.supported} onClick={run}>
-            Run runtime diagnostic
+            Run Global LLM smoke
           </button>
           <button type="button" className="secondary" disabled={!worker.current} onClick={cancel}>
             Cancel worker
@@ -66,7 +66,11 @@ export function App() {
         <output aria-live="polite" className="progress">
           {progress}
         </output>
-        {result && <pre className="result">{JSON.stringify(result, null, 2)}</pre>}
+        {result && (
+          <pre data-testid="global-smoke-result" className="result">
+            {`steps: ${result.stepMs.length - 1}\nfinite logits: ${result.finiteLogits ? 'yes' : 'no'}\nKV location: ${result.tensorLocations.every((location) => location === 'gpu-buffer') ? 'gpu-buffer' : 'non-GPU'}\n${JSON.stringify(result, null, 2)}`}
+          </pre>
+        )}
       </section>
     </main>
   );

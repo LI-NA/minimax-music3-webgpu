@@ -7,7 +7,7 @@ import onnx
 import pytest
 from onnx import TensorProto, helper, numpy_helper
 
-from minimax_music3_webgpu.global_decoder import builder_arguments, validate_global_decoder
+from minimax_music3_webgpu.global_decoder import builder_arguments, rewrite_attention_mask_for_gqa, validate_global_decoder
 from minimax_music3_webgpu.manifest import emit_manifest, _kv_pairs, _source_shard
 from minimax_music3_webgpu.paths import ArtifactPaths
 from minimax_music3_webgpu import manifest
@@ -44,6 +44,52 @@ def test_validate_global_decoder_enforces_cache_and_q4_graph_invariants(tmp_path
     assert report.past_inputs == layers * 2
     assert report.present_outputs == layers * 2
     assert report.hidden_output == "hidden_states"
+    assert report.explicit_sequence_inputs == ("seqlens_k", "total_seq_len")
+
+
+def test_validate_global_decoder_rejects_attention_mask_and_mask_reformat_nodes(tmp_path) -> None:
+    model_path = tmp_path / "global_decoder.onnx"
+    _write_decoder_fixture(model_path, 1, include_attention_mask=True)
+
+    with pytest.raises(ValueError, match="attention_mask"):
+        validate_global_decoder(model_path, expected_layers=1)
+
+
+def test_validate_global_decoder_requires_explicit_gqa_sequence_inputs(tmp_path) -> None:
+    model_path = tmp_path / "global_decoder.onnx"
+    _write_decoder_fixture(model_path, 1, explicit_sequence_inputs=False)
+
+    with pytest.raises(ValueError, match="explicit sequence"):
+        validate_global_decoder(model_path, expected_layers=1)
+
+
+def test_validate_global_decoder_rejects_retained_mask_reformat_nodes(tmp_path) -> None:
+    model_path = tmp_path / "global_decoder.onnx"
+    _write_decoder_fixture(model_path, 1, include_mask_reformat=True)
+
+    with pytest.raises(ValueError, match="mask reformat"):
+        validate_global_decoder(model_path, expected_layers=1)
+
+
+def test_rewrite_attention_mask_for_gqa_removes_only_mask_bookkeeping(tmp_path) -> None:
+    model_path = tmp_path / "global_decoder.onnx"
+    _write_decoder_fixture(
+        model_path,
+        1,
+        include_attention_mask=True,
+        explicit_sequence_inputs=False,
+        gqa_uses_mask_reformat=True,
+    )
+
+    rewrite_attention_mask_for_gqa(model_path)
+
+    model = onnx.load_model(model_path, load_external_data=False)
+    assert [item.name for item in model.graph.input if item.name == "attention_mask"] == []
+    assert {item.name for item in model.graph.input} >= {"seqlens_k", "total_seq_len"}
+    gqa = next(node for node in model.graph.node if node.op_type == "GroupQueryAttention")
+    assert gqa.input[5:7] == ["seqlens_k", "total_seq_len"]
+    assert not any("mask" in name.lower() for node in model.graph.node for name in (*node.input, *node.output))
+    validate_global_decoder(model_path, expected_layers=1)
 
 
 def test_validate_global_decoder_rejects_full_embedding_initializer(tmp_path) -> None:
@@ -134,6 +180,10 @@ def test_emit_global_release_assembles_all_browser_artifacts(tmp_path, monkeypat
     assert result == release / "manifest.json"
     assert payload["schemaVersion"] == 1
     assert payload["graph"]["externalData"][0]["onnxLocation"] == "weights.bin"
+    assert payload["webgpu"]["requiredLimits"] == {
+        "maxStorageBufferBindingSize": 134217728,
+        "maxStorageBuffersPerShaderStage": 9,
+    }
     assert payload["reducedHead"]["path"] == "reduced-head/reduced-head.onnx"
     assert (release / "embedding" / "embedding-000.fp16").is_file()
     assert (release / "reduced-head" / "reduced-head.onnx").is_file()
@@ -179,15 +229,41 @@ def test_prompt_contract_has_exact_40_token_rows() -> None:
     assert unconditional == [151644] + [151654] * 37 + [151645, 151669]
 
 
-def _write_decoder_fixture(path, layers: int, initializer_name: str = "qweight") -> None:
+def _write_decoder_fixture(path, layers: int, initializer_name: str = "qweight", include_attention_mask: bool = False,
+                           explicit_sequence_inputs: bool = True, include_mask_reformat: bool = False,
+                           gqa_uses_mask_reformat: bool = False) -> None:
     inputs = [helper.make_tensor_value_info("inputs_embeds", TensorProto.FLOAT16, [1, None, 64])]
+    if include_attention_mask:
+        inputs.append(helper.make_tensor_value_info("attention_mask", TensorProto.INT64, [1, None]))
+    if explicit_sequence_inputs:
+        inputs.extend([
+            helper.make_tensor_value_info("seqlens_k", TensorProto.INT32, [2]),
+            helper.make_tensor_value_info("total_seq_len", TensorProto.INT32, []),
+        ])
     outputs = [helper.make_tensor_value_info("hidden_states", TensorProto.FLOAT16, [1, None, 64])]
     nodes = []
     for index in range(layers):
         for cache in ("key", "value"):
             inputs.append(helper.make_tensor_value_info(f"past_key_values.{index}.{cache}", TensorProto.FLOAT16, [1, 2, None, 16]))
             outputs.append(helper.make_tensor_value_info(f"present.{index}.{cache}", TensorProto.FLOAT16, [1, 2, None, 16]))
-        nodes.append(helper.make_node("GroupQueryAttention", ["inputs_embeds"], [f"layer_{index}"], domain="com.microsoft"))
+        gqa_inputs = ["inputs_embeds", "", "", "", "", "mask_sequence", "mask_sum"] if gqa_uses_mask_reformat else (["inputs_embeds", "", "", "", "", "seqlens_k", "total_seq_len"] if explicit_sequence_inputs else ["inputs_embeds"])
+        nodes.append(
+            helper.make_node(
+                "GroupQueryAttention",
+                gqa_inputs,
+                [f"layer_{index}", f"present.{index}.key", f"present.{index}.value"],
+                domain="com.microsoft",
+            )
+        )
+    if include_attention_mask or include_mask_reformat:
+        mask_source = "attention_mask" if include_attention_mask else "inputs_embeds"
+        nodes.extend([
+            helper.make_node("Shape", [mask_source], ["mask_shape"]),
+            helper.make_node("Gather", ["mask_shape", "qweight"], ["mask_length"]),
+            helper.make_node("Cast", ["mask_length"], ["mask_length_i32"], to=TensorProto.INT32),
+            helper.make_node("ReduceSum", ["mask_length_i32"], ["mask_sum"], keepdims=0),
+            helper.make_node("Sub", ["mask_sum", "mask_length_i32"], ["mask_sequence"]),
+        ])
     nodes.append(helper.make_node("MatMulNBits", ["inputs_embeds", initializer_name], ["hidden_states"], domain="com.microsoft", bits=4, block_size=128))
     initializer = numpy_helper.from_array(np.zeros((1,), dtype=np.uint8), initializer_name)
     model = helper.make_model(helper.make_graph(nodes, "decoder", inputs, outputs, [initializer]), opset_imports=[helper.make_opsetid("", 21), helper.make_opsetid("com.microsoft", 1)])

@@ -40,6 +40,10 @@ const manifest = {
     ],
   },
   kvPairs: [{ pastInput: 'past.0', presentOutput: 'present.0' }],
+  webgpu: {
+    requiredFeatures: ['shader-f16'],
+    requiredLimits: { maxStorageBufferBindingSize: 128 },
+  },
 };
 
 describe('parseModelManifest', () => {
@@ -47,6 +51,13 @@ describe('parseModelManifest', () => {
     const parsed = parseModelManifest(manifest);
     expect(parsed.graph.path).toBe('graphs/global.onnx');
     expect(parsed.reducedHead.gpuOutputs).toEqual(['semantic_logits']);
+    expect(parsed.webgpu.requiredLimits).toEqual({ maxStorageBufferBindingSize: 128 });
+  });
+
+  it('requires the schema WebGPU feature contract', () => {
+    expect(() =>
+      parseModelManifest({ ...manifest, webgpu: { requiredFeatures: [], requiredLimits: {} } }),
+    ).toThrow('requiredFeatures');
   });
 
   it('rejects a traversal artifact path', () => {

@@ -30,6 +30,10 @@ export interface ModelManifest {
   reducedHead: OnnxGraphArtifact;
   embedding: Fp16EmbeddingTable;
   kvPairs: readonly KvPairSpec[];
+  webgpu: {
+    requiredFeatures: readonly ['shader-f16'];
+    requiredLimits: Readonly<Record<string, number>>;
+  };
 }
 
 const SHA = /^[a-f0-9]{64}$/;
@@ -135,11 +139,27 @@ export function parseModelManifest(value: unknown): ModelManifest {
     })
   )
     throw new Error('kvPairs are invalid');
+  const webgpu = object(root.webgpu, 'webgpu');
+  if (
+    !Array.isArray(webgpu.requiredFeatures) ||
+    webgpu.requiredFeatures.length !== 1 ||
+    webgpu.requiredFeatures[0] !== 'shader-f16'
+  )
+    throw new Error('webgpu requiredFeatures must be [shader-f16]');
+  const requiredLimits = object(webgpu.requiredLimits, 'webgpu requiredLimits');
+  for (const [name, value] of Object.entries(requiredLimits)) {
+    if (!name || typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
+      throw new Error('webgpu requiredLimits are invalid');
+  }
   return {
     schemaVersion: 1,
     graph: graph(root.graph, 'graph'),
     reducedHead: graph(root.reducedHead, 'reducedHead'),
     embedding,
     kvPairs: root.kvPairs as KvPairSpec[],
+    webgpu: {
+      requiredFeatures: ['shader-f16'],
+      requiredLimits: requiredLimits as Record<string, number>,
+    },
   };
 }

@@ -8,10 +8,15 @@ export type WorkerProgress = {
 };
 export type GlobalSmokeResult = {
   adapter: string;
-  graphInputs: readonly string[];
-  graphOutputs: readonly string[];
-  reducedHeadOutputs: readonly string[];
-  status: 'ready';
+  sessionCreateMs: number;
+  stepMs: readonly number[];
+  cacheLengths: readonly number[];
+  tensorLocations: readonly string[];
+  finiteLogits: boolean;
+  ownedTensorBytes: number;
+  artifactFetches: number;
+  cacheReuseCount: number;
+  status: 'passed';
 };
 export type WorkerResponse =
   | WorkerProgress

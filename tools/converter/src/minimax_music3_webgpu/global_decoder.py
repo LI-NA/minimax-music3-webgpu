@@ -23,6 +23,7 @@ class GraphReport:
     hidden_output: str
     matmul_nbits_nodes: int
     external_locations: tuple[str, ...]
+    explicit_sequence_inputs: tuple[str, str]
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,7 @@ def build_global_decoder(paths: ArtifactPaths, num_hidden_layers: int = 36) -> G
     built = output / "global_decoder.onnx"
     if not built.is_file():
         raise FileNotFoundError(f"ORT GenAI builder did not produce {built}")
+    rewrite_attention_mask_for_gqa(built)
     packed_dir = paths.work / f"global-packed-{num_hidden_layers}"
     paths.validate_write_targets(packed_dir)
     repacked = repack_external_data(built, packed_dir, ARTIFACT_FILE_LIMIT)
@@ -99,10 +101,33 @@ def validate_global_decoder(model_path: Path, expected_layers: int = 36) -> Grap
     output_names = {value.name for value in graph.output}
     if "inputs_embeds" not in names:
         raise ValueError("decoder is missing inputs_embeds")
+    if "attention_mask" in names:
+        raise ValueError("decoder must not expose attention_mask")
+    explicit_inputs = ("seqlens_k", "total_seq_len")
+    if any(name not in names for name in explicit_inputs):
+        raise ValueError("decoder is missing explicit sequence inputs")
+    input_types = {item.name: item.type.tensor_type for item in graph.input}
+    if (
+        input_types["seqlens_k"].elem_type != onnx.TensorProto.INT32
+        or input_types["total_seq_len"].elem_type != onnx.TensorProto.INT32
+        or [dimension.dim_value for dimension in input_types["seqlens_k"].shape.dim] != [2]
+        or len(input_types["total_seq_len"].shape.dim) != 0
+    ):
+        raise ValueError("decoder explicit sequence inputs have invalid types or shapes")
     hidden = next((name for name in output_names if "hidden" in name), None)
     if hidden is None:
         raise ValueError("decoder is missing hidden-state output")
     attention = sum(node.op_type == "GroupQueryAttention" for node in graph.node)
+    gqa_nodes = [node for node in graph.node if node.op_type == "GroupQueryAttention"]
+    if any(len(node.input) < 7 or node.input[5] != "seqlens_k" or node.input[6] != "total_seq_len" for node in gqa_nodes):
+        raise ValueError("decoder GQA nodes must use explicit sequence inputs")
+    mask_reformat_types = {"Shape", "Gather", "Cast", "ReduceSum", "Sub"}
+    if any(
+        node.op_type in mask_reformat_types
+        and any("mask" in name.lower() for name in (*node.input, *node.output))
+        for node in graph.node
+    ):
+        raise ValueError("decoder retains mask reformat nodes")
     past = sum("past" in name for name in names)
     present = sum("present" in name for name in output_names)
     if attention != expected_layers or past != expected_layers * 2 or present != expected_layers * 2:
@@ -142,7 +167,75 @@ def validate_global_decoder(model_path: Path, expected_layers: int = 36) -> Grap
             locations.add(location)
             if length > ARTIFACT_FILE_LIMIT:
                 raise ValueError("decoder initializer exceeds artifact limit")
-    return GraphReport(attention, past, present, hidden, len(q4_nodes), tuple(sorted(locations)))
+    return GraphReport(attention, past, present, hidden, len(q4_nodes), tuple(sorted(locations)), explicit_inputs)
+
+
+def rewrite_attention_mask_for_gqa(model_path: Path, batch_size: int = 2) -> None:
+    """Replace builder mask bookkeeping with the GQA inputs supported by WebGPU."""
+    model = onnx.load_model(model_path, load_external_data=False)
+    graph = model.graph
+    if any(item.name == "seqlens_k" for item in graph.input) or any(item.name == "total_seq_len" for item in graph.input):
+        raise ValueError("decoder already has explicit sequence inputs")
+    if not any(item.name == "attention_mask" for item in graph.input):
+        raise ValueError("decoder is missing attention_mask for GQA rewrite")
+    gqa_nodes = [node for node in graph.node if node.op_type == "GroupQueryAttention"]
+    if not gqa_nodes or any(len(node.input) < 7 for node in gqa_nodes):
+        raise ValueError("decoder GQA nodes do not expose sequence inputs")
+
+    producers = {output: node for node in graph.node for output in node.output if output}
+    removable: set[int] = set()
+
+    def trace(name: str) -> None:
+        node = producers.get(name)
+        if node is None:
+            return
+        index = id(node)
+        if index in removable:
+            return
+        removable.add(index)
+        for source in node.input:
+            trace(source)
+
+    for node in gqa_nodes:
+        trace(node.input[5])
+        trace(node.input[6])
+        node.input[5] = "seqlens_k"
+        node.input[6] = "total_seq_len"
+    removable_nodes = [node for node in graph.node if id(node) in removable]
+    if not removable_nodes or not any("attention_mask" in node.input for node in removable_nodes):
+        raise ValueError("decoder mask reformat subgraph was not found")
+    for node in removable_nodes:
+        for output in node.output:
+            consumers = [candidate for candidate in graph.node if output and output in candidate.input]
+            if any(id(candidate) not in removable for candidate in consumers) or output in {item.name for item in graph.output}:
+                raise ValueError("decoder mask reformat output has an external consumer")
+    retained_nodes = [node for node in graph.node if id(node) not in removable]
+    del graph.node[:]
+    graph.node.extend(retained_nodes)
+    retained_inputs = [item for item in graph.input if item.name != "attention_mask"]
+    del graph.input[:]
+    graph.input.extend(retained_inputs)
+    graph.input.extend([
+        onnx.helper.make_tensor_value_info("seqlens_k", onnx.TensorProto.INT32, [batch_size]),
+        onnx.helper.make_tensor_value_info("total_seq_len", onnx.TensorProto.INT32, []),
+    ])
+    onnx.save_model(model, model_path)
+    _check_model_structure(model, model_path)
+
+
+def _check_model_structure(model: onnx.ModelProto, model_path: Path) -> None:
+    """Run ONNX structural validation while preserving ORT GenAI's extension domain."""
+    checker_model = onnx.ModelProto()
+    checker_model.CopyFrom(model)
+    for node in checker_model.graph.node:
+        if node.domain == "" and node.op_type == "SimplifiedLayerNormalization":
+            node.domain = "com.microsoft"
+    checker_path = model_path.with_name(f".{model_path.name}.check")
+    try:
+        onnx.save_model(checker_model, checker_path)
+        onnx.checker.check_model(checker_path)
+    finally:
+        checker_path.unlink(missing_ok=True)
 
 
 def _receipt_payload(receipt: GlobalDecoderReceipt) -> dict:

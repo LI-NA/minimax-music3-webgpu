@@ -26,4 +26,7 @@ export class GpuKvState {
     this.values.forEach((tensor) => tensor.dispose());
     this.values.clear();
   }
+  ownedBytes() {
+    return [...this.values.values()].reduce((total, tensor) => total + tensor.gpuBuffer.size, 0);
+  }
 }

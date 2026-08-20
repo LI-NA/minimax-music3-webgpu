@@ -37,7 +37,7 @@ def emit_manifest(
         "schemaVersion": 1,
         "model": {"id": MODEL_ID, "revision": MODEL_REVISION, "diffusersRevision": DIFFUSERS_REVISION},
         "quantization": {"bits": 4, "blockSize": 128, "accuracyLevel": 4, "symmetric": True},
-        "webgpu": {"requiredFeatures": ["shader-f16"], "requiredLimits": {"maxStorageBufferBindingSize": ARTIFACT_FILE_LIMIT}},
+        "webgpu": {"requiredFeatures": ["shader-f16"], "requiredLimits": {"maxStorageBufferBindingSize": ARTIFACT_FILE_LIMIT, "maxStorageBuffersPerShaderStage": 9}},
         "graph": {**_file(graph, root), "externalData": external, "gpuOutputs": gpu_outputs},
         "embedding": {"rows": 200000, "columns": 4096, "rowBytes": 8192, "shards": [{**_file(file, root), "rowStart": start, "rowCount": count} for start, count, file in embedding_shards]},
         "tokenizerFiles": [{**_file(file, root), "path": location} for location, file in tokenizer_files],

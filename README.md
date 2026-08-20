@@ -2,7 +2,7 @@
 
 MiniMax Music 3 WebGPU is an experimental community project that aims to run the exact `MiniMaxAI/MiniMax-Music3` checkpoint locally in a desktop Chromium browser through WebGPU.
 
-The project is currently in the design phase. Browser inference is not implemented yet.
+The project is implementing the first browser feasibility gate. It converts the exact Global LLM into a reduced q4 release, caches release files in OPFS, and validates a 40-token prefill plus ten GPU-resident cached decode steps in headed Chrome before acoustic-stage work begins.
 
 ## Phase 1 goal
 
@@ -25,6 +25,8 @@ The browser runtime will use ONNX Runtime Web with its WebGPU execution provider
 Large model stages will be loaded and released separately to stay below the GPU-memory target. Custom WGSL kernels will be added only when a confirmed ONNX Runtime Web limitation blocks the end-to-end path.
 
 See the [approved phase 1 design](docs/superpowers/specs/2026-08-20-minimax-music3-webgpu-design.md) for the full requirements and technical decisions.
+
+For the exact Global LLM conversion and headed diagnostic commands, see [development conversion notes](docs/development/conversion.md) and the [feasibility record](docs/development/global-llm-feasibility.md).
 
 ## Model and license
 

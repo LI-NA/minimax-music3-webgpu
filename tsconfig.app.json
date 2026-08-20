@@ -14,12 +14,13 @@
     "noFallthroughCasesInSwitch": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
     "allowImportingTsExtensions": false,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["@webgpu/types", "vitest/globals"]
+    "types": ["@webgpu/types", "node", "vitest/globals"]
   },
   "include": ["src", "tests"]
 }

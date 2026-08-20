@@ -1,8 +1,9 @@
 /// <reference lib="webworker" />
 import { OpfsArtifactStore, ensureArtifact } from '../runtime/model/artifact-cache';
+import { OpfsFp16EmbeddingTable } from '../runtime/model/embedding-table';
 import { parseModelManifest } from '../runtime/model/manifest';
-import { createOrtSession } from '../runtime/model/ort-session';
 import { createWebGpuDevice } from '../runtime/model/webgpu-device';
+import { runGlobalSmoke } from '../runtime/pipeline/global-smoke';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 
 const send = (message: WorkerResponse) => self.postMessage(message);
@@ -25,8 +26,13 @@ async function run(request: WorkerRequest) {
     stage: 'manifest',
     detail: 'Reading release manifest',
   });
-  const response = await fetch(request.manifestUrl);
-  if (!response.ok) throw new Error('Unable to read release manifest');
+  let response: Response;
+  try {
+    response = await fetch(request.manifestUrl);
+  } catch {
+    throw new Error('Release manifest is unavailable');
+  }
+  if (!response.ok) throw new Error('Release manifest is unavailable');
   const manifestText = await response.text();
   const manifest = parseModelManifest(JSON.parse(manifestText));
   const cache = await OpfsArtifactStore.open(await hashText(manifestText));
@@ -36,38 +42,69 @@ async function run(request: WorkerRequest) {
     ...manifest.graph.externalData,
     manifest.reducedHead,
     ...manifest.reducedHead.externalData,
+    ...manifest.embedding.shards,
   ];
+  let artifactFetches = 0;
   for (const artifact of artifacts)
-    await ensureArtifact(artifact, new URL(artifact.path, base), cache, ({ path, loaded, total }) =>
-      send({
-        type: 'progress',
-        stage: 'artifact',
-        detail: path,
-        loaded,
-        total,
-      }),
+    await ensureArtifact(
+      artifact,
+      new URL(artifact.path, base),
+      cache,
+      ({ path, loaded, total }) =>
+        send({
+          type: 'progress',
+          stage: 'artifact',
+          detail: path,
+          loaded,
+          total,
+        }),
+      async (input, init) => {
+        artifactFetches++;
+        return fetch(input, init);
+      },
     );
   send({
     type: 'progress',
     stage: 'adapter',
     detail: 'Requesting shader-f16 WebGPU device',
   });
-  const { adapter, device } = await createWebGpuDevice(navigator.gpu);
+  const { adapter, device } = await createWebGpuDevice(navigator.gpu, manifest.webgpu.requiredLimits);
   send({
     type: 'progress',
     stage: 'session',
     detail: 'Creating WebGPU decoder session',
   });
-  const graph = await createOrtSession(manifest.graph, cache, device);
-  const head = await createOrtSession(manifest.reducedHead, cache, device);
-  send({
-    type: 'result',
-    result: {
-      adapter: adapter.info.description || adapter.info.vendor || 'WebGPU adapter',
-      graphInputs: graph.inputNames,
-      graphOutputs: graph.outputNames,
-      reducedHeadOutputs: head.outputNames,
-      status: 'ready',
-    },
-  });
+  const started = performance.now();
+  const { createOrtSession } = await import('../runtime/model/ort-session');
+  const ort = await import('onnxruntime-web/jspi');
+  let graph: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+  let head: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+  try {
+    graph = await createOrtSession(manifest.graph, cache, device);
+    head = await createOrtSession(manifest.reducedHead, cache, device);
+    const sessionCreateMs = performance.now() - started;
+    const metrics = await runGlobalSmoke({
+      ort,
+      decoder: graph,
+      head,
+      embedding: await OpfsFp16EmbeddingTable.open(manifest.embedding, (path) => cache.openSyncFile(path)),
+      embeddingTable: manifest.embedding,
+      kvPairs: manifest.kvPairs,
+    });
+    send({
+      type: 'result',
+      result: {
+        adapter: adapter.info.description || adapter.info.vendor || 'WebGPU adapter',
+        ...metrics,
+        sessionCreateMs,
+        artifactFetches,
+        cacheReuseCount: artifacts.length - artifactFetches,
+        status: 'passed',
+      },
+    });
+  } finally {
+    await head?.release();
+    await graph?.release();
+    device.destroy();
+  }
 }
