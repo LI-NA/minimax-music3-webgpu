@@ -510,6 +510,14 @@ export interface KvPairSpec {
   pastInput: string;
   presentOutput: string;
 }
+
+export interface ModelManifest {
+  schemaVersion: 1;
+  graph: OnnxGraphArtifact;
+  reducedHead: OnnxGraphArtifact;
+  embedding: Fp16EmbeddingTable;
+  kvPairs: readonly KvPairSpec[];
+}
 ```
 
 - [ ] **Step 1: Write manifest, embedding, cache, and KV ownership tests**
