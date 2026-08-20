@@ -124,7 +124,7 @@ rvq-depth.onnx
   global_last_hidden    float16 [2,4096]
   semantic_embedding    float16 [2,4096]
   residual_embeddings  float16 [2,6,4096]
-  depth_index           int64   []
+  depth_index           int32   []
   -> depth_hidden       float16 [2,4096]
   -> depth_logits       float32 [2,7,1024]
 

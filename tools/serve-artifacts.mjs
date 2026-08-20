@@ -4,7 +4,8 @@ import { resolve, sep } from 'node:path';
 
 const origin = 'http://127.0.0.1:5173';
 const port = Number(process.env.MINIMAX_ARTIFACT_PORT ?? 5174);
-const releaseName = process.env.MINIMAX_RELEASE === 'global-one-layer' ? 'global-one-layer' : 'global';
+const requestedRelease = process.env.MINIMAX_RELEASE;
+const releaseName = ['global-one-layer', 'rvq'].includes(requestedRelease) ? requestedRelease : 'global';
 const root = resolve(process.env.MINIMAX_RELEASE_ROOT ?? `artifacts/release/${releaseName}`);
 
 function reply(response, status, headers = {}) {

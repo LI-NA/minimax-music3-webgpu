@@ -13,6 +13,8 @@ from .constants import ARTIFACT_FILE_LIMIT, DIFFUSERS_REVISION, HIDDEN_SIZE, MOD
 from .paths import ArtifactPaths
 from .embedding import export_embedding_table
 from .reduced_head import export_reduced_head
+from .embedding import EmbeddingTableReceipt
+from .rvq_depth import RvqStageReceipt
 
 
 def emit_manifest(
@@ -48,6 +50,103 @@ def emit_manifest(
         payload["reducedHead"] = _onnx_graph(reduced_head, root, ["semantic_logits", "end_logit"])
     _atomic_json(path, payload)
     return path
+
+
+def emit_rvq_manifest(
+    path: Path,
+    *,
+    rvq_depth: Path,
+    feedback: Path,
+    embedding: EmbeddingTableReceipt,
+    rows: int = 7168,
+    columns: int = 4096,
+) -> Path:
+    root = path.parent
+    shards = [(item.row_start, item.row_count, item.path) for item in embedding.shards]
+    _validate_files([("RVQ depth", rvq_depth), ("feedback", feedback), *(("RVQ embedding", item.path) for item in embedding.shards)])
+    _validate_row_shards(shards, rows, columns)
+    payload = {
+        "schemaVersion": 1,
+        "model": {"id": MODEL_ID, "revision": MODEL_REVISION, "diffusersRevision": DIFFUSERS_REVISION},
+        "webgpu": {"requiredFeatures": ["shader-f16"], "requiredLimits": {"maxStorageBufferBindingSize": ARTIFACT_FILE_LIMIT, "maxStorageBuffersPerShaderStage": 9}},
+        "rvqDepth": _onnx_graph(rvq_depth, root, ["depth_hidden"]),
+        "rvqEmbedding": {
+            "rows": rows,
+            "columns": columns,
+            "rowBytes": columns * 2,
+            "shards": [
+                {**_file(file, root), "rowStart": start, "rowCount": count}
+                for start, count, file in shards
+            ],
+        },
+        "feedback": _onnx_graph(feedback, root, ["inputs_embeds"]),
+    }
+    _atomic_json(path, payload)
+    return path
+
+
+def emit_rvq_release(paths: ArtifactPaths, stage: RvqStageReceipt) -> Path:
+    release = paths.release / "rvq"
+    staging = paths.release / f".rvq-{uuid4().hex}.staging"
+    try:
+        (staging / "rvq-depth").mkdir(parents=True)
+        (staging / "embedding").mkdir(parents=True)
+        shutil.copy2(stage.graph.model_path, staging / "rvq-depth" / stage.graph.model_path.name)
+        for shard in stage.graph.shards:
+            shutil.copy2(shard.path, staging / "rvq-depth" / shard.path.name)
+        for shard in stage.embedding.shards:
+            shutil.copy2(shard.path, staging / "embedding" / shard.path.name)
+        shutil.copy2(stage.feedback, staging / "feedback.onnx")
+        graph = staging / "rvq-depth" / stage.graph.model_path.name
+        embedding = EmbeddingTableReceipt(
+            tuple(
+                type(item)(
+                    staging / "embedding" / item.path.name,
+                    item.row_start,
+                    item.row_count,
+                    item.columns,
+                    item.row_bytes,
+                    item.size,
+                    item.sha256,
+                )
+                for item in stage.embedding.shards
+            )
+        )
+        manifest = emit_rvq_manifest(
+            staging / "manifest.json",
+            rvq_depth=graph,
+            feedback=staging / "feedback.onnx",
+            embedding=embedding,
+        )
+        _validate_rvq_release(manifest)
+        _promote_directory(staging, release)
+        return release / "manifest.json"
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
+def _validate_rvq_release(manifest: Path) -> None:
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    entries = [
+        payload["rvqDepth"], payload["feedback"],
+        *payload["rvqDepth"]["externalData"], *payload["feedback"]["externalData"],
+        *payload["rvqEmbedding"]["shards"],
+    ]
+    for entry in entries:
+        file = manifest.parent / entry["path"]
+        if not file.is_file() or file.stat().st_size != entry["bytes"] or _sha256(file) != entry["sha256"]:
+            raise ValueError("RVQ release manifest reference is invalid")
+
+
+def _validate_row_shards(shards: list[tuple[int, int, Path]], rows: int, columns: int) -> None:
+    next_start = 0
+    for start, count, file in shards:
+        if start != next_start or count <= 0 or file.stat().st_size != count * columns * 2:
+            raise ValueError("invalid RVQ embedding shard receipt")
+        next_start += count
+    if next_start != rows:
+        raise ValueError("RVQ embedding shards do not cover the table")
 
 
 def emit_global_release(paths: ArtifactPaths, num_hidden_layers: int = 36) -> Path:

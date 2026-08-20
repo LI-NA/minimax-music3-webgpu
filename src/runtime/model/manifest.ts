@@ -35,6 +35,13 @@ export interface ModelManifest {
     requiredLimits: Readonly<Record<string, number>>;
   };
 }
+export interface RvqStageManifest {
+  schemaVersion: 1;
+  rvqDepth: OnnxGraphArtifact;
+  rvqEmbedding: Fp16EmbeddingTable;
+  feedback: OnnxGraphArtifact;
+  webgpu: ModelManifest['webgpu'];
+}
 
 const SHA = /^[a-f0-9]{64}$/;
 const safePath = (value: unknown, label: string): string => {
@@ -91,22 +98,20 @@ const graph = (value: unknown, label: string): OnnxGraphArtifact => {
   };
 };
 
-export function parseModelManifest(value: unknown): ModelManifest {
-  const root = object(value, 'manifest');
-  if (root.schemaVersion !== 1) throw new Error('schemaVersion must be 1');
-  const embeddingValue = object(root.embedding, 'embedding');
+const embeddingTable = (value: unknown, label: string): Fp16EmbeddingTable => {
+  const embeddingValue = object(value, label);
   const shards = embeddingValue.shards;
-  if (!Array.isArray(shards) || !shards.length) throw new Error('embedding shards are invalid');
+  if (!Array.isArray(shards) || !shards.length) throw new Error(`${label} shards are invalid`);
   const embedding = {
-    rows: integer(embeddingValue.rows, 'embedding rows'),
-    columns: integer(embeddingValue.columns, 'embedding columns'),
-    rowBytes: integer(embeddingValue.rowBytes, 'embedding rowBytes'),
+    rows: integer(embeddingValue.rows, `${label} rows`),
+    columns: integer(embeddingValue.columns, `${label} columns`),
+    rowBytes: integer(embeddingValue.rowBytes, `${label} rowBytes`),
     shards: shards.map((entry) => {
-      const item = object(entry, 'embedding shard');
+      const item = object(entry, `${label} shard`);
       return {
-        ...artifact(item, 'embedding shard'),
-        rowStart: integer(item.rowStart, 'embedding shard rowStart'),
-        rowCount: integer(item.rowCount, 'embedding shard rowCount'),
+        ...artifact(item, `${label} shard`),
+        rowStart: integer(item.rowStart, `${label} shard rowStart`),
+        rowCount: integer(item.rowCount, `${label} shard rowCount`),
       };
     }),
   };
@@ -125,7 +130,30 @@ export function parseModelManifest(value: unknown): ModelManifest {
     ) ||
     embedding.shards.at(-1)!.rowStart + embedding.shards.at(-1)!.rowCount !== embedding.rows
   )
-    throw new Error('embedding ranges are invalid');
+    throw new Error(`${label} ranges are invalid`);
+  return embedding;
+};
+
+const webgpuContract = (value: unknown): ModelManifest['webgpu'] => {
+  const webgpu = object(value, 'webgpu');
+  if (
+    !Array.isArray(webgpu.requiredFeatures) ||
+    webgpu.requiredFeatures.length !== 1 ||
+    webgpu.requiredFeatures[0] !== 'shader-f16'
+  )
+    throw new Error('webgpu requiredFeatures must be [shader-f16]');
+  const requiredLimits = object(webgpu.requiredLimits, 'webgpu requiredLimits');
+  for (const [name, value] of Object.entries(requiredLimits)) {
+    if (!name || typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
+      throw new Error('webgpu requiredLimits are invalid');
+  }
+  return { requiredFeatures: ['shader-f16'], requiredLimits: requiredLimits as Record<string, number> };
+};
+
+export function parseModelManifest(value: unknown): ModelManifest {
+  const root = object(value, 'manifest');
+  if (root.schemaVersion !== 1) throw new Error('schemaVersion must be 1');
+  const embedding = embeddingTable(root.embedding, 'embedding');
   if (
     !Array.isArray(root.kvPairs) ||
     root.kvPairs.some((pair) => {
@@ -139,18 +167,7 @@ export function parseModelManifest(value: unknown): ModelManifest {
     })
   )
     throw new Error('kvPairs are invalid');
-  const webgpu = object(root.webgpu, 'webgpu');
-  if (
-    !Array.isArray(webgpu.requiredFeatures) ||
-    webgpu.requiredFeatures.length !== 1 ||
-    webgpu.requiredFeatures[0] !== 'shader-f16'
-  )
-    throw new Error('webgpu requiredFeatures must be [shader-f16]');
-  const requiredLimits = object(webgpu.requiredLimits, 'webgpu requiredLimits');
-  for (const [name, value] of Object.entries(requiredLimits)) {
-    if (!name || typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
-      throw new Error('webgpu requiredLimits are invalid');
-  }
+  const webgpu = webgpuContract(root.webgpu);
   return {
     schemaVersion: 1,
     graph: graph(root.graph, 'graph'),
@@ -159,7 +176,25 @@ export function parseModelManifest(value: unknown): ModelManifest {
     kvPairs: root.kvPairs as KvPairSpec[],
     webgpu: {
       requiredFeatures: ['shader-f16'],
-      requiredLimits: requiredLimits as Record<string, number>,
+      requiredLimits: webgpu.requiredLimits,
     },
+  };
+}
+
+export function parseRvqStageManifest(value: unknown): RvqStageManifest {
+  const root = object(value, 'manifest');
+  if (root.schemaVersion !== 1) throw new Error('schemaVersion must be 1');
+  const rvqDepth = graph(root.rvqDepth, 'rvqDepth');
+  const feedback = graph(root.feedback, 'feedback');
+  if (!rvqDepth.gpuOutputs.includes('depth_hidden'))
+    throw new Error('rvqDepth must keep depth_hidden at gpu-buffer');
+  if (!feedback.gpuOutputs.includes('inputs_embeds'))
+    throw new Error('feedback must keep inputs_embeds at gpu-buffer');
+  return {
+    schemaVersion: 1,
+    rvqDepth,
+    rvqEmbedding: embeddingTable(root.rvqEmbedding, 'rvqEmbedding'),
+    feedback,
+    webgpu: webgpuContract(root.webgpu),
   };
 }

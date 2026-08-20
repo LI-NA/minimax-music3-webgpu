@@ -31,7 +31,7 @@ class _TensorSource:
 
 
 def repack_external_data(
-    model_path: Path, output_dir: Path, max_file_bytes: int
+    model_path: Path, output_dir: Path, max_file_bytes: int, inline_threshold: int = 0
 ) -> RepackedModel:
     model = onnx.load_model(model_path, load_external_data=False)
     sources = [_tensor_source(tensor, model_path.parent) for tensor in model.graph.initializer]
@@ -43,7 +43,7 @@ def repack_external_data(
     with TemporaryDirectory(prefix=f".{output_dir.name}-staging-", dir=output_dir.parent) as staging:
         staging_dir = Path(staging)
         generation = f"weights-{uuid4().hex}"
-        shards = _write_staged_shards(sources, staging_dir, max_file_bytes, generation)
+        shards = _write_staged_shards(sources, staging_dir, max_file_bytes, generation, inline_threshold)
         staged_model = staging_dir / model_path.name
         onnx.save_model(model, staged_model)
         _validate_ranges(staged_model, max_file_bytes)
@@ -97,13 +97,17 @@ def _source_path(model_dir: Path, location: str) -> Path:
 
 
 def _write_staged_shards(
-    sources: list[_TensorSource], staging_dir: Path, max_file_bytes: int, generation: str
+    sources: list[_TensorSource], staging_dir: Path, max_file_bytes: int, generation: str,
+    inline_threshold: int,
 ) -> list[ExternalDataShard]:
     shards: list[ExternalDataShard] = []
     current_file = None
     current_size = 0
     try:
         for source in sources:
+            if source.length <= inline_threshold:
+                _set_inline_data(source)
+                continue
             if current_file is None or current_size + source.length > max_file_bytes:
                 path = staging_dir / f"{generation}-{len(shards):03d}.bin"
                 current_file = path.open("wb")
@@ -116,6 +120,20 @@ def _write_staged_shards(
         if current_file is not None:
             current_file.close()
     return [ExternalDataShard(shard.path, shard.path.stat().st_size) for shard in shards]
+
+
+def _set_inline_data(source: _TensorSource) -> None:
+    if source.data is not None:
+        data = source.data
+    else:
+        with source.path.open("rb") as file:
+            file.seek(source.offset)
+            data = file.read(source.length)
+        if len(data) != source.length:
+            raise ValueError("external data is shorter than initializer metadata")
+    del source.tensor.external_data[:]
+    source.tensor.data_location = onnx.TensorProto.DEFAULT
+    source.tensor.raw_data = data
 
 
 def _promote_shard(staged_path: Path, target: Path) -> None:
@@ -159,6 +177,8 @@ def _validate_ranges(model_path: Path, max_file_bytes: int) -> None:
     model = onnx.load_model(model_path, load_external_data=False)
     for tensor in model.graph.initializer:
         fields = {entry.key: entry.value for entry in tensor.external_data}
+        if not fields:
+            continue
         location = fields["location"]
         offset = int(fields["offset"])
         length = int(fields["length"])

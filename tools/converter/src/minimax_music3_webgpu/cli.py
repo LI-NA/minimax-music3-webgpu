@@ -8,6 +8,8 @@ from .paths import ArtifactPaths
 from .source import download_global_source
 from .global_decoder import build_global_decoder
 from .manifest import emit_global_release
+from .manifest import emit_rvq_release
+from .rvq_depth import build_rvq_stage
 
 
 def main() -> None:
@@ -20,6 +22,8 @@ def main() -> None:
     build_parser = subparsers.add_parser("build-global")
     build_parser.add_argument("--artifacts-dir", type=Path, default=Path("artifacts"))
     build_parser.add_argument("--layers", type=int, choices=(1, 36), default=36)
+    rvq_parser = subparsers.add_parser("build-rvq")
+    rvq_parser.add_argument("--artifacts-dir", type=Path, default=Path("artifacts"))
     args = parser.parse_args()
     if args.command == "download-global":
         download_global_source(ArtifactPaths.from_root(args.artifacts_dir))
@@ -29,6 +33,9 @@ def main() -> None:
         paths = ArtifactPaths.from_root(args.artifacts_dir)
         build_global_decoder(paths, args.layers)
         emit_global_release(paths, args.layers)
+    if args.command == "build-rvq":
+        paths = ArtifactPaths.from_root(args.artifacts_dir)
+        emit_rvq_release(paths, build_rvq_stage(paths))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseModelManifest } from '../../../src/runtime/model/manifest';
+import { parseModelManifest, parseRvqStageManifest } from '../../../src/runtime/model/manifest';
 
 const sha = 'a'.repeat(64);
 const manifest = {
@@ -79,5 +79,31 @@ describe('parseModelManifest', () => {
         },
       }),
     ).toThrow('embedding');
+  });
+});
+
+describe('parseRvqStageManifest', () => {
+  const rvq = {
+    schemaVersion: 1,
+    rvqDepth: { ...manifest.graph, gpuOutputs: ['depth_hidden'] },
+    feedback: { ...manifest.reducedHead, gpuOutputs: ['inputs_embeds'] },
+    rvqEmbedding: {
+      ...manifest.embedding,
+      rows: 7,
+      shards: [{ ...manifest.embedding.shards[0], bytes: 56, rowCount: 7 }],
+    },
+    webgpu: manifest.webgpu,
+  };
+
+  it('parses the fixed depth, feedback, and residual row-table contract', () => {
+    const parsed = parseRvqStageManifest(rvq);
+    expect(parsed.rvqDepth.gpuOutputs).toEqual(['depth_hidden']);
+    expect(parsed.feedback.gpuOutputs).toEqual(['inputs_embeds']);
+    expect(parsed.rvqEmbedding.rows).toBe(7);
+  });
+
+  it('requires the GPU-resident hidden and feedback outputs', () => {
+    expect(() => parseRvqStageManifest({ ...rvq, feedback: { ...rvq.feedback, gpuOutputs: [] } }))
+      .toThrow('inputs_embeds');
   });
 });

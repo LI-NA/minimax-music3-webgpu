@@ -1,0 +1,11 @@
+{
+  "seed": 20260821,
+  "hiddenSize": 8,
+  "intermediateSize": 12,
+  "heads": 2,
+  "layers": 4,
+  "vocabSize": 5,
+  "positions": 8,
+  "absoluteTolerance": 0.025,
+  "relativeTolerance": 0.025
+}
