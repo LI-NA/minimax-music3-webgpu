@@ -379,6 +379,7 @@ def test_builder_arguments_target_webgpu_q4(tmp_path) -> None:
     assert "block_size=128" in args
     assert "accuracy_level=4" in args
     assert "is_symmetric=true" in args
+    assert "fuse_qk_norm_gqa=true" in args
 ```
 
 Graph validation tests parameterize the expected layer count. A 36-layer build requires 36 `GroupQueryAttention` nodes, 72 past inputs, and 72 present outputs, while a one-layer diagnostic build requires one attention node and two cache inputs and outputs. Every build requires an `inputs_embeds` input, q4 `MatMulNBits` nodes with block size 128, a hidden-state output, no token embedding initializer, no full LM-head initializer, no CPU-only fallback partition in a WebGPU optimization report, and no external initializer over 128 MiB.
@@ -417,7 +418,7 @@ Capture stdout, stderr, package versions, arguments, elapsed time, and exit code
 
 - [ ] **Step 4: Implement a tiny Qwen3 conversion smoke**
 
-Create a deterministic local `Qwen3ForCausalLM` fixture with vocabulary 128, hidden size 64, two layers, four attention heads, two KV heads, head size 16, and intermediate size 128. Save it with `save_pretrained`, run the same builder options, create an ONNX Runtime desktop session, perform prefill and two cached steps, and assert hidden and cache shapes are finite and grow by one token per step.
+Create a deterministic local `Qwen3ForCausalLM` fixture with vocabulary 128, hidden size 64, two layers, four attention heads, two KV heads, head size 16, and intermediate size 128. Save it with `save_pretrained`. Keep `fuse_qk_norm_gqa=true` as the production default and validate that fused WebGPU graph structurally. For the desktop CPU execution smoke only, build the same q4 graph with `fuse_qk_norm_gqa=false`, because ORT 1.28 CPU does not support the fused GQA Q/K normalization-weight inputs. Confirm the two variants retain identical inputs, outputs, q4 node count, attention count, and cache contract. Create an ONNX Runtime desktop session for the unfused diagnostic graph, perform prefill and two cached steps, and assert hidden and cache shapes are finite and grow by one token per step.
 
 - [ ] **Step 5: Emit the versioned global release manifest**
 
