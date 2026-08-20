@@ -1,4 +1,7 @@
-const localJspiFiles = new Set(['ort-wasm-simd-threaded.jspi.wasm', 'ort-wasm-simd-threaded.jspi.mjs']);
+const localJspiFiles = new Set([
+  'ort-wasm-simd-threaded.jspi.wasm',
+  'ort-wasm-simd-threaded.jspi.mjs',
+]);
 
 export function localJspiAssetName(url: string | undefined): string | undefined {
   if (!url) return undefined;
