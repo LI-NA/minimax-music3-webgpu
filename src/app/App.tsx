@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { inspectWebGpu, type WebGpuCapability } from '../runtime/model/webgpu-device';
 import type {
   ConditionSmokeResult,
+  FlowSmokeResult,
   FrameGenerationResult,
   GlobalSmokeResult,
   RvqSmokeResult,
@@ -17,6 +18,7 @@ export function App() {
   const [rvqResult, setRvqResult] = useState<RvqSmokeResult | null>(null);
   const [frameResult, setFrameResult] = useState<FrameGenerationResult | null>(null);
   const [conditionResult, setConditionResult] = useState<ConditionSmokeResult | null>(null);
+  const [flowResult, setFlowResult] = useState<FlowSmokeResult | null>(null);
   const worker = useRef<Worker | null>(null);
 
   useEffect(() => {
@@ -107,6 +109,24 @@ export function App() {
       manifestUrl: 'http://127.0.0.1:5176/manifest.json',
     });
   };
+  const runFlow = () => {
+    cancel();
+    setFlowResult(null);
+    setProgress('Starting isolated flow runtime worker');
+    const next = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), { type: 'module' });
+    worker.current = next;
+    next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
+      if (data.type === 'progress') setProgress(`${data.stage}: ${data.detail}`);
+      else if (data.type === 'flow-result') {
+        setFlowResult(data.result);
+        setProgress('Flow transformer runtime passed');
+      } else if (data.type === 'error') setProgress(`Error: ${data.message}`);
+    };
+    next.postMessage({
+      type: 'run-flow-smoke',
+      manifestUrl: 'http://127.0.0.1:5177/manifest.json',
+    });
+  };
 
   const status =
     capability === null
@@ -136,6 +156,9 @@ export function App() {
           <button type="button" disabled={!capability?.supported} onClick={runCondition}>
             Run condition encoder smoke
           </button>
+          <button type="button" disabled={!capability?.supported} onClick={runFlow}>
+            Run flow transformer smoke
+          </button>
           <button type="button" className="secondary" disabled={!worker.current} onClick={cancel}>
             Cancel worker
           </button>
@@ -161,6 +184,11 @@ export function App() {
         {conditionResult && (
           <pre data-testid="condition-smoke-result" className="result">
             {`shape: ${conditionResult.shape.join(', ')}\noutput location: ${conditionResult.outputLocation}\nfinite: ${conditionResult.finite ? 'yes' : 'no'}\n${JSON.stringify(conditionResult, null, 2)}`}
+          </pre>
+        )}
+        {flowResult && (
+          <pre data-testid="flow-smoke-result" className="result">
+            {`one-step shape: ${flowResult.shape.join(', ')}\none-step location: ${flowResult.oneStepLocation}\none-step finite: ${flowResult.oneStepFinite ? 'yes' : 'no'}\nsteps: ${flowResult.stepMs.length}\nfinal location: ${flowResult.finalLocation}\nfinal finite: ${flowResult.finalFinite ? 'yes' : 'no'}\n${JSON.stringify(flowResult, null, 2)}`}
           </pre>
         )}
       </section>

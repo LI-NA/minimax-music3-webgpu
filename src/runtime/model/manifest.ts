@@ -47,6 +47,23 @@ export interface ConditionManifest {
   conditionEncoder: OnnxGraphArtifact;
   webgpu: ModelManifest['webgpu'];
 }
+export interface FlowManifest {
+  schemaVersion: 1;
+  flow: OnnxGraphArtifact;
+  slice: {
+    semanticFrames: 125;
+    latentLength: 430;
+    flowSteps: 30;
+    flowGuidance: 1.7;
+  };
+  quantization: {
+    bits: 4;
+    blockSize: 128;
+    accuracyLevel: 4;
+    symmetric: true;
+  };
+  webgpu: ModelManifest['webgpu'];
+}
 
 const SHA = /^[a-f0-9]{64}$/;
 const safePath = (value: unknown, label: string): string => {
@@ -217,5 +234,49 @@ export function parseConditionManifest(value: unknown): ConditionManifest {
     schemaVersion: 1,
     conditionEncoder,
     webgpu: webgpuContract(root.webgpu),
+  };
+}
+
+export function parseFlowManifest(value: unknown): FlowManifest {
+  const root = object(value, 'manifest');
+  if (root.schemaVersion !== 1) throw new Error('schemaVersion must be 1');
+  const flow = graph(root.flow, 'flow');
+  if (flow.gpuOutputs.length !== 1 || flow.gpuOutputs[0] !== 'next_latents')
+    throw new Error('flow must keep next_latents at gpu-buffer');
+  const slice = object(root.slice, 'flow slice');
+  if (
+    slice.semanticFrames !== 125
+    || slice.latentLength !== 430
+    || slice.flowSteps !== 30
+    || slice.flowGuidance !== 1.7
+  ) throw new Error('flow slice does not match the fixed contract');
+  const quantization = object(root.quantization, 'flow quantization');
+  if (
+    quantization.bits !== 4
+    || quantization.blockSize !== 128
+    || quantization.accuracyLevel !== 4
+    || quantization.symmetric !== true
+  ) throw new Error('flow quantization does not match the q4 contract');
+  const webgpu = webgpuContract(root.webgpu);
+  if (
+    webgpu.requiredLimits.maxStorageBufferBindingSize !== 128 * 1024 * 1024
+    || (webgpu.requiredLimits.maxStorageBuffersPerShaderStage ?? 0) < 9
+  ) throw new Error('flow webgpu requiredLimits are invalid');
+  return {
+    schemaVersion: 1,
+    flow,
+    slice: {
+      semanticFrames: 125,
+      latentLength: 430,
+      flowSteps: 30,
+      flowGuidance: 1.7,
+    },
+    quantization: {
+      bits: 4,
+      blockSize: 128,
+      accuracyLevel: 4,
+      symmetric: true,
+    },
+    webgpu,
   };
 }

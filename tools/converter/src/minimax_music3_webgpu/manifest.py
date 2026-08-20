@@ -167,6 +167,70 @@ def emit_condition_release(paths: ArtifactPaths, graph: RepackedModel) -> Path:
         raise
 
 
+def emit_flow_manifest(path: Path, *, flow_step: Path) -> Path:
+    _validate_files([("flow step", flow_step)])
+    payload = {
+        "schemaVersion": 1,
+        "model": {
+            "id": MODEL_ID,
+            "revision": MODEL_REVISION,
+            "diffusersRevision": DIFFUSERS_REVISION,
+        },
+        "quantization": {
+            "bits": 4,
+            "blockSize": 128,
+            "accuracyLevel": 4,
+            "symmetric": True,
+        },
+        "webgpu": {
+            "requiredFeatures": ["shader-f16"],
+            "requiredLimits": {
+                "maxStorageBufferBindingSize": ARTIFACT_FILE_LIMIT,
+                "maxStorageBuffersPerShaderStage": 9,
+            },
+        },
+        "slice": {
+            "semanticFrames": 125,
+            "latentLength": 430,
+            "flowSteps": 30,
+            "flowGuidance": 1.7,
+        },
+        "flow": _onnx_graph(flow_step, path.parent, ["next_latents"]),
+    }
+    _atomic_json(path, payload)
+    return path
+
+
+def emit_flow_release(paths: ArtifactPaths, flow_step: Path) -> Path:
+    model = onnx.load_model(flow_step, load_external_data=False)
+    external = _external_files(model, flow_step)
+    _validate_files(
+        [("flow graph", flow_step), *(("flow external data", file) for _, file in external)]
+    )
+    if any(file.stat().st_size > ARTIFACT_FILE_LIMIT for _, file in external):
+        raise ValueError("flow external-data file exceeds the artifact limit")
+    release = paths.release / "flow"
+    staging = paths.release / f".flow-{uuid4().hex}.staging"
+    try:
+        graph_dir = staging / "flow-step"
+        graph_dir.mkdir(parents=True)
+        graph = graph_dir / "flow-step.onnx"
+        shutil.copy2(flow_step, graph)
+        for location, source in external:
+            target = (graph_dir / location).resolve()
+            if not target.is_relative_to(graph_dir.resolve()):
+                raise ValueError("flow external-data path escapes graph directory")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        manifest = emit_flow_manifest(staging / "manifest.json", flow_step=graph)
+        _validate_flow_release(manifest)
+        _promote_directory(staging, release)
+        return release / "manifest.json"
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
 def _validate_rvq_release(manifest: Path) -> None:
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     entries = [
@@ -187,6 +251,19 @@ def _validate_condition_release(manifest: Path) -> None:
         file = manifest.parent / entry["path"]
         if not file.is_file() or file.stat().st_size != entry["bytes"] or _sha256(file) != entry["sha256"]:
             raise ValueError("condition release manifest reference is invalid")
+
+
+def _validate_flow_release(manifest: Path) -> None:
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    graph = payload["flow"]
+    for entry in [graph, *graph["externalData"]]:
+        file = manifest.parent / entry["path"]
+        if (
+            not file.is_file()
+            or file.stat().st_size != entry["bytes"]
+            or _sha256(file) != entry["sha256"]
+        ):
+            raise ValueError("flow release manifest reference is invalid")
 
 
 def _validate_row_shards(shards: list[tuple[int, int, Path]], rows: int, columns: int) -> None:

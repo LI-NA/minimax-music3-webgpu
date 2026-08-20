@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   parseConditionManifest,
+  parseFlowManifest,
   parseModelManifest,
   parseRvqStageManifest,
 } from '../../../src/runtime/model/manifest';
@@ -141,5 +142,60 @@ describe('parseConditionManifest', () => {
         conditionEncoder: { ...condition.conditionEncoder, gpuOutputs: [] },
       }),
     ).toThrow('condition');
+  });
+});
+
+describe('parseFlowManifest', () => {
+  const flow = {
+    schemaVersion: 1,
+    flow: { ...manifest.graph, gpuOutputs: ['next_latents'] },
+    slice: {
+      semanticFrames: 125,
+      latentLength: 430,
+      flowSteps: 30,
+      flowGuidance: 1.7,
+    },
+    quantization: {
+      bits: 4,
+      blockSize: 128,
+      accuracyLevel: 4,
+      symmetric: true,
+    },
+    webgpu: {
+      requiredFeatures: ['shader-f16'],
+      requiredLimits: {
+        maxStorageBufferBindingSize: 128 * 1024 * 1024,
+        maxStorageBuffersPerShaderStage: 9,
+      },
+    },
+  };
+
+  it('parses the exact fixed q4 flow slice and GPU output contract', () => {
+    const parsed = parseFlowManifest(flow);
+
+    expect(parsed.flow.gpuOutputs).toEqual(['next_latents']);
+    expect(parsed.slice).toEqual(flow.slice);
+    expect(parsed.webgpu.requiredLimits.maxStorageBufferBindingSize).toBe(128 * 1024 * 1024);
+    expect(parsed.webgpu.requiredLimits.maxStorageBuffersPerShaderStage).toBe(9);
+  });
+
+  it('rejects a changed slice, q4 contract, GPU output, or insufficient buffer limits', () => {
+    expect(() => parseFlowManifest({ ...flow, slice: { ...flow.slice, latentLength: 431 } }))
+      .toThrow('slice');
+    expect(() => parseFlowManifest({
+      ...flow,
+      quantization: { ...flow.quantization, blockSize: 64 },
+    })).toThrow('quantization');
+    expect(() => parseFlowManifest({
+      ...flow,
+      flow: { ...flow.flow, gpuOutputs: [] },
+    })).toThrow('next_latents');
+    expect(() => parseFlowManifest({
+      ...flow,
+      webgpu: {
+        ...flow.webgpu,
+        requiredLimits: { ...flow.webgpu.requiredLimits, maxStorageBuffersPerShaderStage: 8 },
+      },
+    })).toThrow('requiredLimits');
   });
 });

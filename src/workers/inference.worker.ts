@@ -3,11 +3,13 @@ import { OpfsArtifactStore, ensureArtifact } from '../runtime/model/artifact-cac
 import { OpfsFp16EmbeddingTable } from '../runtime/model/embedding-table';
 import {
   parseConditionManifest,
+  parseFlowManifest,
   parseModelManifest,
   parseRvqStageManifest,
 } from '../runtime/model/manifest';
 import { createWebGpuDevice } from '../runtime/model/webgpu-device';
 import { runConditionSmoke } from '../runtime/pipeline/condition-smoke';
+import { runFlowSmoke } from '../runtime/pipeline/flow-generation';
 import { runGlobalSmoke } from '../runtime/pipeline/global-smoke';
 import { runRvqSmoke } from '../runtime/pipeline/rvq-smoke';
 import {
@@ -32,6 +34,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   );
 };
 async function run(request: WorkerRequest) {
+  if (request.type === 'run-flow-smoke') return runFlow(request.manifestUrl);
   if (request.type === 'run-condition-smoke') return runCondition(request.manifestUrl);
   if (request.type === 'generate-frames') return runFrameGeneration(request);
   if (request.type === 'run-rvq-smoke') return runRvq(request.manifestUrl);
@@ -120,6 +123,39 @@ async function run(request: WorkerRequest) {
   } finally {
     await head?.release();
     await graph?.release();
+    device.destroy();
+  }
+}
+
+async function runFlow(manifestUrl: string) {
+  send({ type: 'progress', stage: 'manifest', detail: 'Reading flow release manifest' });
+  const release = await readManifest(manifestUrl, 'Flow release manifest is unavailable');
+  const manifest = parseFlowManifest(JSON.parse(release.text));
+  const artifacts = [manifest.flow, ...manifest.flow.externalData];
+  const artifactFetches = await cacheArtifacts(artifacts, release.base, release.cache);
+  send({ type: 'progress', stage: 'adapter', detail: 'Requesting shader-f16 WebGPU device' });
+  const { adapter, device } = await createWebGpuDevice(navigator.gpu, manifest.webgpu.requiredLimits);
+  const { createOrtSession } = await import('../runtime/model/ort-session');
+  const ort = await import('onnxruntime-web/jspi');
+  let flow: Awaited<ReturnType<typeof createOrtSession>> | undefined;
+  try {
+    send({ type: 'progress', stage: 'session', detail: 'Creating WebGPU flow transformer session' });
+    const started = performance.now();
+    flow = await createOrtSession(manifest.flow, release.cache, device);
+    const sessionCreateMs = performance.now() - started;
+    const metrics = await runFlowSmoke({ ort, session: flow });
+    send({
+      type: 'flow-result',
+      result: {
+        adapter: adapter.info.description || adapter.info.vendor || 'WebGPU adapter',
+        ...metrics,
+        sessionCreateMs,
+        artifactFetches,
+        status: 'passed',
+      },
+    });
+  } finally {
+    await flow?.release();
     device.destroy();
   }
 }
