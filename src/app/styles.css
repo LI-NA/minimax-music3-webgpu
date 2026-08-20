@@ -1,7 +1,7 @@
 :root {
-  color: #e8ecf4;
-  background: #10131a;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #e8edf0;
+  background: #111416;
+  font-family: Bahnschrift, "Segoe UI", sans-serif;
 }
 
 * {
@@ -17,20 +17,21 @@ body {
   display: grid;
   min-height: 100vh;
   place-items: center;
-  padding: 2rem;
+  padding: clamp(1rem, 4vw, 3rem);
 }
 
 .diagnostic-card {
-  width: min(100%, 42rem);
-  padding: 2rem;
-  border: 1px solid #303846;
-  border-radius: 1rem;
-  background: #191e28;
+  width: min(100%, 48rem);
+  padding: clamp(1.25rem, 5vw, 3rem);
+  border: 1px solid #485155;
+  border-radius: 0;
+  background: #1a1f21;
+  box-shadow: 12px 12px 0 #07090a;
 }
 
 .eyebrow {
   margin: 0;
-  color: #99a8c7;
+  color: #9babb1;
   font-size: 0.875rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -44,9 +45,17 @@ h1 {
 
 .status {
   margin: 0;
-  color: #ffd59a;
+  color: #ffd38a;
 }
 
 .status.supported {
-  color: #a8ebc2;
+  color: #8fe0b1;
 }
+
+.command-row { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 2rem; }
+button { border: 1px solid #c8d1d4; background: #d7e2e5; color: #101416; padding: .7rem 1rem; font: 700 .9rem Cascadia Code, monospace; cursor: pointer; }
+button.secondary { background: transparent; color: #d7e2e5; }
+button:focus-visible { outline: 3px solid #ffd38a; outline-offset: 3px; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+.progress, .result { display: block; margin-top: 1.25rem; color: #d7e2e5; font: .85rem/1.6 Cascadia Code, monospace; white-space: pre-wrap; }
+.result { border-left: 3px solid #8fe0b1; padding-left: 1rem; }

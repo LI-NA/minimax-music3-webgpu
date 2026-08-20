@@ -6,6 +6,7 @@ node_modules/
 __pycache__/
 *.py[cod]
 dist/
+test-fixtures/
 coverage/
 playwright-report/
 test-results/

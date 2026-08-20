@@ -1,0 +1,51 @@
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
+import type { ArtifactFile } from './manifest';
+
+export type ProgressSink = (progress: { path: string; loaded: number; total: number }) => void;
+export interface ArtifactWriter { write(data: Uint8Array): Promise<void>; close(): Promise<void>; }
+export interface ArtifactStore { size(path: string): Promise<number>; stream(path: string, sink: (chunk: Uint8Array) => void | Promise<void>): Promise<void>; writer(path: string, append: boolean): Promise<ArtifactWriter>; remove(path: string): Promise<void>; isComplete(path: string): Promise<boolean>; markComplete(path: string): Promise<void>; file(path: string): Promise<File>; }
+export type Fetcher = (input: URL, init?: RequestInit) => Promise<Response>;
+
+export async function ensureArtifact(file: ArtifactFile, source: URL, store: ArtifactStore, onProgress: ProgressSink, fetcher: Fetcher = fetch): Promise<File> {
+  const existingSize = await store.size(file.path);
+  const digestStored = async () => { const hash = sha256.create(); await store.stream(file.path, async (chunk) => { hash.update(chunk); }); return bytesToHex(hash.digest()); };
+  if (existingSize === file.bytes && await store.isComplete(file.path) && await digestStored() === file.sha256) return store.file(file.path);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const partialSize = attempt === 0 ? existingSize : 0;
+    const response = await fetcher(source, partialSize ? { headers: { Range: `bytes=${partialSize}-` } } : undefined);
+    if (!response.ok) throw new Error(`artifact request failed: ${file.path}`);
+    const append = partialSize > 0 && response.status === 206;
+    const hash = sha256.create(); if (append) await store.stream(file.path, async (chunk) => { hash.update(chunk); });
+    const writer = await store.writer(file.path, append); let loaded = append ? partialSize : 0;
+    const reader = response.body?.getReader(); if (!reader) throw new Error(`artifact response has no body: ${file.path}`);
+    for (;;) { const next = await reader.read(); if (next.done) break; await writer.write(next.value); hash.update(next.value); loaded += next.value.byteLength; onProgress({ path: file.path, loaded, total: file.bytes }); }
+    await writer.close();
+    if (loaded === file.bytes && bytesToHex(hash.digest()) === file.sha256) { await store.markComplete(file.path); return store.file(file.path); }
+    await store.remove(file.path);
+  }
+  throw new Error(`artifact verification failed: ${file.path}`);
+}
+
+export class OpfsArtifactStore implements ArtifactStore {
+  constructor(private readonly root: FileSystemDirectoryHandle) {}
+  static async open(manifestHash: string): Promise<OpfsArtifactStore> { const root = await navigator.storage.getDirectory(); return new OpfsArtifactStore(await root.getDirectoryHandle(`minimax-music3-${manifestHash}`, { create: true })); }
+  private async handle(path: string, create = false) { const parts = path.split('/'); let directory = this.root; for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part, { create }); return directory.getFileHandle(parts.at(-1)!, { create }); }
+  async size(path: string) {
+    try { return (await (await this.handle(path)).getFile()).size; }
+    catch { return 0; }
+  }
+  async stream(path: string, sink: (chunk: Uint8Array) => void | Promise<void>) {
+    const reader = (await (await this.handle(path)).getFile()).stream().getReader();
+    for (;;) { const next = await reader.read(); if (next.done) return; await sink(next.value); }
+  }
+  async writer(path: string, append: boolean) {
+    const writable = await (await this.handle(path, true)).createWritable({ keepExistingData: append });
+    if (append) await writable.seek(await this.size(path));
+    return { write: (data: Uint8Array) => writable.write(data.slice()), close: () => writable.close() };
+  }
+  async remove(path: string) { try { const parts = path.split('/'); let directory = this.root; for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part); await directory.removeEntry(parts.at(-1)!); } catch (error) { if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error; } }
+  async isComplete(path: string) { return (await this.size(`${path}.complete`)) > 0; }
+  async markComplete(path: string) { const writer = await this.writer(`${path}.complete`, false); await writer.write(new Uint8Array([1])); await writer.close(); }
+  async file(path: string) { return (await this.handle(path)).getFile(); }
+}

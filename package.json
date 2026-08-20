@@ -9,7 +9,7 @@
     "lint": "eslint src tests --max-warnings=0",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
-    "test:browser": "playwright test"
+    "test:browser": "uv run python tools/generate-browser-fixtures.py && playwright test"
   },
   "dependencies": {
     "@noble/hashes": "2.3.0",
