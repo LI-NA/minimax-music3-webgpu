@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "minimax-music3-webgpu-converter"
+version = "0.0.0"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "huggingface-hub==1.27.0",
+  "numpy",
+  "onnx==1.22.0",
+  "onnxruntime==1.28.0",
+  "onnxruntime-genai==0.15.2",
+  "onnxscript==0.7.1",
+  "pytest",
+  "safetensors==0.8.0",
+  "torch==2.13.0",
+  "transformers==5.15.0",
+]
+
+[project.scripts]
+music3-convert = "minimax_music3_webgpu.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tools/converter/src/minimax_music3_webgpu"]
