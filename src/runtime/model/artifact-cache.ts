@@ -62,17 +62,29 @@ export async function ensureArtifact(
     let loaded = append ? partialSize : 0;
     const reader = response.body?.getReader();
     if (!reader) throw new Error(`artifact response has no body: ${file.path}`);
+    let failed = false;
     try {
       for (;;) {
         const next = await reader.read();
         if (next.done) break;
-        await writer.write(next.value);
+        try {
+          await writer.write(next.value);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(`artifact write failed: ${file.path} at ${loaded} bytes: ${detail}`, {
+            cause: error,
+          });
+        }
         hash.update(next.value);
         loaded += next.value.byteLength;
         onProgress({ path: file.path, loaded, total: file.bytes });
       }
+    } catch (error) {
+      failed = true;
+      throw error;
     } finally {
-      await writer.close();
+      if (failed) await writer.close().catch(() => undefined);
+      else await writer.close();
     }
     if (loaded === file.bytes && bytesToHex(hash.digest()) === file.sha256) {
       await store.markComplete(file.path);

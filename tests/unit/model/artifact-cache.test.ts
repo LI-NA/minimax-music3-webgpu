@@ -167,6 +167,29 @@ describe('ensureArtifact', () => {
     expect(ranges).toEqual(['bytes=3-']);
   });
 
+  it('preserves the write failure when closing the failed stream also rejects', async () => {
+    const data = encoder.encode('abcdefgh');
+    const store = new MemoryStore();
+    store.writer = async () => ({
+      write: async () => {
+        throw new Error('write failed');
+      },
+      close: async () => {
+        throw new Error('close masked the write failure');
+      },
+    });
+
+    await expect(
+      ensureArtifact(
+        { path: 'a.bin', bytes: data.byteLength, sha256: await sha256(data) },
+        new URL('https://example.test/a.bin'),
+        store,
+        () => {},
+        async () => new Response(data),
+      ),
+    ).rejects.toThrow('write failed');
+  });
+
   it('retries only one hash-mismatched file and reuses a verified visit', async () => {
     const data = encoder.encode('abcdefgh');
     const store = new MemoryStore();
