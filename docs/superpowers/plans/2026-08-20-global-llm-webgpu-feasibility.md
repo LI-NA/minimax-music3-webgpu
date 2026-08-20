@@ -414,7 +414,7 @@ python -m onnxruntime_genai.models.builder
 
 In ORT GenAI 0.15.2, `exclude_lm_head=true` already exposes hidden states instead of logits and is mutually exclusive with `include_hidden_states=true`.
 
-Capture stdout, stderr, package versions, arguments, elapsed time, and exit code in the conversion receipt. When `num_hidden_layers` is 1, add `num_hidden_layers=1` to the extra options and publish a separate `global-one-layer` diagnostic manifest. Repack external data through Task 3 and run every graph invariant before publishing a release manifest.
+Capture stdout, stderr, package versions, arguments, elapsed time, and exit code in the conversion receipt. When `num_hidden_layers` is 1, add `num_hidden_layers=1` to the extra options and publish a separate `global-one-layer` diagnostic manifest. Repack external data through Task 3 and run every graph invariant before publishing a release manifest. Resolve `model.embed_tokens.weight` and `lm_head.weight` through the pinned safetensors index, invoke the Task 3 embedding and reduced-head exporters, and place the decoder, reduced head, embedding shards, tokenizer files, and license below the selected `global-one-layer` or `global` release root. `build-global` is the orchestration command; it may not depend on a separate unpublished packing command.
 
 - [ ] **Step 4: Implement a tiny Qwen3 conversion smoke**
 
@@ -422,7 +422,7 @@ Create a deterministic local `Qwen3ForCausalLM` fixture with vocabulary 128, hid
 
 - [ ] **Step 5: Emit the versioned global release manifest**
 
-The JSON manifest must contain schema version 1, model and Diffusers revisions, quantization fields, WebGPU feature and limit requirements, graph file metadata, exact ONNX external locations, embedding-shard row ranges, tokenizer files, license file, GPU-output names, KV input/output pairs, and SHA-256 for every file. Reject duplicate paths and missing referenced files.
+The JSON manifest must contain schema version 1, model and Diffusers revisions, quantization fields, WebGPU feature and limit requirements, decoder and reduced-head graph metadata, exact ONNX external locations for both graphs, embedding-shard row ranges, tokenizer files, license file, GPU-output names, KV input/output pairs, and SHA-256 for every referenced file. Every cache path is relative to its release root. Reject duplicate paths and missing referenced files. Emit this complete manifest for both the one-layer diagnostic release and the full release.
 
 Add `tests/fixtures/prompt-contract.json` with the exact conditional IDs:
 
