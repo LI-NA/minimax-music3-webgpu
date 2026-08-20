@@ -63,7 +63,7 @@ def _reduced_head_model(semantic: np.ndarray, end: np.ndarray) -> onnx.ModelProt
         helper.make_graph(
             [
                 helper.make_node("Gather", ["hidden_states", "last_index"], ["last_state"], axis=1),
-                helper.make_node("Squeeze", ["last_state", "squeeze_axes"], ["final_state"]),
+                helper.make_node("Flatten", ["last_state"], ["final_state"], axis=1),
                 helper.make_node("MatMul", ["final_state", "semantic_weight"], ["semantic_logits"]),
                 helper.make_node("MatMul", ["final_state", "end_weight"], ["end_logit"]),
             ],
@@ -75,9 +75,9 @@ def _reduced_head_model(semantic: np.ndarray, end: np.ndarray) -> onnx.ModelProt
             ],
             initializer=[
                 numpy_helper.from_array(np.array([-1], dtype=np.int64), "last_index"),
-                numpy_helper.from_array(np.array([1], dtype=np.int64), "squeeze_axes"),
                 numpy_helper.from_array(np.ascontiguousarray(semantic.T), "semantic_weight"),
                 numpy_helper.from_array(np.ascontiguousarray(end.T), "end_weight"),
             ],
-        )
+        ),
+        opset_imports=[helper.make_opsetid("", 13)],
     )

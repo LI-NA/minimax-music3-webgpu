@@ -44,18 +44,7 @@ def shard_fp16_rows(
     for row_start in range(0, len(rows), rows_per_shard):
         chunk = np.ascontiguousarray(rows[row_start : row_start + rows_per_shard])
         path = output_dir / f"embedding-{len(shards):03d}.fp16"
-        chunk.tofile(path)
-        shards.append(
-            EmbeddingShard(
-                path=path,
-                row_start=row_start,
-                row_count=len(chunk),
-                columns=rows.shape[1],
-                row_bytes=row_bytes,
-                size=path.stat().st_size,
-                sha256=_sha256(path),
-            )
-        )
+        shards.append(_write_shard(chunk, path, row_start))
     return EmbeddingTableReceipt(tuple(shards))
 
 
@@ -72,22 +61,22 @@ def export_embedding_table(source_shard: Path, output_dir: Path) -> EmbeddingTab
         for row_start in range(0, shape[0], rows_per_shard):
             row_end = min(row_start + MAX_CONVERSION_ROWS, row_start + rows_per_shard, shape[0])
             chunk = tensor[row_start:row_end].to(dtype=torch.float16).numpy()
-            receipt = shard_fp16_rows(chunk, output_dir, ARTIFACT_FILE_LIMIT)
-            for item in receipt.shards:
-                path = output_dir / f"embedding-{len(shards):03d}.fp16"
-                item.path.replace(path)
-                shards.append(
-                    EmbeddingShard(
-                        path=path,
-                        row_start=row_start + item.row_start,
-                        row_count=item.row_count,
-                        columns=item.columns,
-                        row_bytes=item.row_bytes,
-                        size=item.size,
-                        sha256=item.sha256,
-                    )
-                )
+            path = output_dir / f"embedding-{len(shards):03d}.fp16"
+            shards.append(_write_shard(chunk, path, row_start))
     return EmbeddingTableReceipt(tuple(shards))
+
+
+def _write_shard(rows: np.ndarray, path: Path, row_start: int) -> EmbeddingShard:
+    rows.tofile(path)
+    return EmbeddingShard(
+        path=path,
+        row_start=row_start,
+        row_count=len(rows),
+        columns=rows.shape[1],
+        row_bytes=rows.shape[1] * rows.dtype.itemsize,
+        size=path.stat().st_size,
+        sha256=_sha256(path),
+    )
 
 
 def _sha256(path: Path) -> str:
