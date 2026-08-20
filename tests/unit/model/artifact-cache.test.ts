@@ -15,10 +15,12 @@ class MemoryStore implements ArtifactStore {
   readonly files = new Map<string, Uint8Array>();
   readonly complete = new Set<string>();
   writes: Uint8Array[] = [];
+  streamCalls = 0;
   async size(path: string) {
     return this.files.get(path)?.byteLength ?? 0;
   }
   async stream(path: string, sink: (chunk: Uint8Array) => void | Promise<void>) {
+    this.streamCalls++;
     const file = this.files.get(path);
     if (file) await sink(file);
   }
@@ -59,6 +61,26 @@ class MemoryStore implements ArtifactStore {
 }
 
 describe('ensureArtifact', () => {
+  it('reuses a complete expected-size file without reading or fetching it again', async () => {
+    const data = encoder.encode('abcdefgh');
+    const store = new MemoryStore();
+    store.files.set('a.bin', data);
+    store.complete.add('a.bin');
+
+    const file = await ensureArtifact(
+      { path: 'a.bin', bytes: 8, sha256: await sha256(data) },
+      new URL('https://example.test/a.bin'),
+      store,
+      () => {},
+      async () => {
+        throw new Error('completed artifact must not be fetched');
+      },
+    );
+
+    expect(await file.text()).toBe('abcdefgh');
+    expect(store.streamCalls).toBe(0);
+  });
+
   it('marks a valid full file complete without fetching it again', async () => {
     const data = encoder.encode('abcdefgh');
     const store = new MemoryStore();
@@ -75,6 +97,30 @@ describe('ensureArtifact', () => {
       },
     );
     expect(calls).toBe(0);
+    expect(await store.isComplete('a.bin')).toBe(true);
+    expect(store.streamCalls).toBe(1);
+  });
+
+  it('restarts a size-mismatched completed file instead of resuming it', async () => {
+    const data = encoder.encode('abcdefgh');
+    const store = new MemoryStore();
+    store.files.set('a.bin', data.slice(0, 3));
+    store.complete.add('a.bin');
+    const ranges: string[] = [];
+
+    const file = await ensureArtifact(
+      { path: 'a.bin', bytes: 8, sha256: await sha256(data) },
+      new URL('https://example.test/a.bin'),
+      store,
+      () => {},
+      async (_url, init) => {
+        ranges.push(new Headers(init?.headers).get('Range') ?? '');
+        return new Response(data);
+      },
+    );
+
+    expect(ranges).toEqual(['']);
+    expect(await file.text()).toBe('abcdefgh');
     expect(await store.isComplete('a.bin')).toBe(true);
   });
 

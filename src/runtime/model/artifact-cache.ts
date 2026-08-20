@@ -30,6 +30,12 @@ export async function ensureArtifact(
   fetcher: Fetcher = fetch,
 ): Promise<File> {
   let existingSize = await store.size(file.path);
+  const complete = await store.isComplete(file.path);
+  if (complete && existingSize === file.bytes) return store.file(file.path);
+  if (complete) {
+    await store.remove(file.path);
+    existingSize = 0;
+  }
   const digestStored = async () => {
     const hash = sha256.create();
     await store.stream(file.path, async (chunk) => {
@@ -139,14 +145,19 @@ export class OpfsArtifactStore implements ArtifactStore {
     };
   }
   async remove(path: string) {
-    try {
-      const parts = path.split('/');
-      let directory = this.root;
-      for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
-      await directory.removeEntry(parts.at(-1)!);
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
-    }
+    const removeEntry = async (entryPath: string) => {
+      try {
+        const parts = entryPath.split('/');
+        let directory = this.root;
+        for (const part of parts.slice(0, -1))
+          directory = await directory.getDirectoryHandle(part);
+        await directory.removeEntry(parts.at(-1)!);
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
+      }
+    };
+    await removeEntry(path);
+    await removeEntry(`${path}.complete`);
   }
   async isComplete(path: string) {
     return (await this.size(`${path}.complete`)) > 0;
