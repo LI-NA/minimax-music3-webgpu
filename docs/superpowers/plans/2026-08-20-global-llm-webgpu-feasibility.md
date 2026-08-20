@@ -382,7 +382,7 @@ def test_builder_arguments_target_webgpu_q4(tmp_path) -> None:
     assert "fuse_qk_norm_gqa=true" in args
 ```
 
-Graph validation tests parameterize the expected layer count. A 36-layer build requires 36 `GroupQueryAttention` nodes, 72 past inputs, and 72 present outputs, while a one-layer diagnostic build requires one attention node and two cache inputs and outputs. Every build requires an `inputs_embeds` input, q4 `MatMulNBits` nodes with block size 128, a hidden-state output, no token embedding initializer, no full LM-head initializer, no CPU-only fallback partition in a WebGPU optimization report, and no external initializer over 128 MiB.
+Graph validation tests parameterize the expected layer count. A 36-layer build requires 36 `GroupQueryAttention` nodes, 72 past inputs, and 72 present outputs, while a one-layer diagnostic build requires one attention node and two cache inputs and outputs. Every build requires an `inputs_embeds` input, q4 `MatMulNBits` nodes with block size 128, a hidden-state output, no token embedding initializer, no full LM-head initializer, and no external initializer over 128 MiB. ORT GenAI 0.15.2 does not create an execution-provider partition report; absence of CPU fallback is established only by the Task 5 and Task 6 browser sessions created with `session.disable_cpu_ep_fallback=1`.
 
 - [ ] **Step 2: Run the decoder tests and verify they fail**
 
