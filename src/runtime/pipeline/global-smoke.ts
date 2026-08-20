@@ -65,15 +65,12 @@ function cacheLength(outputs: Record<string, ort.Tensor>, pairs: readonly KvPair
 async function reducedLogits(
   runtime: GlobalSmokeRuntime,
   hidden: ort.Tensor,
-): Promise<{ finite: boolean; locations: string[] }> {
+): Promise<boolean> {
   const input = runtime.head.inputNames[0];
   const outputs = await runtime.head.run({ [input]: hidden });
   try {
     const values = await Promise.all(Object.values(outputs).map(tensorData));
-    return {
-      finite: values.every(finite),
-      locations: Object.values(outputs).map((tensor) => tensor.location),
-    };
+    return values.every(finite);
   } finally {
     Object.values(outputs).forEach((tensor) => tensor.dispose());
   }
@@ -116,14 +113,14 @@ export async function runGlobalSmoke(runtime: GlobalSmokeRuntime): Promise<Globa
     stepMs.push(now() - firstStarted);
     const hidden = first.hidden_states;
     if (!hidden || hidden.location !== 'gpu-buffer') throw new Error('decoder hidden output is not GPU-resident');
+    locations.push(hidden.location);
     try {
-      const logits = await reducedLogits(runtime, hidden);
-      finiteLogits &&= logits.finite;
-      locations.push(hidden.location, ...logits.locations);
+      finiteLogits &&= await reducedLogits(runtime, hidden);
     } finally {
       hidden.dispose();
     }
     cache.advance(first);
+    locations.push(...Object.values(cache.inputs()).map((tensor) => tensor.location));
     Object.values(initialCacheInputs).forEach((tensor) => tensor.dispose());
     cacheLengths.push(cacheLength(first, runtime.kvPairs));
     ownedTensorBytes = Math.max(ownedTensorBytes, cache.ownedBytes());
@@ -142,14 +139,14 @@ export async function runGlobalSmoke(runtime: GlobalSmokeRuntime): Promise<Globa
       stepMs.push(now() - started);
       const hidden = outputs.hidden_states;
       if (!hidden || hidden.location !== 'gpu-buffer') throw new Error('decoder hidden output is not GPU-resident');
+      locations.push(hidden.location);
       try {
-        const logits = await reducedLogits(runtime, hidden);
-        finiteLogits &&= logits.finite;
-        locations.push(hidden.location, ...logits.locations);
+        finiteLogits &&= await reducedLogits(runtime, hidden);
       } finally {
         hidden.dispose();
       }
       cache.advance(outputs);
+      locations.push(...Object.values(cache.inputs()).map((tensor) => tensor.location));
       cacheLengths.push(cacheLength(outputs, runtime.kvPairs));
       ownedTensorBytes = Math.max(ownedTensorBytes, cache.ownedBytes());
     }

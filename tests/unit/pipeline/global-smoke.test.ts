@@ -31,7 +31,10 @@ describe('runGlobalSmoke', () => {
     const head = {
       inputNames: ['hidden_states'],
       outputNames: [],
-      run: async () => ({ semantic_logits: tensor([2, 4]), end_logit: tensor([2, 1]) }),
+      run: async () => ({
+        semantic_logits: tensor([2, 4], 'cpu'),
+        end_logit: tensor([2, 1], 'cpu'),
+      }),
     };
     try {
       const result = await runGlobalSmoke({
@@ -53,6 +56,7 @@ describe('runGlobalSmoke', () => {
       });
       expect(result.cacheLengths).toEqual([40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]);
       expect(result.stepMs).toHaveLength(11);
+      expect(result.tensorLocations).not.toContain('cpu');
       expect(result.tensorLocations).toContain('gpu-buffer');
       expect(result.finiteLogits).toBe(true);
       expect(tensors.every((item) => item.disposed > 0)).toBe(true);
