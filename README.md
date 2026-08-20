@@ -2,19 +2,21 @@
 
 MiniMax Music 3 WebGPU is an experimental community project that aims to run the exact `MiniMaxAI/MiniMax-Music3` checkpoint locally in a desktop Chromium browser through WebGPU.
 
-The exact 36-layer Global LLM now passes the first browser feasibility gate as a q4 release. Headed Chrome caches it in OPFS, completes a 40-token prefill plus ten GPU-resident cached decode steps, and stays below the approved 12 GB practical GPU-memory ceiling. Acoustic-stage work is next.
+The exact checkpoint now passes a complete fixed five-second browser gate. Headed Chrome runs the q4 Global LLM, RVQ, condition encoder, q4 flow transformer, and mixed-precision vocoder sequentially with CPU fallback disabled, then emits and decodes a 44.1 kHz stereo WAV. This is a runtime milestone, not the final prompt and lyrics UI.
+
+The combined release contains 8,083,469,618 referenced artifact bytes and is cached in OPFS. The measured total-system GPU peak is 6,834 MiB. The current recommendation is 10 GiB or more physical VRAM, while 8 GiB remains an unverified compatibility target.
 
 ## Phase 1 goal
 
-Phase 1 will provide a minimal local music generator that:
+Phase 1 will grow the validated runtime into a minimal local music generator that:
 
 - runs entirely in the browser after downloading model artifacts;
 - uses the official MiniMax Music 3 checkpoint without distillation or model substitution;
 - accepts a music description and tagged lyrics;
-- generates a 10 to 30 second song with vocals and accompaniment;
+- first generates the validated five-second vocal and accompaniment slice, then expands duration after separate measurements;
 - plays and saves the result as a 44.1 kHz stereo WAV file;
 - targets Windows desktop Chromium and a practical 12 GB GPU-memory ceiling; and
-- caches approximately 10 GB of converted model artifacts in browser storage.
+- caches approximately 8.08 GB of converted model artifacts in browser storage.
 
 The first version prioritizes one complete generation over UI polish, broad browser support, full-song generation, or automated audio-quality analysis.
 
@@ -26,7 +28,7 @@ Large model stages will be loaded and released separately to stay below the GPU-
 
 See the [approved phase 1 design](docs/superpowers/specs/2026-08-20-minimax-music3-webgpu-design.md) for the full requirements and technical decisions.
 
-For the exact Global LLM conversion and headed diagnostic commands, see [development conversion notes](docs/development/conversion.md) and the [feasibility record](docs/development/global-llm-feasibility.md).
+For the exact Global LLM conversion and headed diagnostic commands, see [development conversion notes](docs/development/conversion.md) and the [feasibility record](docs/development/global-llm-feasibility.md). The complete fixed-slice gate is documented in [five-second browser generation](docs/development/five-second-generation.md), with measured VRAM tiers and retained optimizations in [WebGPU runtime requirements](docs/development/webgpu-runtime-requirements.md).
 
 ## Model and license
 

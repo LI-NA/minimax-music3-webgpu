@@ -1,6 +1,6 @@
 # WebGPU Runtime Optimization and Progress UX Plan
 
-**Status:** Deferred follow-up. Re-read and execute this document only after `2026-08-21-five-second-acoustic-vertical-slice.md` has produced a structurally valid WAV in Chrome.
+**Status:** Complete on 2026-08-21. Measured results and the shipped configuration are recorded in `docs/development/webgpu-runtime-requirements.md`.
 
 **Goal:** Make the exact MiniMax-Music3 WebGPU pipeline practical before building the final UI. Establish a defensible minimum and recommended VRAM requirement, reduce avoidable device memory, use measured headroom for safe speed improvements, and expose useful progress without expanding the product scope.
 
@@ -83,3 +83,13 @@ ETA must be optional and must not display until a stable estimate is available. 
 - Relevant Python, unit, lint, typecheck, build, and browser gates pass.
 - The final diff contains no speculative optimization that lacks a measured benefit.
 - Generate one fresh WAV after optimization. Then ask the user to listen once and confirm whether vocals and accompaniment sound normal.
+
+## Completion summary
+
+- One recommended configuration was retained. Separate memory and performance profiles were rejected by measurements.
+- The measured total-system peak was 6,835 MiB before optimization and 6,834 MiB after it. The recommendation is 10 GiB or more, while 8 GiB remains an unverified compatibility target.
+- Exact-size cache mode raised the peak to 12,074 MiB and was reverted.
+- Decoder prepacking did not improve AR inference or stage time and was reverted.
+- Manifest-scoped completed-artifact receipts reduced warm cache validation from 76,282.1 to 223.5 ms on average and were retained.
+- The progress and cancellation contract was implemented without inventing percentages for opaque session creation.
+- The final listening check remains deferred until the user returns.

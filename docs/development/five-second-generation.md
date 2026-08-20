@@ -17,35 +17,42 @@ The exact gate passed on 2026-08-21 with Chrome 151.0.7922.170 and ONNX Runtime 
 - Seed attempts: `7` only
 - Referenced artifact bytes: 8,083,469,618
 - First persistent-profile gate: passed in 8.3 minutes, including initial OPFS fill and two generations
-- Warm metric gate: passed in 4.1 minutes, including two generations
+- Pre-optimization warm metric gate: passed in 4.1 minutes, including two generations and repeated full-cache hashing
+- Post-optimization warm benchmark: three generations completed in 35.5, 28.2, and 28.1 seconds of browser wall time
+- Final progress-aware combined gate: passed in 1.5 minutes, including two zero-fetch generations
 - Completed-artifact fetches on warm runs: 0
 - Download: `artifacts/generated/minimax-music3-5s.wav`
 - WAV: 880,684 bytes, PCM16, 44,100 Hz, 2 channels, 220,160 samples per channel
+- Final WAV SHA-256: `3093550ac43137d53d65e4ee72006e5574004703730af9059f6ada902697d0fb`
 - Browser decoding: `AudioContext.decodeAudioData` returned 44,100 Hz, 2 channels, and 220,160 samples
 
-The persisted warm-run timings were:
+The post-optimization three-run mean timings were:
 
 | Stage | Session creation | Inference or generation | End-to-end stage |
 | --- | ---: | ---: | ---: |
-| Autoregressive and RVQ | 5,755.4 ms | 15,404.2 ms | 21,254.7 ms |
-| Condition | 80.7 ms | 27.0 ms | 274.1 ms |
-| Flow | 1,887.7 ms | 5,885.8 ms | 7,868.1 ms |
-| Vocoder and WAV | 317.6 ms | 167.9 ms | 658.4 ms |
+| Autoregressive and RVQ | 4,542.2 ms | 15,202.9 ms | 19,817.4 ms |
+| Condition | 62.4 ms | 19.3 ms | 252.2 ms |
+| Flow | 1,448.1 ms | 5,799.5 ms | 7,331.2 ms |
+| Vocoder and WAV | 207.8 ms | 161.9 ms | 527.1 ms |
 
-Autoregressive inference retained 125 frames at 8.11 frames per second. The first flow step took 348.9 ms. The remaining 29 steps took 188.1 to 191.9 ms each, and all 30 steps averaged 196.2 ms.
+Autoregressive inference retained 125 frames at about 8.22 frames per second. The worker averaged 29,414.4 ms from manifest through result.
+
+Before the cache optimization, each warm run read and hashed all 8.08 GB again. The three measured cache phases averaged 76,282.1 ms. Completed artifacts now use the manifest-scoped verification receipt written after their first successful SHA-256 check. The post-optimization phases took 238.4, 214.9, and 217.1 ms with zero fetches, reducing mean browser wall time from 104,956 to 30,587 ms without changing model execution.
 
 ## GPU memory
 
-Total-system dedicated GPU memory was sampled through `nvidia-smi`. The monitor requested a 100 ms sleep, but command overhead produced an effective cadence of about 170 ms, with 2,930 samples across the 8.3-minute gate and short pre/post windows.
+Total-system dedicated GPU memory was sampled through `nvidia-smi` across the post-optimization three-run benchmark. The monitor requested 100 ms samples and recorded 700 samples at an effective 180.64 ms cadence.
 
-- Baseline: 1,695 MiB
-- Observed total-system peak: 6,822 MiB
-- Observed increase from baseline: 5,127 MiB
-- Final after Chrome closed: 1,695 MiB
+- Baseline: 1,704 MiB
+- Observed total-system peak: 6,834 MiB
+- Observed increase from baseline: 5,130 MiB
+- Final after Chrome closed: 1,704 MiB
 - Limit: 12,288 MiB
 
-The combined autoregressive segment reached the 6,822 MiB peak. A later condition/flow segment reached 3,312 MiB, but its internal boundary was not externally labelled, so separate combined condition and flow peaks are not claimed. The combined vocoder peak was also not separately attributable. Standalone measurements provide supporting context only: condition was 1,947 to 2,188 MiB, flow was 1,695 to 3,252 MiB, and vocoder was 1,695 to 2,751 MiB. These are total-system samples, not isolated process allocations.
+The combined autoregressive segment reached the 6,834 MiB peak. A later condition/flow segment reached about 3,323 to 3,332 MiB, but its internal boundary was not externally labelled, so separate combined condition and flow peaks are not claimed. The combined vocoder peak was also not separately attributable. Standalone measurements provide supporting context only: condition was 1,947 to 2,188 MiB, flow was 1,695 to 3,252 MiB, and vocoder was 1,695 to 2,751 MiB. These are total-system samples, not isolated process allocations.
 
 ONNX Runtime emitted non-fatal constant-folding warnings for vocoder Snake reciprocal nodes because no CPU kernel was available. The WebGPU-only vocoder still completed with CPU fallback disabled.
+
+VRAM requirements, rejected runtime experiments, the retained cache optimization, and progress behavior are recorded in [WebGPU runtime requirements and optimization](webgpu-runtime-requirements.md).
 
 This gate validates artifact reuse, stage cleanup, exact dimensions, WAV structure, and browser decodability. It does not inspect waveform quality, compare against a reference song, run an audio classifier, or perform the deferred listening check.
