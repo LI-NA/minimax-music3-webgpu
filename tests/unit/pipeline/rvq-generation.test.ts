@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { createFrameGenerator } from '../../../src/runtime/pipeline/rvq-generation';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  areFiniteFp16,
+  createFrameGenerator,
+  readConditionalGpuFp16,
+} from '../../../src/runtime/pipeline/rvq-generation';
 
 class FakeTensor {
   location: 'cpu' | 'gpu-buffer';
@@ -76,7 +80,8 @@ function runtime(decisions: number) {
     rvqEmbedding: { lookup: (ids: readonly number[]) => Uint16Array.from(ids.flatMap((id) => Array(4096).fill(id))), dispose() {} },
     embeddingColumns: 4096,
     kvPairs: [{ pastInput: 'past', presentOutput: 'present' }],
-    readConditionalHidden: async (tensor) => new Float32Array(4096).fill((tensor as unknown as FakeTensor).conditional!),
+    readConditionalHidden: async (tensor) =>
+      new Uint16Array(4096).fill(0x3c00 + (tensor as unknown as FakeTensor).conditional!),
     onCacheLength: (length) => cacheLengths.push(length),
   });
   return {
@@ -100,9 +105,10 @@ describe('RVQ frame generation', () => {
     expect(fixture.counts()).toEqual({ decoderCalls: 3, headCalls: 3, depthCalls: 21, feedbackCalls: 2 });
     expect(fixture.cacheLengths).toEqual([40, 41, 42]);
     expect(frames[0].hiddenGroups).toHaveLength(8 * 4096);
-    expect(frames[0].hiddenGroups[0]).toBe(1);
-    expect(frames[0].hiddenGroups[4096]).toBe(1);
-    expect(frames[0].hiddenGroups[7 * 4096]).toBe(7);
+    expect(frames[0].hiddenGroups).toBeInstanceOf(Uint16Array);
+    expect(frames[0].hiddenGroups[0]).toBe(0x3c01);
+    expect(frames[0].hiddenGroups[4096]).toBe(0x3c01);
+    expect(frames[0].hiddenGroups[7 * 4096]).toBe(0x3c07);
   });
 
   it('samples ORT Float16Array CPU logits without treating their values as raw half bits', async () => {
@@ -118,7 +124,7 @@ describe('RVQ frame generation', () => {
 
     expect(frames).toHaveLength(125);
     expect(fixture.counts()).toEqual({ decoderCalls: 126, headCalls: 126, depthCalls: 882, feedbackCalls: 125 });
-    expect(frames.reduce((bytes, frame) => bytes + frame.hiddenGroups.byteLength, 0)).toBe(16_384_000);
+    expect(frames.reduce((bytes, frame) => bytes + frame.hiddenGroups.byteLength, 0)).toBe(8_192_000);
   });
 
   it('uses residual embedding offsets and repeats sampled codes across both CFG lanes', async () => {
@@ -130,5 +136,43 @@ describe('RVQ frame generation', () => {
     expect(seventhDepth[4096]).toBe(1025);
     expect(seventhDepth[5 * 4096]).toBe(5125);
     expect(seventhDepth[6 * 4096]).toBe(0);
+  });
+});
+
+describe('FP16 hidden readback', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('copies raw conditional half bits before unmapping the staging buffer', async () => {
+    vi.stubGlobal('GPUBufferUsage', { COPY_DST: 1, MAP_READ: 2 });
+    vi.stubGlobal('GPUMapMode', { READ: 1 });
+    const mapped = new Uint16Array(4096);
+    mapped.set([0x3c00, 0xbc00, 0x3555, 0x0001]);
+    const staging = {
+      mapState: 'mapped',
+      mapAsync: async () => undefined,
+      getMappedRange: () => mapped.buffer,
+      unmap: () => mapped.fill(0),
+      destroy: vi.fn(),
+    };
+    const device = {
+      createBuffer: () => staging,
+      createCommandEncoder: () => ({ copyBufferToBuffer: vi.fn(), finish: () => ({}) }),
+      queue: { submit: vi.fn() },
+    };
+
+    const result = await readConditionalGpuFp16(
+      device as never,
+      { location: 'gpu-buffer', gpuBuffer: {} } as never,
+    );
+
+    expect(result).toBeInstanceOf(Uint16Array);
+    expect(Array.from(result.slice(0, 4))).toEqual([0x3c00, 0xbc00, 0x3555, 0x0001]);
+    expect(staging.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('rejects FP16 infinity and NaN bit patterns in retained hidden groups', () => {
+    expect(areFiniteFp16(new Uint16Array([0x0000, 0x3c00, 0x7bff]))).toBe(true);
+    expect(areFiniteFp16(new Uint16Array([0x7c00]))).toBe(false);
+    expect(areFiniteFp16(new Uint16Array([0x7e00]))).toBe(false);
   });
 });

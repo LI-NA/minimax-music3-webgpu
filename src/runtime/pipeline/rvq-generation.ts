@@ -13,7 +13,7 @@ const residualVocabulary = 1_024;
 export interface GeneratedFrame {
   semantic: number;
   residual: readonly [number, number, number, number, number, number, number];
-  hiddenGroups: Float32Array;
+  hiddenGroups: Uint16Array;
 }
 
 export interface GenerateFrameOptions {
@@ -24,7 +24,7 @@ export interface GenerateFrameOptions {
 }
 
 type Embedding = { lookup(ids: readonly number[]): Uint16Array; dispose(): void };
-type HiddenReader = (tensor: ort.Tensor) => Promise<Float32Array>;
+type HiddenReader = (tensor: ort.Tensor) => Promise<Uint16Array>;
 
 export interface FrameGenerationRuntime {
   ort: typeof ort;
@@ -176,7 +176,7 @@ export function createFrameGenerator(runtime: FrameGenerationRuntime) {
         for (let frameIndex = 0; frameIndex <= options.maxFrames; frameIndex++) {
           if (semanticCode === 16_384) throw new EarlyAudioEndError(options.seed, frames.length);
           const retain = frameIndex > 0;
-          const groups = retain ? new Float32Array(8 * hiddenSize) : undefined;
+          const groups = retain ? new Uint16Array(8 * hiddenSize) : undefined;
           if (groups) groups.set(await runtime.readConditionalHidden(lastState), 0);
           const semanticRows = runtime.globalEmbedding.lookup([
             audioCodeOffset + semanticCode,
@@ -280,10 +280,13 @@ export async function readConditionalGpuFp16(device: GPUDevice, tensor: ort.Tens
     commands.copyBufferToBuffer(tensor.gpuBuffer, 0, staging, 0, bytes);
     device.queue.submit([commands.finish()]);
     await staging.mapAsync(GPUMapMode.READ);
-    const values = new Uint16Array(staging.getMappedRange());
-    return Float32Array.from(values, fp16);
+    return new Uint16Array(staging.getMappedRange()).slice();
   } finally {
     if (staging.mapState === 'mapped') staging.unmap();
     staging.destroy();
   }
+}
+
+export function areFiniteFp16(values: Uint16Array) {
+  return values.every((value) => (value & 0x7c00) !== 0x7c00);
 }

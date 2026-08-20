@@ -6,6 +6,7 @@ import { createWebGpuDevice } from '../runtime/model/webgpu-device';
 import { runGlobalSmoke } from '../runtime/pipeline/global-smoke';
 import { runRvqSmoke } from '../runtime/pipeline/rvq-smoke';
 import {
+  areFiniteFp16,
   createFrameGenerator,
   EarlyAudioEndError,
   readConditionalGpuFp16,
@@ -230,7 +231,7 @@ async function runFrameGeneration(request: Extract<WorkerRequest, { type: 'gener
       }
     }
     if (!frames) throw new Error(`audio end sampled early for seeds ${attemptedSeeds.join(', ')}`);
-    const finiteHiddenGroups = frames.every((frame) => frame.hiddenGroups.every(Number.isFinite));
+    const finiteHiddenGroups = frames.every((frame) => areFiniteFp16(frame.hiddenGroups));
     const codesInRange = frames.every(
       (frame) =>
         frame.semantic >= 0 &&
