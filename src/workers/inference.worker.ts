@@ -1,5 +1,12 @@
 /// <reference lib="webworker" />
 import { OpfsArtifactStore, ensureArtifact } from '../runtime/model/artifact-cache';
+import {
+  assessArtifactCapacity,
+  deleteProjectArtifactCaches,
+  inspectArtifactCache,
+  inspectProjectArtifactCaches,
+  withArtifactCacheMutationLock,
+} from '../runtime/model/artifact-cache-management';
 import { OpfsFp16EmbeddingTable } from '../runtime/model/embedding-table';
 import {
   parseConditionManifest,
@@ -43,8 +50,12 @@ import { createArtifactProgressReporter } from './artifact-progress';
 import {
   createMusicGenerationResultPlan,
   createResolvedMusicGenerationRequest,
+  validateArtifactCacheRequest,
   validateMusicCapacityDiagnosticRequest,
   validateMusicGenerationRequest,
+  type ArtifactCacheRequest,
+  type ArtifactErrorCode,
+  type ArtifactOperation,
   type MusicGenerationRequest,
   type WorkerRequest,
   type WorkerResponse,
@@ -55,6 +66,29 @@ const hashText = async (text: string) =>
   Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))))
     .map((value) => value.toString(16).padStart(2, '0'))
     .join('');
+class ArtifactOperationError extends Error {
+  constructor(
+    message: string,
+    readonly code: ArtifactErrorCode,
+    readonly operation: ArtifactOperation,
+    readonly retryable: boolean,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = 'ArtifactOperationError';
+  }
+}
+function serializeWorkerError(error: unknown): Extract<WorkerResponse, { type: 'error' }> {
+  const message = error instanceof Error ? error.message : String(error);
+  if (!(error instanceof ArtifactOperationError)) return { type: 'error', message };
+  return {
+    type: 'error',
+    message,
+    code: error.code,
+    operation: error.operation,
+    retryable: error.retryable,
+  };
+}
 type Failure = { error: unknown };
 const failure = (error: unknown): Failure => ({ error });
 async function settleSessionReleases(
@@ -168,10 +202,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   }
   workerRequestActive = true;
   void runWorkerRequest(event.data).catch((error: unknown) => {
-    send({
-      type: 'error',
-      message: error instanceof Error ? error.message : String(error),
-    });
+    send(serializeWorkerError(error));
   }).finally(() => {
     workerRequestActive = false;
   });
@@ -189,6 +220,17 @@ export async function runWorkerRequest(rawRequest: unknown) {
     && typeof rawRequest === 'object'
     && (rawRequest as { type?: unknown }).type === 'diagnose-music-capacity'
   ) return runVariableMusicGeneration(validateMusicCapacityDiagnosticRequest(rawRequest));
+  if (
+    rawRequest
+    && typeof rawRequest === 'object'
+    && ['inspect-artifact-cache', 'download-artifacts', 'delete-artifact-caches']
+      .includes(String((rawRequest as { type?: unknown }).type))
+  ) {
+    const request = validateArtifactCacheRequest(rawRequest);
+    if (request.type === 'inspect-artifact-cache') return runArtifactCacheInspection(request);
+    if (request.type === 'download-artifacts') return runArtifactDownload(request);
+    return runArtifactCacheDeletion(request);
+  }
   const request = rawRequest as WorkerRequest;
   if (request.type === 'generate-music-5s') return runMusicGeneration(request);
   if (request.type === 'run-vocoder-smoke') return runVocoder(request.manifestUrl);
@@ -371,6 +413,14 @@ async function runCondition(manifestUrl: string) {
 }
 
 async function readManifest(url: string, unavailable: string) {
+  const release = await fetchManifest(url, unavailable);
+  return {
+    ...release,
+    cache: await OpfsArtifactStore.open(release.hash),
+  };
+}
+
+async function fetchManifest(url: string, unavailable: string) {
   let response: Response;
   try {
     response = await fetch(url);
@@ -381,9 +431,231 @@ async function readManifest(url: string, unavailable: string) {
   const text = await response.text();
   return {
     text,
+    hash: await hashText(text),
     base: new URL(url, self.location.href),
-    cache: await OpfsArtifactStore.open(await hashText(text)),
   };
+}
+
+function collectVariableMusicArtifacts(
+  manifest: ReturnType<typeof parseMusicVariableManifest>,
+) {
+  const allArtifacts = [
+    manifest.graph,
+    ...manifest.graph.externalData,
+    manifest.reducedHead,
+    ...manifest.reducedHead.externalData,
+    ...manifest.embedding.shards,
+    manifest.rvqDepth,
+    ...manifest.rvqDepth.externalData,
+    manifest.feedback,
+    ...manifest.feedback.externalData,
+    ...manifest.rvqEmbedding.shards,
+    manifest.conditionEncoder,
+    ...manifest.conditionEncoder.externalData,
+    manifest.flow,
+    ...manifest.flow.externalData,
+    manifest.vocoder,
+    ...manifest.vocoder.externalData,
+    ...manifest.tokenizerFiles,
+    manifest.licenseFile,
+  ];
+  return [...new Map(allArtifacts.map((artifact) => [artifact.path, artifact])).values()];
+}
+
+function parseVariableMusicRelease(
+  release: Awaited<ReturnType<typeof fetchManifest>>,
+  operation: ArtifactOperation,
+) {
+  try {
+    return parseMusicVariableManifest(JSON.parse(release.text));
+  } catch (error) {
+    throw new ArtifactOperationError(
+      'Music release manifest is invalid',
+      'manifest-invalid',
+      operation,
+      false,
+      { cause: error },
+    );
+  }
+}
+
+async function readPersistenceState(storage: StorageManager | undefined) {
+  if (!storage?.persisted) return 'unavailable' as const;
+  try {
+    return await storage.persisted() ? 'persistent' as const : 'best-effort' as const;
+  } catch {
+    return 'unavailable' as const;
+  }
+}
+
+async function readStorageEstimate(storage: StorageManager | undefined) {
+  if (!storage?.estimate) return undefined;
+  try {
+    return await storage.estimate();
+  } catch {
+    return undefined;
+  }
+}
+
+async function requestDownloadPersistence(storage: StorageManager | undefined) {
+  if (!storage?.persisted || !storage.persist) return 'unavailable' as const;
+  try {
+    if (await storage.persisted()) return 'persistent' as const;
+    return await storage.persist() ? 'persistent' as const : 'best-effort' as const;
+  } catch {
+    return 'unavailable' as const;
+  }
+}
+
+async function inspectVariableArtifactStatus(
+  release: Awaited<ReturnType<typeof fetchManifest>>,
+  artifacts: ReturnType<typeof collectVariableMusicArtifacts>,
+  opfsRoot?: FileSystemDirectoryHandle,
+) {
+  const storage = navigator.storage;
+  const root = opfsRoot ?? await storage.getDirectory();
+  const cache = await OpfsArtifactStore.openExisting(release.hash, root);
+  const [inspection, project, persistence, estimate] = await Promise.all([
+    inspectArtifactCache(artifacts, cache),
+    inspectProjectArtifactCaches(root),
+    readPersistenceState(storage),
+    readStorageEstimate(storage),
+  ]);
+  return {
+    manifestHash: release.hash,
+    ...inspection,
+    projectCacheCount: project.cacheCount,
+    projectCacheBytes: project.storedBytes,
+    persistence,
+    ...assessArtifactCapacity(inspection, estimate),
+  };
+}
+
+async function fetchVariableMusicRelease(manifestUrl: string, operation: ArtifactOperation) {
+  try {
+    return await fetchManifest(manifestUrl, 'Music release manifest is unavailable');
+  } catch (error) {
+    throw new ArtifactOperationError(
+      'Music release manifest is unavailable',
+      'manifest-unavailable',
+      operation,
+      true,
+      { cause: error },
+    );
+  }
+}
+
+async function runArtifactCacheInspection(
+  request: Extract<ArtifactCacheRequest, { type: 'inspect-artifact-cache' }>,
+) {
+  const operation = request.type;
+  const release = await fetchVariableMusicRelease(request.manifestUrl, operation);
+  const manifest = parseVariableMusicRelease(release, operation);
+  try {
+    const status = await inspectVariableArtifactStatus(
+      release,
+      collectVariableMusicArtifacts(manifest),
+    );
+    send({ type: 'artifact-cache-status', status });
+  } catch (error) {
+    if (error instanceof ArtifactOperationError) throw error;
+    throw new ArtifactOperationError(
+      'Artifact cache inspection failed',
+      'cache-inspection-failed',
+      operation,
+      true,
+      { cause: error },
+    );
+  }
+}
+
+function hasErrorName(error: unknown, name: string): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === name) return true;
+  return hasErrorName(error.cause, name);
+}
+
+async function runArtifactDownload(
+  request: Extract<ArtifactCacheRequest, { type: 'download-artifacts' }>,
+) {
+  const operation = request.type;
+  try {
+    await withArtifactCacheMutationLock(async () => {
+      const release = await fetchVariableMusicRelease(request.manifestUrl, operation);
+      const manifest = parseVariableMusicRelease(release, operation);
+      const artifacts = collectVariableMusicArtifacts(manifest);
+      const root = await navigator.storage.getDirectory();
+      const status = await inspectVariableArtifactStatus(release, artifacts, root);
+      if (status.sufficient === undefined) {
+        throw new ArtifactOperationError(
+          'Storage estimate is unavailable',
+          'storage-estimate-unavailable',
+          operation,
+          true,
+        );
+      }
+      if (!status.sufficient) {
+        throw new ArtifactOperationError(
+          'Storage quota is insufficient for model artifacts',
+          'quota-insufficient',
+          operation,
+          true,
+        );
+      }
+      const persistence = await requestDownloadPersistence(navigator.storage);
+      const cache = await OpfsArtifactStore.open(release.hash, root);
+      await cacheArtifacts(artifacts, release.base, cache);
+      const inspected = await inspectVariableArtifactStatus(release, artifacts, root);
+      const completed = { ...inspected, persistence };
+      if (completed.state !== 'ready')
+        throw new Error('Artifact cache is not ready after download');
+      send({ type: 'artifact-download-complete', status: completed });
+    });
+  } catch (error) {
+    if (error instanceof ArtifactOperationError) throw error;
+    if (hasErrorName(error, 'QuotaExceededError')) {
+      throw new ArtifactOperationError(
+        'Storage quota was exceeded while downloading model artifacts',
+        'quota-exceeded',
+        operation,
+        true,
+        { cause: error },
+      );
+    }
+    throw new ArtifactOperationError(
+      'Artifact download failed',
+      'download-failed',
+      operation,
+      true,
+      { cause: error },
+    );
+  }
+}
+
+async function runArtifactCacheDeletion(
+  request: Extract<ArtifactCacheRequest, { type: 'delete-artifact-caches' }>,
+) {
+  const operation = request.type;
+  const release = await fetchVariableMusicRelease(request.manifestUrl, operation);
+  const manifest = parseVariableMusicRelease(release, operation);
+  const artifacts = collectVariableMusicArtifacts(manifest);
+  try {
+    await withArtifactCacheMutationLock(async () => {
+      const root = await navigator.storage.getDirectory();
+      await deleteProjectArtifactCaches(root);
+      const status = await inspectVariableArtifactStatus(release, artifacts, root);
+      send({ type: 'artifact-cache-deleted', status });
+    });
+  } catch (error) {
+    if (error instanceof ArtifactOperationError) throw error;
+    throw new ArtifactOperationError(
+      'Artifact cache deletion failed',
+      'cache-delete-failed',
+      operation,
+      true,
+      { cause: error },
+    );
+  }
 }
 
 async function cacheArtifacts(
@@ -393,16 +665,27 @@ async function cacheArtifacts(
 ) {
   let fetches = 0;
   let completedBytes = 0;
+  let transferredBytes = 0;
   const totalBytes = artifacts.reduce((total, artifact) => total + artifact.bytes, 0);
   const reporter = createArtifactProgressReporter({ totalBytes, send });
   for (const artifact of artifacts) {
     let fetched = false;
+    let artifactTransferredBytes = 0;
     try {
       await ensureArtifact(
         artifact,
         new URL(artifact.path, base),
         cache,
-        ({ path, loaded, total }) => reporter.report(path, loaded, total, completedBytes),
+        ({ path, loaded, total, transferred }) => {
+          artifactTransferredBytes = Math.max(artifactTransferredBytes, transferred);
+          reporter.report(
+            path,
+            loaded,
+            total,
+            completedBytes,
+            transferredBytes + artifactTransferredBytes,
+          );
+        },
         async (input, init) => {
           fetched = true;
           fetches++;
@@ -413,8 +696,15 @@ async function cacheArtifacts(
       reporter.discard();
       throw error;
     }
+    transferredBytes += artifactTransferredBytes;
     completedBytes += artifact.bytes;
-    reporter.complete(artifact.path, artifact.bytes, completedBytes, !fetched);
+    reporter.complete(
+      artifact.path,
+      artifact.bytes,
+      completedBytes,
+      !fetched,
+      transferredBytes,
+    );
   }
   return fetches;
 }
@@ -565,31 +855,50 @@ async function runVariableMusicGeneration(
 ) {
   const capacityDiagnostic = inputRequest.type === 'diagnose-music-capacity';
   send({ type: 'progress', stage: 'manifest', detail: 'Reading variable music release manifest' });
-  const release = await readManifest(inputRequest.manifestUrl, 'Music release manifest is unavailable');
-  const manifestHash = await hashText(release.text);
-  const manifest = parseMusicVariableManifest(JSON.parse(release.text));
-  const allArtifacts = [
-    manifest.graph,
-    ...manifest.graph.externalData,
-    manifest.reducedHead,
-    ...manifest.reducedHead.externalData,
-    ...manifest.embedding.shards,
-    manifest.rvqDepth,
-    ...manifest.rvqDepth.externalData,
-    manifest.feedback,
-    ...manifest.feedback.externalData,
-    ...manifest.rvqEmbedding.shards,
-    manifest.conditionEncoder,
-    ...manifest.conditionEncoder.externalData,
-    manifest.flow,
-    ...manifest.flow.externalData,
-    manifest.vocoder,
-    ...manifest.vocoder.externalData,
-    ...manifest.tokenizerFiles,
-    manifest.licenseFile,
-  ];
-  const artifacts = [...new Map(allArtifacts.map((artifact) => [artifact.path, artifact])).values()];
-  const artifactFetches = await cacheArtifacts(artifacts, release.base, release.cache);
+  let release: Awaited<ReturnType<typeof readManifest>>;
+  let manifest: ReturnType<typeof parseMusicVariableManifest>;
+  let artifactFetches: number;
+  if (capacityDiagnostic) {
+    release = await readManifest(inputRequest.manifestUrl, 'Music release manifest is unavailable');
+    manifest = parseMusicVariableManifest(JSON.parse(release.text));
+    artifactFetches = await cacheArtifacts(
+      collectVariableMusicArtifacts(manifest),
+      release.base,
+      release.cache,
+    );
+  } else {
+    const fetched = await fetchVariableMusicRelease(inputRequest.manifestUrl, 'generate-music');
+    manifest = parseVariableMusicRelease(fetched, 'generate-music');
+    const artifacts = collectVariableMusicArtifacts(manifest);
+    let cache: OpfsArtifactStore | undefined;
+    try {
+      const root = await navigator.storage.getDirectory();
+      cache = await OpfsArtifactStore.openExisting(fetched.hash, root);
+      const inspection = await inspectArtifactCache(artifacts, cache);
+      if (inspection.state !== 'ready') {
+        throw new ArtifactOperationError(
+          'Model artifact cache is not ready',
+          'cache-not-ready',
+          'generate-music',
+          true,
+        );
+      }
+    } catch (error) {
+      if (error instanceof ArtifactOperationError) throw error;
+      throw new ArtifactOperationError(
+        'Artifact cache inspection failed',
+        'cache-inspection-failed',
+        'generate-music',
+        true,
+        { cause: error },
+      );
+    }
+    if (!cache) throw new Error('ready artifact cache is unavailable');
+    release = { ...fetched, cache };
+    artifactFetches = 0;
+  }
+  const manifestHash = release.hash;
+  const artifacts = collectVariableMusicArtifacts(manifest);
   const artifactBytes = artifacts.reduce((total, artifact) => total + artifact.bytes, 0);
   const sampling = capacityDiagnostic
     ? {
