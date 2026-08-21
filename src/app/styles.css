@@ -52,6 +52,48 @@ h1 {
   color: #8fe0b1;
 }
 
+.model-files {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid #485155;
+  background: #14181a;
+}
+
+.model-files h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.cache-status,
+.cache-warning,
+.cache-error,
+.cache-progress p {
+  margin: 0.4rem 0 0;
+  font:
+    0.8rem/1.5 Cascadia Code,
+    monospace;
+}
+
+.cache-warning {
+  color: #ffd38a;
+}
+
+.cache-error {
+  color: #ff9e9e;
+}
+
+.cache-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.cache-actions button {
+  padding: 0.55rem 0.75rem;
+  font-size: 0.8rem;
+}
+
 .command-row {
   display: flex;
   flex-wrap: wrap;

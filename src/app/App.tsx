@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
+import {
+  requestPersistentStorage,
+} from '../runtime/model/artifact-cache-management';
 import { inspectWebGpu, type WebGpuCapability } from '../runtime/model/webgpu-device';
 import {
   cancelWorker,
@@ -15,19 +18,32 @@ import type {
   VocoderSmokeResult,
   WorkerResponse,
 } from '../workers/protocol';
+import type { ArtifactCacheRequest, ArtifactOperation } from '../workers/protocol';
 import {
   createMusicGenerationRequest,
 } from '../workers/protocol';
 import { FIXED_COMPARISON_CASE } from '../runtime/reference/fixed-comparison';
+import {
+  artifactCacheUiReducer,
+  createArtifactCacheUiState,
+  describeArtifactCacheStatus,
+  deriveArtifactCacheControls,
+  formatBytes,
+  formatEta,
+  formatRate,
+  type ArtifactCacheRetryTarget,
+  type ArtifactCacheUiOperation,
+} from './artifact-cache-ui';
 
 type CapabilityState = WebGpuCapability | null;
 const PRODUCT_DURATIONS = Array.from({ length: 60 }, (_, index) => (index + 1) * 5);
+const PRODUCT_MANIFEST_URL = 'http://127.0.0.1:5174/manifest.json';
 const durationLabel = (durationSeconds: number) =>
   durationSeconds === 5 ? 'five-second' : `${durationSeconds}-second`;
 
 export function createProductMusicRequest(durationSeconds: number) {
   return createMusicGenerationRequest({
-    manifestUrl: 'http://127.0.0.1:5174/manifest.json',
+    manifestUrl: PRODUCT_MANIFEST_URL,
     prompt: FIXED_COMPARISON_CASE.input.prompt,
     lyrics: FIXED_COMPARISON_CASE.input.lyrics,
     seed: 7,
@@ -55,14 +71,93 @@ export function App() {
   const [musicResult, setMusicResult] = useState<AnyMusicGenerationWorkerResult | null>(null);
   const [musicProgress, setMusicProgress] = useState<ProgressView | null>(null);
   const [durationSeconds, setDurationSeconds] = useState(5);
+  const [musicIsRunning, setMusicIsRunning] = useState(false);
   const [musicUrl, setMusicUrl] = useState<string | null>(null);
+  const [cacheState, dispatchCache] = useReducer(
+    artifactCacheUiReducer,
+    null,
+    createArtifactCacheUiState,
+  );
   const musicUrlRef = useRef<string | null>(null);
   const worker = useRef<Worker | null>(null);
+  const cacheWorker = useRef<Worker | null>(null);
   const musicRunning = useRef(false);
+
+  const finishCacheWorker = (activeWorker: Worker) => {
+    activeWorker.terminate();
+    if (cacheWorker.current === activeWorker) cacheWorker.current = null;
+  };
+
+  const retryTarget = (
+    operation: ArtifactCacheUiOperation,
+    protocolOperation?: ArtifactOperation,
+  ): ArtifactCacheRetryTarget => {
+    if (protocolOperation === 'download-artifacts' || operation === 'download') return 'download';
+    if (protocolOperation === 'delete-artifact-caches' || operation === 'delete') return 'delete';
+    return 'inspect';
+  };
+
+  const runCacheWorker = (
+    request: ArtifactCacheRequest,
+    operation: Exclude<ArtifactCacheUiOperation, null | 'request-persistence'>,
+  ) => {
+    cacheWorker.current?.terminate();
+    const next = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), {
+      type: 'module',
+    });
+    cacheWorker.current = next;
+    next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
+      if (data.type === 'progress') {
+        if (operation === 'download' && data.stage === 'artifact') {
+          dispatchCache({ type: 'progress-received', progress: data });
+        }
+        return;
+      }
+      if (
+        data.type === 'artifact-cache-status'
+        || data.type === 'artifact-download-complete'
+        || data.type === 'artifact-cache-deleted'
+      ) {
+        const source = data.type === 'artifact-cache-status'
+          ? 'inspect'
+          : data.type === 'artifact-download-complete'
+            ? 'download'
+            : 'delete';
+        dispatchCache({ type: 'status-received', source, status: data.status });
+        finishCacheWorker(next);
+        return;
+      }
+      if (data.type === 'error') {
+        dispatchCache({
+          type: 'operation-failed',
+          error: {
+            message: data.message,
+            code: data.code,
+            operation: data.operation,
+            retryable: data.retryable === true,
+            retryTarget: retryTarget(operation, data.operation),
+          },
+        });
+        finishCacheWorker(next);
+        if (operation === 'download' || operation === 'delete') inspectCache();
+      }
+    };
+    next.postMessage(request);
+  };
+
+  const inspectCache = () => {
+    dispatchCache({ type: 'operation-started', operation: 'inspect' });
+    runCacheWorker({
+      type: 'inspect-artifact-cache',
+      manifestUrl: PRODUCT_MANIFEST_URL,
+    }, 'inspect');
+  };
 
   useEffect(() => {
     void inspectWebGpu(navigator.gpu).then(setCapability);
+    inspectCache();
     return () => {
+      cacheWorker.current?.terminate();
       if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
     };
   }, []);
@@ -70,6 +165,7 @@ export function App() {
   const cancel = () => {
     const wasMusicRunning = musicRunning.current;
     musicRunning.current = false;
+    setMusicIsRunning(false);
     if (wasMusicRunning) {
       const cancelled = cancelWorker(worker.current, musicProgress ?? {
         status: 'running',
@@ -220,6 +316,7 @@ export function App() {
     const next = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), { type: 'module' });
     worker.current = next;
     musicRunning.current = true;
+    setMusicIsRunning(true);
     next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
       if (data.type === 'progress') {
         const view = progressView(data);
@@ -232,18 +329,54 @@ export function App() {
         setMusicUrl(url);
         setMusicResult(data.result);
         musicRunning.current = false;
+        setMusicIsRunning(false);
         next.terminate();
         worker.current = null;
       } else if (data.type === 'error') {
         setProgress(`Error: ${data.message}`);
         setMusicProgress(null);
         musicRunning.current = false;
+        setMusicIsRunning(false);
         next.terminate();
         worker.current = null;
       }
     };
     next.postMessage(request);
   };
+
+  const downloadArtifacts = async () => {
+    dispatchCache({ type: 'operation-started', operation: 'request-persistence' });
+    const persistence = await requestPersistentStorage(navigator.storage);
+    dispatchCache({ type: 'persistence-resolved', warning: persistence.warning });
+    dispatchCache({ type: 'download-started' });
+    runCacheWorker({
+      type: 'download-artifacts',
+      manifestUrl: PRODUCT_MANIFEST_URL,
+    }, 'download');
+  };
+
+  const cancelArtifactDownload = () => {
+    cacheWorker.current?.terminate();
+    cacheWorker.current = null;
+    dispatchCache({ type: 'download-cancelled' });
+    inspectCache();
+  };
+
+  const deleteArtifactCaches = () => {
+    if (!window.confirm('Delete all downloaded MiniMax Music 3 model files?')) return;
+    dispatchCache({ type: 'operation-started', operation: 'delete' });
+    runCacheWorker({
+      type: 'delete-artifact-caches',
+      manifestUrl: PRODUCT_MANIFEST_URL,
+    }, 'delete');
+  };
+
+  const cacheControls = deriveArtifactCacheControls(cacheState, musicIsRunning);
+  const downloadLabel = cacheControls.canRetry
+    ? 'Retry'
+    : cacheState.status?.state === 'partial'
+      ? 'Resume'
+      : 'Download';
 
   const status =
     capability === null
@@ -260,6 +393,64 @@ export function App() {
         <p aria-live="polite" className={capability?.supported ? 'status supported' : 'status'}>
           {status}
         </p>
+        <section aria-labelledby="model-files-title" className="model-files">
+          <h2 id="model-files-title">Model files</h2>
+          <p aria-live="polite" className="cache-status">
+            {describeArtifactCacheStatus(cacheState)}
+          </p>
+          {cacheState.persistenceWarning && (
+            <p className="cache-warning">{cacheState.persistenceWarning}</p>
+          )}
+          {cacheState.lastError && (
+            <p role="alert" className="cache-error">{cacheState.lastError.message}</p>
+          )}
+          {cacheState.notice && (
+            <p aria-live="polite" className="cache-warning">{cacheState.notice}</p>
+          )}
+          <div className="cache-actions">
+            <button
+              type="button"
+              disabled={!cacheControls.canDownload && !cacheControls.canRetry}
+              onClick={() => void downloadArtifacts()}
+            >
+              {downloadLabel}
+            </button>
+            <button type="button" className="secondary" disabled={!cacheControls.canRefresh} onClick={inspectCache}>
+              Refresh
+            </button>
+            <button type="button" className="secondary" disabled={!cacheControls.canDelete} onClick={deleteArtifactCaches}>
+              Delete
+            </button>
+            <button type="button" className="secondary" disabled={!cacheControls.canCancel} onClick={cancelArtifactDownload}>
+              Cancel
+            </button>
+          </div>
+          {cacheState.operation === 'download' && !cacheState.downloadProgress && (
+            <progress aria-label="Model download progress" />
+          )}
+          {cacheState.downloadProgress && (
+            <div className="cache-progress">
+              <p id="model-download-progress-label">
+                Current file: {cacheState.downloadProgress.currentFile}
+              </p>
+              <progress
+                aria-labelledby="model-download-progress-label"
+                value={cacheState.downloadProgress.completedBytes}
+                max={cacheState.downloadProgress.totalBytes}
+              />
+              <p>
+                {formatBytes(cacheState.downloadProgress.completedBytes)} of{' '}
+                {formatBytes(cacheState.downloadProgress.totalBytes)} verified
+                {cacheState.downloadProgress.rate !== undefined
+                  ? `, ${formatRate(cacheState.downloadProgress.rate)}`
+                  : ''}
+                {cacheState.downloadProgress.etaMs !== undefined
+                  ? `, ETA ${formatEta(cacheState.downloadProgress.etaMs)}`
+                  : ''}
+              </p>
+            </div>
+          )}
+        </section>
         <div className="command-row">
           <button type="button" disabled={!capability?.supported} onClick={run}>
             Run Global LLM smoke
@@ -291,7 +482,11 @@ export function App() {
               ))}
             </select>
           </label>
-          <button type="button" disabled={!capability?.supported} onClick={generateMusic}>
+          <button
+            type="button"
+            disabled={!capability?.supported || !cacheControls.canGenerate}
+            onClick={generateMusic}
+          >
             Generate {durationLabel(durationSeconds)} music
           </button>
           <button type="button" className="secondary" disabled={!worker.current} onClick={cancel}>
