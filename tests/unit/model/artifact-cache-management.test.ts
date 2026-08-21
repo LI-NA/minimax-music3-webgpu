@@ -14,14 +14,9 @@ const artifacts = [
 const storeWith = (
   sizes: Readonly<Record<string, number>> = {},
   complete: readonly string[] = [],
-): ArtifactStore => ({
+): Pick<ArtifactStore, 'size' | 'isComplete'> => ({
   size: async (path) => sizes[path] ?? 0,
   isComplete: async (path) => complete.includes(path),
-  stream: async () => { throw new Error('not used'); },
-  writer: async () => { throw new Error('not used'); },
-  remove: async () => { throw new Error('not used'); },
-  markComplete: async () => { throw new Error('not used'); },
-  file: async () => { throw new Error('not used'); },
 });
 
 describe('inspectArtifactCache', () => {
@@ -134,6 +129,10 @@ describe('assessArtifactCapacity', () => {
     { usage: 1, quota: Number.POSITIVE_INFINITY },
     { usage: -1, quota: 100 },
     { usage: 101, quota: 100 },
+    { usage: 1.5, quota: 100 },
+    { usage: 1, quota: 100.5 },
+    { usage: Number.MAX_SAFE_INTEGER + 1, quota: Number.MAX_SAFE_INTEGER + 2 },
+    { usage: 1, quota: Number.MAX_SAFE_INTEGER + 1 },
   ])('omits unavailable capacity for an unavailable or malformed estimate', (estimate) => {
     expect(assessArtifactCapacity(inspection, estimate)).toEqual({
       requiredHeadroomBytes: 93,

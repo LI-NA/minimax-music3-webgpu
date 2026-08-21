@@ -24,7 +24,7 @@ export interface ArtifactCapacityAssessment {
 
 export async function inspectArtifactCache(
   artifacts: readonly ArtifactFile[],
-  store: ArtifactStore | undefined,
+  store: Pick<ArtifactStore, 'size' | 'isComplete'> | undefined,
 ): Promise<ArtifactCacheInspection> {
   const totalArtifactBytes = artifacts.reduce((sum, artifact) => sum + artifact.bytes, 0);
   if (store) {
@@ -79,8 +79,8 @@ export function assessArtifactCapacity(
   if (
     usageBytes === undefined
     || quotaBytes === undefined
-    || !Number.isFinite(usageBytes)
-    || !Number.isFinite(quotaBytes)
+    || !Number.isSafeInteger(usageBytes)
+    || !Number.isSafeInteger(quotaBytes)
     || usageBytes < 0
     || quotaBytes < usageBytes
   ) return { requiredHeadroomBytes };
