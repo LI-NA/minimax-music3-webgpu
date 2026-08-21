@@ -9,6 +9,11 @@ test('generates and decodes the fixed five-second WAV and reuses the combined re
     path.resolve(process.env.MINIMAX_MUSIC_CHROME_PROFILE ?? 'artifacts/music-browser-profile'),
     { channel: 'chrome', headless: false },
   );
+  const wasmRequests: string[] = [];
+  context.on('request', (request) => {
+    if (request.url().includes('ort-wasm-simd-threaded.jspi.wasm'))
+      wasmRequests.push(request.url());
+  });
   const page = context.pages()[0] ?? (await context.newPage());
   try {
     await page.goto('http://127.0.0.1:5173/');
@@ -33,10 +38,12 @@ test('generates and decodes the fixed five-second WAV and reuses the combined re
     await expect(result).toContainText('"conditionBytes": 1761280');
     await expect(result).toContainText('"latentBytes": 110080');
     await expect(result).toContainText('"wavBytes": 880684');
+    expect(wasmRequests.length).toBeGreaterThan(0);
+    expect(wasmRequests.every((url) => url.endsWith('.jspi.wasm?v=0569a267'))).toBe(true);
 
     const decoded = await page.getByTestId('generated-audio').evaluate(async (audio) => {
       const wav = await fetch((audio as HTMLAudioElement).src).then((response) => response.arrayBuffer());
-      const audioContext = new AudioContext();
+      const audioContext = new AudioContext({ sampleRate: 44_100 });
       try {
         const buffer = await audioContext.decodeAudioData(wav);
         return { sampleRate: buffer.sampleRate, channels: buffer.numberOfChannels, samples: buffer.length };
@@ -66,6 +73,31 @@ test('generates and decodes the fixed five-second WAV and reuses the combined re
     expect(wav.readUInt32LE(24)).toBe(44_100);
     expect(wav.readUInt16LE(34)).toBe(16);
     expect(wav.readUInt32LE(40)).toBe(880_640);
+
+    let longestConstantFrameRun = 1;
+    let currentConstantFrameRun = 1;
+    let channelsDiffer = false;
+    let lateWindowDelta = 0;
+    const frames = wav.readUInt32LE(40) / 4;
+    const lateWindowStart = frames - 44_100;
+    let previousLeft = wav.readInt16LE(44);
+    let previousRight = wav.readInt16LE(46);
+    for (let frame = 1; frame < frames; frame++) {
+      const offset = 44 + frame * 4;
+      const left = wav.readInt16LE(offset);
+      const right = wav.readInt16LE(offset + 2);
+      channelsDiffer ||= left !== right;
+      if (left === previousLeft && right === previousRight) currentConstantFrameRun += 1;
+      else currentConstantFrameRun = 1;
+      longestConstantFrameRun = Math.max(longestConstantFrameRun, currentConstantFrameRun);
+      if (frame >= lateWindowStart)
+        lateWindowDelta += Math.abs(left - previousLeft) + Math.abs(right - previousRight);
+      previousLeft = left;
+      previousRight = right;
+    }
+    expect(longestConstantFrameRun).toBeLessThan(44_100);
+    expect(lateWindowDelta).toBeGreaterThan(0);
+    expect(channelsDiffer).toBe(true);
 
     await generate.click();
     await expect(result).toHaveCount(0);

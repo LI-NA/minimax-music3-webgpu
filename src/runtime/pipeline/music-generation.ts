@@ -1,4 +1,5 @@
 import type * as ort from 'onnxruntime-web/jspi';
+import { readGpuFp16Bits } from '../model/fp16-readback';
 import { float32ToFloat16Bits } from './flow-generation';
 import type { GeneratedFrame } from './rvq-generation';
 import { createDeterministicDraw } from './sampler';
@@ -59,33 +60,11 @@ export function deterministicGaussianFp16(seed: number, length: number) {
 }
 
 export async function readExactGpuFp16(
-  device: GPUDevice,
   tensor: ort.Tensor,
   dims: readonly number[],
   name: string,
 ) {
-  if (
-    tensor.type !== 'float16'
-    || tensor.location !== 'gpu-buffer'
-    || tensor.dims.length !== dims.length
-    || tensor.dims.some((value, index) => value !== dims[index])
-  ) throw new Error(`${name} must be a GPU-resident float16 tensor with shape [${dims.join(',')}]`);
-  const values = dims.reduce((total, value) => total * value, 1);
-  const bytes = values * 2;
-  const staging = device.createBuffer({
-    size: bytes,
-    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-  });
-  try {
-    const commands = device.createCommandEncoder();
-    commands.copyBufferToBuffer(tensor.gpuBuffer, 0, staging, 0, bytes);
-    device.queue.submit([commands.finish()]);
-    await staging.mapAsync(GPUMapMode.READ);
-    return new Uint16Array(staging.getMappedRange()).slice();
-  } finally {
-    if (staging.mapState === 'mapped') staging.unmap();
-    staging.destroy();
-  }
+  return readGpuFp16Bits(tensor, dims, name);
 }
 
 export async function generateFiveSecondMusic(

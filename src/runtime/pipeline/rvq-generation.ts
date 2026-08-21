@@ -1,6 +1,7 @@
 import type * as ort from 'onnxruntime-web/jspi';
 import promptContract from '../../../tests/fixtures/prompt-contract.json';
 import type { KvPairSpec } from '../model/manifest';
+import { readGpuFp16Bits } from '../model/fp16-readback';
 import { GpuKvState } from './gpu-kv-state';
 import { createDeterministicDraw, sampleResidual, sampleSemantic } from './sampler';
 
@@ -270,23 +271,9 @@ export function createFrameGenerator(runtime: FrameGenerationRuntime) {
   };
 }
 
-export async function readConditionalGpuFp16(device: GPUDevice, tensor: ort.Tensor) {
-  if (tensor.location !== 'gpu-buffer') throw new Error('hidden tensor is not GPU-resident');
-  const bytes = hiddenSize * 2;
-  const staging = device.createBuffer({
-    size: bytes,
-    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-  });
-  try {
-    const commands = device.createCommandEncoder();
-    commands.copyBufferToBuffer(tensor.gpuBuffer, 0, staging, 0, bytes);
-    device.queue.submit([commands.finish()]);
-    await staging.mapAsync(GPUMapMode.READ);
-    return new Uint16Array(staging.getMappedRange()).slice();
-  } finally {
-    if (staging.mapState === 'mapped') staging.unmap();
-    staging.destroy();
-  }
+export async function readConditionalGpuFp16(tensor: ort.Tensor) {
+  const bothLanes = await readGpuFp16Bits(tensor, [batchSize, hiddenSize], 'hidden');
+  return bothLanes.slice(0, hiddenSize);
 }
 
 export function areFiniteFp16(values: Uint16Array) {

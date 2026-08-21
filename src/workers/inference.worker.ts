@@ -403,7 +403,7 @@ async function runFrameGeneration(request: Extract<WorkerRequest, { type: 'gener
           ),
           embeddingColumns: globalManifest.embedding.columns,
           kvPairs: globalManifest.kvPairs,
-          readConditionalHidden: (tensor) => readConditionalGpuFp16(device, tensor),
+          readConditionalHidden: readConditionalGpuFp16,
           onCacheLength: (length) => cacheLengths.push(length),
         }).generateFrames({ maxFrames: request.maxFrames, seed, guidance: 1.5, topK: 50 });
         break;
@@ -524,7 +524,7 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
             ),
             embeddingColumns: manifest.embedding.columns,
             kvPairs: manifest.kvPairs,
-            readConditionalHidden: (tensor) => readConditionalGpuFp16(device, tensor),
+            readConditionalHidden: readConditionalGpuFp16,
             onFrameRetained: (count) => {
               if (count > reportedFrames) {
                 reportedFrames = count;
@@ -561,7 +561,7 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
           inferenceMs.condition = performance.now() - inferenceStarted;
           output = outputs.condition;
           if (!output) throw new Error('condition encoder did not return condition');
-          return await readExactGpuFp16(device, output, [1, 430, 2048], 'condition');
+          return await readExactGpuFp16(output, [1, 430, 2048], 'condition');
         } finally {
           output?.dispose();
           input.dispose();
@@ -597,7 +597,7 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
             onStep(completed);
           });
           inferenceMs.flow = performance.now() - inferenceStarted;
-          return await readExactGpuFp16(device, final, [1, 128, 430], 'latents');
+          return await readExactGpuFp16(final, [1, 128, 430], 'latents');
         } finally {
           final?.dispose();
           condition.dispose();

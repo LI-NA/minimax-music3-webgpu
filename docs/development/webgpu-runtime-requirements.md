@@ -8,6 +8,7 @@ Use one runtime configuration:
 
 - Chromium with a non-fallback WebGPU adapter and `shader-f16`
 - ONNX Runtime Web `1.30.0-dev.20260813-72e1c9c9b8`
+- the project-served JSPI WASM with patched SHA-256 `0569a267c57da3947fefc95934a7eee1426188cba11997be556515d482347534`
 - `executionProviders: ['webgpu']` with CPU fallback disabled
 - sequential execution and all graph optimizations
 - memory patterns and graph capture disabled
@@ -39,11 +40,13 @@ Autoregressive generation is the limiting stage. Exact application-owned GPU ten
 | Stage | Exact peak application-owned GPU bytes |
 | --- | ---: |
 | Autoregressive and RVQ | 97,058,816 |
-| Condition output and readback staging | 3,522,560 |
-| Flow current tensor and readback staging | 220,160 |
+| Condition output | 1,761,280 |
+| Flow current and next tensors | 220,160 |
 | Vocoder | 0 |
 
 The autoregressive figure includes the old and new KV sets at the final decode boundary. Final live KV data is 48,660,480 bytes. Stage handoffs remain on CPU as raw FP16: 8,192,000 frame-hidden bytes, 1,761,280 condition bytes, and 110,080 latent bytes. No GPU tensor crosses a device boundary.
+
+ONNX Runtime may allocate internal readback buffers while downloading tensors. Those buffers are not application-owned and are represented only in the measured total-system GPU peak.
 
 Standalone total-system measurements provide supporting context only. Condition rose from 1,947 to 2,188 MiB, flow from 1,695 to 3,252 MiB, and vocoder from 1,695 to 2,751 MiB. The combined autoregressive stage remained the stable peak, so splitting flow classifier-free guidance would add complexity without reducing the requirement.
 
@@ -89,6 +92,8 @@ npx playwright test tests/browser/music-generation.spec.ts --project=chrome --wo
 
 The measurements use model revision `fbdf52fbaaca799592917417eb05f1899f1255ec`, Diffusers revision `3681e65996b4d2589219720101a6acbfd25073f8`, and combined manifest SHA-256 `5c295ebfb4b7849d317cf0abd3dd8bfc9da3b58dc74de12a3523c07f28d4500e`.
 
-This milestone validates execution, dimensions, finite outputs, WAV structure, browser decoding, cache reuse, progress, and cleanup. It does not certify an 8 GiB device, longer music, non-Chromium browsers, or subjective audio quality.
+The pinned ONNX Runtime package has an FP16 coordinate defect in its WebGPU `ConvTranspose` shader. Vite patches the eight coordinate casts to FP32 while serving and bundling the JSPI WASM. The patch fails closed against the original byte length, original SHA-256, replacement count, and final SHA-256. Session setup uses patch-versioned absolute JSPI URLs, and the browser gate verifies that no automatically emitted unpatched WASM URL is requested.
 
-The final progress-aware headed Chrome gate passed in 1.5 minutes for two warm generations. It displayed live autoregressive progress, fetched zero artifacts on the repeated run, decoded the WAV through `AudioContext`, and saved an 880,684-byte file with SHA-256 `3093550ac43137d53d65e4ee72006e5574004703730af9059f6ada902697d0fb`.
+This milestone validates execution, dimensions, finite outputs, WAV structure, browser decoding, cache reuse, progress, cleanup, and the known constant-tail regression. It does not certify an 8 GiB device, longer music, non-Chromium browsers, or subjective audio quality.
+
+The corrected progress-aware headed Chrome gate passed in 1.4 minutes for two warm generations. It displayed live autoregressive progress, fetched zero artifacts on the repeated run, decoded the WAV through a 44.1 kHz `AudioContext`, and saved an 880,684-byte file with SHA-256 `c16731b5597fcf343fc1cf05c842ea559c5406bf95678bff75c88767e4102800`.

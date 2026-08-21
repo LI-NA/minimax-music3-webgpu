@@ -23,8 +23,21 @@ The exact gate passed on 2026-08-21 with Chrome 151.0.7922.170 and ONNX Runtime 
 - Completed-artifact fetches on warm runs: 0
 - Download: `artifacts/generated/minimax-music3-5s.wav`
 - WAV: 880,684 bytes, PCM16, 44,100 Hz, 2 channels, 220,160 samples per channel
-- Final WAV SHA-256: `3093550ac43137d53d65e4ee72006e5574004703730af9059f6ada902697d0fb`
+- Corrected WAV SHA-256: `c16731b5597fcf343fc1cf05c842ea559c5406bf95678bff75c88767e4102800`
 - Browser decoding: `AudioContext.decodeAudioData` returned 44,100 Hz, 2 channels, and 220,160 samples
+
+## Audio correctness regression
+
+The first generated file was structurally valid but not usable audio. Its two channels were identical, and samples 65,563 through 220,117 were the exact PCM value `+100`. Two independent runtime defects caused this result:
+
+1. Condition and flow stage outputs were copied from GPU buffers before ONNX Runtime flushed its internal command encoder. The product handoff received zero FP16 values even though ONNX Runtime's downloader returned completed nonzero tensors.
+2. The pinned JSPI WebGPU `ConvTranspose` shader used FP16 for spatial coordinates. Large vocoder coordinates rounded incorrectly and then overflowed above 65,504, making most of the output bias-only.
+
+GPU FP16 stage handoffs now use `Tensor.getData()` as the ONNX Runtime flush and download boundary while preserving native Float16 storage as raw `Uint16Array` bits. Vite also serves a fail-closed patch of the pinned JSPI WASM that changes only the eight embedded `ConvTranspose` coordinate casts to FP32. The source size and SHA-256, match count, and patched SHA-256 are all fixed contracts. Runtime URLs include the patch hash prefix so a browser cannot reuse the old fixed-name WASM from cache.
+
+The corrected headed Chrome gate passed twice from the persistent profile. The saved WAV has a longest constant stereo-frame run of 2 samples, 220,047 of 220,160 frames differ between channels, and the final second has nonzero variation with normalized RMS `0.2225`. The test now rejects a one-second constant run, a non-varying final second, and identical stereo channels. These are narrow regressions for the observed defect, not general music-quality scoring.
+
+During this corrected gate, total-system dedicated GPU memory rose from 2,138 MiB to an observed maximum of 7,269 MiB. This remains below the 12,288 MiB acceptance limit. The earlier clean three-run measurements remain the basis for hardware guidance because the background baseline differed.
 
 The post-optimization three-run mean timings were:
 
@@ -55,4 +68,4 @@ ONNX Runtime emitted non-fatal constant-folding warnings for vocoder Snake recip
 
 VRAM requirements, rejected runtime experiments, the retained cache optimization, and progress behavior are recorded in [WebGPU runtime requirements and optimization](webgpu-runtime-requirements.md).
 
-This gate validates artifact reuse, stage cleanup, exact dimensions, WAV structure, and browser decodability. It does not inspect waveform quality, compare against a reference song, run an audio classifier, or perform the deferred listening check.
+This gate validates artifact reuse, stage cleanup, exact dimensions, WAV structure, browser decodability, and the narrow constant-tail regression above. It does not compare against a reference song, run an audio classifier, or perform the deferred listening check.

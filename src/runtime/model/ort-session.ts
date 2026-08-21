@@ -1,8 +1,7 @@
 import * as ort from 'onnxruntime-web/jspi';
 import type { ArtifactStore } from './artifact-cache';
+import { localJspiWasmPaths } from './local-jspi-path';
 import type { OnnxGraphArtifact } from './manifest';
-
-const wasmUrl = new URL('/ort/', self.location.origin).toString();
 
 export async function createOrtSession(
   graph: OnnxGraphArtifact,
@@ -11,7 +10,7 @@ export async function createOrtSession(
 ): Promise<ort.InferenceSession> {
   ort.env.wasm.proxy = false;
   ort.env.wasm.numThreads = 1;
-  ort.env.wasm.wasmPaths = wasmUrl;
+  ort.env.wasm.wasmPaths = localJspiWasmPaths(self.location.origin);
   ort.env.webgpu.device = device;
   const model = new Uint8Array(await (await cache.file(graph.path)).arrayBuffer());
   const externalData = await Promise.all(

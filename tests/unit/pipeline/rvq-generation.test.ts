@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   areFiniteFp16,
   createFrameGenerator,
@@ -150,34 +150,20 @@ describe('RVQ frame generation', () => {
 });
 
 describe('FP16 hidden readback', () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it('copies raw conditional half bits before unmapping the staging buffer', async () => {
-    vi.stubGlobal('GPUBufferUsage', { COPY_DST: 1, MAP_READ: 2 });
-    vi.stubGlobal('GPUMapMode', { READ: 1 });
-    const mapped = new Uint16Array(4096);
+  it('downloads both lanes through ORT and keeps the raw conditional half bits', async () => {
+    const mapped = new Uint16Array(2 * 4096);
     mapped.set([0x3c00, 0xbc00, 0x3555, 0x0001]);
-    const staging = {
-      mapState: 'mapped',
-      mapAsync: async () => undefined,
-      getMappedRange: () => mapped.buffer,
-      unmap: () => mapped.fill(0),
-      destroy: vi.fn(),
-    };
-    const device = {
-      createBuffer: () => staging,
-      createCommandEncoder: () => ({ copyBufferToBuffer: vi.fn(), finish: () => ({}) }),
-      queue: { submit: vi.fn() },
-    };
+    mapped.fill(0x3c00, 4096);
+    const getData = vi.fn(async () => new Float16Array(mapped.buffer.slice(0)));
 
     const result = await readConditionalGpuFp16(
-      device as never,
-      { location: 'gpu-buffer', gpuBuffer: {} } as never,
+      { type: 'float16', location: 'gpu-buffer', dims: [2, 4096], getData } as never,
     );
 
     expect(result).toBeInstanceOf(Uint16Array);
+    expect(result).toHaveLength(4096);
     expect(Array.from(result.slice(0, 4))).toEqual([0x3c00, 0xbc00, 0x3555, 0x0001]);
-    expect(staging.destroy).toHaveBeenCalledOnce();
+    expect(getData).toHaveBeenCalledOnce();
   });
 
   it('rejects FP16 infinity and NaN bit patterns in retained hidden groups', () => {

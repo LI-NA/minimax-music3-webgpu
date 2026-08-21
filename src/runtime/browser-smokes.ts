@@ -1,4 +1,5 @@
 import * as ort from 'onnxruntime-web/jspi';
+import { localJspiWasmPaths } from './model/local-jspi-path';
 
 async function device() {
   const adapter = await navigator.gpu.requestAdapter({
@@ -11,7 +12,7 @@ async function device() {
 function configure(next: GPUDevice) {
   ort.env.wasm.proxy = false;
   ort.env.wasm.numThreads = 1;
-  ort.env.wasm.wasmPaths = '/ort/';
+  ort.env.wasm.wasmPaths = localJspiWasmPaths(location.origin);
   ort.env.webgpu.device = next;
 }
 export async function runExternalDataOpfsSmoke() {

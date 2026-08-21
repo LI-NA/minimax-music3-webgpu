@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { GeneratedFrame } from '../../../src/runtime/pipeline/rvq-generation';
 import { EarlyAudioEndError } from '../../../src/runtime/pipeline/rvq-generation';
 import {
@@ -82,34 +82,17 @@ describe('five-second music generation data contracts', () => {
 });
 
 describe('exact GPU FP16 readback', () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it('copies raw bits for only the required tensor shape before unmapping', async () => {
-    vi.stubGlobal('GPUBufferUsage', { COPY_DST: 1, MAP_READ: 2 });
-    vi.stubGlobal('GPUMapMode', { READ: 1 });
+  it('downloads raw bits for only the required tensor shape through ORT', async () => {
     const mapped = new Uint16Array([0x3c00, 0xbc00, 0x3555, 0x0001]);
-    const staging = {
-      mapState: 'mapped',
-      mapAsync: async () => undefined,
-      getMappedRange: () => mapped.buffer,
-      unmap: () => mapped.fill(0),
-      destroy: vi.fn(),
-    };
-    const copyBufferToBuffer = vi.fn();
-    const device = {
-      createBuffer: () => staging,
-      createCommandEncoder: () => ({ copyBufferToBuffer, finish: () => ({}) }),
-      queue: { submit: vi.fn() },
-    };
+    const getData = vi.fn(async () => new Float16Array(mapped.buffer.slice(0)));
 
     const result = await readExactGpuFp16(
-      device as never,
-      { type: 'float16', location: 'gpu-buffer', dims: [1, 2, 2], gpuBuffer: {} } as never,
+      { type: 'float16', location: 'gpu-buffer', dims: [1, 2, 2], getData } as never,
       [1, 2, 2],
       'fixture',
     );
 
     expect(Array.from(result)).toEqual([0x3c00, 0xbc00, 0x3555, 0x0001]);
-    expect(copyBufferToBuffer).toHaveBeenCalledWith({}, 0, staging, 0, 8);
+    expect(getData).toHaveBeenCalledOnce();
   });
 });

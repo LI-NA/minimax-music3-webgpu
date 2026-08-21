@@ -1,6 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { defineConfig, type Plugin } from 'vite';
 import { localJspiAssetName, localJspiFilesList } from './src/runtime/model/local-jspi-path.ts';
+import { patchOrtWebGpuConvTransposeCoordinates } from './src/runtime/model/ort-wasm-patch.ts';
+
+const readLocalJspiAsset = (name: string) => {
+  const source = readFileSync(
+    new URL(`./node_modules/onnxruntime-web/dist/${name}`, import.meta.url),
+  );
+  return name.endsWith('.wasm') ? patchOrtWebGpuConvTransposeCoordinates(source) : source;
+};
 
 function localJspiWasm(): Plugin {
   return {
@@ -13,9 +21,7 @@ function localJspiWasm(): Plugin {
           'Content-Type',
           name.endsWith('.wasm') ? 'application/wasm' : 'text/javascript',
         );
-        response.end(
-          readFileSync(new URL(`./node_modules/onnxruntime-web/dist/${name}`, import.meta.url)),
-        );
+        response.end(readLocalJspiAsset(name));
       });
     },
     generateBundle() {
@@ -23,9 +29,7 @@ function localJspiWasm(): Plugin {
         this.emitFile({
           type: 'asset',
           fileName: `ort/${name}`,
-          source: readFileSync(
-            new URL(`./node_modules/onnxruntime-web/dist/${name}`, import.meta.url),
-          ),
+          source: readLocalJspiAsset(name),
         });
     },
   };
