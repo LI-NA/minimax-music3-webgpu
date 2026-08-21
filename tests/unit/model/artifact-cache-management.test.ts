@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   assessArtifactCapacity,
+  deleteProjectArtifactCaches,
   inspectArtifactCache,
+  inspectProjectArtifactCaches,
+  requestPersistentStorage,
+  withArtifactCacheMutationLock,
   type ArtifactCacheInspection,
 } from '../../../src/runtime/model/artifact-cache-management';
 import type { ArtifactStore } from '../../../src/runtime/model/artifact-cache';
@@ -17,6 +21,168 @@ const storeWith = (
 ): Pick<ArtifactStore, 'size' | 'isComplete'> => ({
   size: async (path) => sizes[path] ?? 0,
   isComplete: async (path) => complete.includes(path),
+});
+
+interface FakeDirectoryEntries {
+  [name: string]: File | FakeDirectoryEntries;
+}
+
+const fakeDirectory = (entries: FakeDirectoryEntries): FileSystemDirectoryHandle => ({
+  kind: 'directory',
+  name: '',
+  async *entries() {
+    for (const [name, entry] of Object.entries(entries)) {
+      if (entry instanceof File) {
+        yield [name, {
+          kind: 'file',
+          name,
+          getFile: async () => entry,
+        } as unknown as FileSystemFileHandle];
+      } else {
+        yield [name, fakeDirectory(entry)];
+      }
+    }
+  },
+} as unknown as FileSystemDirectoryHandle);
+
+describe('project artifact cache management', () => {
+  const a = `minimax-music3-${'a'.repeat(64)}`;
+  const b = `minimax-music3-${'b'.repeat(64)}`;
+  const c = `minimax-music3-${'c'.repeat(64)}`;
+  const uppercase = `minimax-music3-${'A'.repeat(64)}`;
+
+  it('recursively totals files only in strictly matching direct cache directories', async () => {
+    const root = fakeDirectory({
+      [a]: {
+        'artifact.bin': new File([new Uint8Array(5)], 'artifact.bin'),
+        nested: {
+          'artifact.complete': new File([new Uint8Array(1)], 'artifact.complete'),
+        },
+      },
+      [b]: { 'model.bin': new File([new Uint8Array(8)], 'model.bin') },
+      [uppercase]: { 'ignored.bin': new File([new Uint8Array(20)], 'ignored.bin') },
+      'minimax-music3-short': {},
+      notes: {},
+      [a + '-extra']: {},
+      [c]: new File([new Uint8Array(50)], c),
+    });
+
+    await expect(inspectProjectArtifactCaches(root)).resolves.toEqual({
+      cacheCount: 2,
+      storedBytes: 14,
+    });
+  });
+
+  it('deletes only strictly matching direct cache directories', async () => {
+    const root = fakeDirectory({
+      [a]: {},
+      [b]: {},
+      [c]: new File([new Uint8Array(1)], c),
+      [uppercase]: {},
+      notes: {},
+    });
+    const removeEntry = vi.fn().mockResolvedValue(undefined);
+    Object.assign(root, { removeEntry });
+
+    await deleteProjectArtifactCaches(root);
+
+    expect(removeEntry.mock.calls).toEqual([
+      [a, { recursive: true }],
+      [b, { recursive: true }],
+    ]);
+  });
+
+  it('tolerates a cache disappearing during deletion', async () => {
+    const root = fakeDirectory({ [a]: {} });
+    Object.assign(root, {
+      removeEntry: vi.fn().mockRejectedValue(new DOMException('gone', 'NotFoundError')),
+    });
+
+    await expect(deleteProjectArtifactCaches(root)).resolves.toBeUndefined();
+  });
+
+  it('reports the failed cache when deletion fails for another reason', async () => {
+    const root = fakeDirectory({ [a]: {} });
+    Object.assign(root, {
+      removeEntry: vi.fn().mockRejectedValue(new DOMException('blocked', 'SecurityError')),
+    });
+
+    await expect(deleteProjectArtifactCaches(root)).rejects.toThrow(a);
+  });
+});
+
+describe('withArtifactCacheMutationLock', () => {
+  it('uses the exclusive project lock once and returns the action result', async () => {
+    const action = vi.fn().mockResolvedValue('result');
+    const request = vi.fn(async (_name, _options, callback) => callback());
+
+    await expect(withArtifactCacheMutationLock(
+      action,
+      { request } as unknown as Pick<LockManager, 'request'>,
+    )).resolves.toBe('result');
+    expect(request).toHaveBeenCalledWith(
+      'minimax-music3-artifact-cache',
+      { mode: 'exclusive' },
+      expect.any(Function),
+    );
+    expect(action).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed before invoking the action when locks are unavailable', async () => {
+    const action = vi.fn();
+    vi.stubGlobal('navigator', {});
+    try {
+      await expect(withArtifactCacheMutationLock(action)).rejects.toThrow(/lock/i);
+      expect(action).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('requestPersistentStorage', () => {
+  it('does not request persistence when storage is already persistent', async () => {
+    const storage = { persisted: vi.fn().mockResolvedValue(true), persist: vi.fn() };
+    await expect(requestPersistentStorage(storage)).resolves.toEqual({ state: 'persistent' });
+    expect(storage.persist).not.toHaveBeenCalled();
+  });
+
+  it('reports persistence when the request is granted', async () => {
+    const storage = {
+      persisted: vi.fn().mockResolvedValue(false),
+      persist: vi.fn().mockResolvedValue(true),
+    };
+    await expect(requestPersistentStorage(storage)).resolves.toEqual({ state: 'persistent' });
+  });
+
+  it('reports best effort with a warning when persistence is denied', async () => {
+    const storage = {
+      persisted: vi.fn().mockResolvedValue(false),
+      persist: vi.fn().mockResolvedValue(false),
+    };
+    await expect(requestPersistentStorage(storage)).resolves.toMatchObject({
+      state: 'best-effort',
+      warning: expect.any(String),
+    });
+  });
+
+  it('reports best effort with a warning when persistence is unsupported', async () => {
+    await expect(requestPersistentStorage(undefined)).resolves.toMatchObject({
+      state: 'best-effort',
+      warning: expect.any(String),
+    });
+  });
+
+  it('reports best effort with a warning when the persistence request rejects', async () => {
+    const storage = {
+      persisted: vi.fn().mockResolvedValue(false),
+      persist: vi.fn().mockRejectedValue(new Error('not allowed')),
+    };
+    await expect(requestPersistentStorage(storage)).resolves.toMatchObject({
+      state: 'best-effort',
+      warning: expect.any(String),
+    });
+  });
 });
 
 describe('inspectArtifactCache', () => {

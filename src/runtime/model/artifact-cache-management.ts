@@ -22,6 +22,101 @@ export interface ArtifactCapacityAssessment {
   requiredHeadroomBytes: number;
 }
 
+export interface ProjectCacheUsage {
+  cacheCount: number;
+  storedBytes: number;
+}
+
+export type PersistenceRequestResult =
+  | { state: 'persistent'; warning?: never }
+  | { state: 'best-effort'; warning: string };
+
+const PROJECT_CACHE_NAME = /^minimax-music3-[a-f0-9]{64}$/;
+
+interface IterableDirectoryHandle extends FileSystemDirectoryHandle {
+  entries(): AsyncIterableIterator<[
+    string,
+    FileSystemFileHandle | IterableDirectoryHandle,
+  ]>;
+}
+
+const iterable = (directory: FileSystemDirectoryHandle) =>
+  directory as IterableDirectoryHandle;
+
+const directorySize = async (directory: IterableDirectoryHandle): Promise<number> => {
+  let storedBytes = 0;
+  for await (const [, handle] of directory.entries()) {
+    storedBytes += handle.kind === 'file'
+      ? (await handle.getFile()).size
+      : await directorySize(handle);
+  }
+  return storedBytes;
+};
+
+export async function inspectProjectArtifactCaches(
+  root: FileSystemDirectoryHandle,
+): Promise<ProjectCacheUsage> {
+  let cacheCount = 0;
+  let storedBytes = 0;
+  for await (const [name, handle] of iterable(root).entries()) {
+    if (handle.kind !== 'directory' || !PROJECT_CACHE_NAME.test(name)) continue;
+    cacheCount++;
+    storedBytes += await directorySize(handle);
+  }
+  return { cacheCount, storedBytes };
+}
+
+export async function deleteProjectArtifactCaches(
+  root: FileSystemDirectoryHandle,
+): Promise<void> {
+  for await (const [name, handle] of iterable(root).entries()) {
+    if (handle.kind !== 'directory' || !PROJECT_CACHE_NAME.test(name)) continue;
+    try {
+      await root.removeEntry(name, { recursive: true });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'NotFoundError') continue;
+      throw new Error(`failed to delete artifact cache: ${name}`, { cause: error });
+    }
+  }
+}
+
+export async function withArtifactCacheMutationLock<T>(
+  action: () => Promise<T>,
+  locks: Pick<LockManager, 'request'> | undefined =
+    typeof navigator === 'undefined' ? undefined : navigator.locks,
+): Promise<T> {
+  if (!locks) throw new Error('artifact cache mutation lock is unavailable');
+  return locks.request(
+    'minimax-music3-artifact-cache',
+    { mode: 'exclusive' },
+    action,
+  );
+}
+
+export async function requestPersistentStorage(
+  storage: Pick<StorageManager, 'persisted' | 'persist'> | undefined =
+    typeof navigator === 'undefined' ? undefined : navigator.storage,
+): Promise<PersistenceRequestResult> {
+  if (!storage) {
+    return {
+      state: 'best-effort',
+      warning: 'Persistent storage is unavailable. Downloads may be evicted by the browser.',
+    };
+  }
+  try {
+    if (await storage.persisted() || await storage.persist()) return { state: 'persistent' };
+    return {
+      state: 'best-effort',
+      warning: 'Persistent storage was denied. Downloads may be evicted by the browser.',
+    };
+  } catch {
+    return {
+      state: 'best-effort',
+      warning: 'Persistent storage could not be requested. Downloads may be evicted by the browser.',
+    };
+  }
+}
+
 export async function inspectArtifactCache(
   artifacts: readonly ArtifactFile[],
   store: Pick<ArtifactStore, 'size' | 'isComplete'> | undefined,

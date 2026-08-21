@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ensureArtifact,
+  OpfsArtifactStore,
   type ArtifactStore,
   type ArtifactWriter,
 } from '../../../src/runtime/model/artifact-cache';
@@ -59,6 +60,56 @@ class MemoryStore implements ArtifactStore {
     return new File([bytes.slice()], path);
   }
 }
+
+describe('OpfsArtifactStore', () => {
+  const hash = 'a'.repeat(64);
+  const cacheName = `minimax-music3-${hash}`;
+
+  it('opens an existing cache without requesting creation', async () => {
+    const cache = {} as FileSystemDirectoryHandle;
+    const getDirectoryHandle = vi.fn().mockResolvedValue(cache);
+
+    const store = await OpfsArtifactStore.openExisting(
+      hash,
+      { getDirectoryHandle } as unknown as FileSystemDirectoryHandle,
+    );
+
+    expect(store).toBeInstanceOf(OpfsArtifactStore);
+    expect(getDirectoryHandle).toHaveBeenCalledWith(cacheName);
+  });
+
+  it('returns undefined only when an existing cache is absent', async () => {
+    const getDirectoryHandle = vi.fn().mockRejectedValue(
+      new DOMException('missing', 'NotFoundError'),
+    );
+
+    await expect(OpfsArtifactStore.openExisting(
+      hash,
+      { getDirectoryHandle } as unknown as FileSystemDirectoryHandle,
+    )).resolves.toBeUndefined();
+  });
+
+  it('propagates errors other than a missing existing cache', async () => {
+    const error = new DOMException('blocked', 'SecurityError');
+    const getDirectoryHandle = vi.fn().mockRejectedValue(error);
+
+    await expect(OpfsArtifactStore.openExisting(
+      hash,
+      { getDirectoryHandle } as unknown as FileSystemDirectoryHandle,
+    )).rejects.toBe(error);
+  });
+
+  it('continues to create a cache when opening it normally', async () => {
+    const getDirectoryHandle = vi.fn().mockResolvedValue({});
+
+    await OpfsArtifactStore.open(
+      hash,
+      { getDirectoryHandle } as unknown as FileSystemDirectoryHandle,
+    );
+
+    expect(getDirectoryHandle).toHaveBeenCalledWith(cacheName, { create: true });
+  });
+});
 
 describe('ensureArtifact', () => {
   it('reuses a complete expected-size file without reading or fetching it again', async () => {
@@ -160,6 +211,61 @@ describe('ensureArtifact', () => {
     expect(ranges).toEqual(['bytes=3-']);
     expect(await file.text()).toBe('abcdefgh');
     expect(store.writes).toHaveLength(1);
+  });
+
+  it('reports only successfully written network bytes as cumulative transferred bytes', async () => {
+    const data = encoder.encode('abcdefgh');
+    const store = new MemoryStore();
+    store.files.set('a.bin', data.slice(0, 3));
+    const progress: Array<{ loaded: number; transferred: number }> = [];
+
+    await ensureArtifact(
+      { path: 'a.bin', bytes: 8, sha256: await sha256(data) },
+      new URL('https://example.test/a.bin'),
+      store,
+      ({ loaded, transferred }) => progress.push({ loaded, transferred }),
+      async () => new Response(data.slice(3), { status: 206 }),
+    );
+
+    expect(progress).toEqual([{ loaded: 8, transferred: 5 }]);
+  });
+
+  it('keeps transferred bytes cumulative across a hash retry', async () => {
+    const data = encoder.encode('abcdefgh');
+    const progress: Array<{ loaded: number; transferred: number }> = [];
+    let calls = 0;
+
+    await ensureArtifact(
+      { path: 'a.bin', bytes: 8, sha256: await sha256(data) },
+      new URL('https://example.test/a.bin'),
+      new MemoryStore(),
+      ({ loaded, transferred }) => progress.push({ loaded, transferred }),
+      async () => new Response(calls++ === 0 ? encoder.encode('bad-data') : data),
+    );
+
+    expect(progress).toEqual([
+      { loaded: 8, transferred: 8 },
+      { loaded: 8, transferred: 16 },
+    ]);
+  });
+
+  it('does not count a network chunk when writing it fails', async () => {
+    const data = encoder.encode('abcdefgh');
+    const store = new MemoryStore();
+    store.writer = async () => ({
+      write: async () => { throw new Error('disk full'); },
+      close: async () => {},
+    });
+    const progress = vi.fn();
+
+    await expect(ensureArtifact(
+      { path: 'a.bin', bytes: 8, sha256: await sha256(data) },
+      new URL('https://example.test/a.bin'),
+      store,
+      progress,
+      async () => new Response(data),
+    )).rejects.toThrow('disk full');
+    expect(progress).not.toHaveBeenCalled();
   });
 
   it('restarts when a range request receives a full response', async () => {

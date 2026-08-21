@@ -2,7 +2,12 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import type { ArtifactFile } from './manifest';
 
-export type ProgressSink = (progress: { path: string; loaded: number; total: number }) => void;
+export type ProgressSink = (progress: {
+  path: string;
+  loaded: number;
+  total: number;
+  transferred: number;
+}) => void;
 export interface ArtifactWriter {
   write(data: Uint8Array): Promise<void>;
   close(): Promise<void>;
@@ -51,6 +56,7 @@ export async function ensureArtifact(
     await store.remove(file.path);
     existingSize = 0;
   }
+  let transferred = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
     const partialSize = attempt === 0 ? existingSize : 0;
     const response = await fetcher(
@@ -83,7 +89,8 @@ export async function ensureArtifact(
         }
         hash.update(next.value);
         loaded += next.value.byteLength;
-        onProgress({ path: file.path, loaded, total: file.bytes });
+        transferred += next.value.byteLength;
+        onProgress({ path: file.path, loaded, total: file.bytes, transferred });
       }
     } catch (error) {
       failed = true;
@@ -103,13 +110,30 @@ export async function ensureArtifact(
 
 export class OpfsArtifactStore implements ArtifactStore {
   constructor(private readonly root: FileSystemDirectoryHandle) {}
-  static async open(manifestHash: string): Promise<OpfsArtifactStore> {
-    const root = await navigator.storage.getDirectory();
+  static async open(
+    manifestHash: string,
+    opfsRoot?: FileSystemDirectoryHandle,
+  ): Promise<OpfsArtifactStore> {
+    const root = opfsRoot ?? await navigator.storage.getDirectory();
     return new OpfsArtifactStore(
       await root.getDirectoryHandle(`minimax-music3-${manifestHash}`, {
         create: true,
       }),
     );
+  }
+  static async openExisting(
+    manifestHash: string,
+    opfsRoot?: FileSystemDirectoryHandle,
+  ): Promise<OpfsArtifactStore | undefined> {
+    const root = opfsRoot ?? await navigator.storage.getDirectory();
+    try {
+      return new OpfsArtifactStore(
+        await root.getDirectoryHandle(`minimax-music3-${manifestHash}`),
+      );
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'NotFoundError') return undefined;
+      throw error;
+    }
   }
   private async handle(path: string, create = false) {
     const parts = path.split('/');
