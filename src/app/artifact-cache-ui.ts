@@ -80,6 +80,15 @@ export function deriveArtifactCacheControls(
   };
 }
 
+export function artifactDownloadActionLabel(state: ArtifactCacheUiState): string {
+  if (deriveArtifactCacheControls(state).canRetry) {
+    return 'Retry Download';
+  }
+  return state.status?.state === 'partial'
+    ? 'Resume Download'
+    : 'Download Model';
+}
+
 export type ArtifactCacheUiAction =
   | { type: 'operation-started'; operation: Exclude<ArtifactCacheUiOperation, null> }
   | { type: 'persistence-resolved'; warning?: string }
@@ -147,11 +156,16 @@ export function artifactCacheUiReducer(
     };
   }
   if (action.type === 'operation-failed') {
+    const preserveInterruption = action.error.retryTarget === 'inspect'
+      && (
+        (state.lastError !== null && state.lastError.retryTarget !== 'inspect')
+        || state.notice !== null
+      );
     return {
       ...state,
       operation: null,
-      lastError: action.error,
-      notice: null,
+      lastError: preserveInterruption ? state.lastError : action.error,
+      notice: preserveInterruption ? state.notice : null,
       downloadProgress: null,
     };
   }
@@ -167,7 +181,10 @@ export function artifactCacheUiReducer(
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
-  const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const unit = Math.max(
+    0,
+    Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1),
+  );
   const value = bytes / 1024 ** unit;
   return `${unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
 }

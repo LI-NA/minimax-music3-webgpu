@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createProductMusicRequest } from '../../../src/app/App';
 import {
   artifactCacheUiReducer,
+  artifactDownloadActionLabel,
   createArtifactCacheUiState,
   describeArtifactCacheStatus,
   deriveArtifactCacheControls,
@@ -97,6 +98,22 @@ describe('model file controls', () => {
     for (const [state, musicRunning, expected] of cases) {
       expect(deriveArtifactCacheControls(state, musicRunning)).toEqual(expected);
     }
+  });
+
+  it('provides the exact download action labels', () => {
+    expect(artifactDownloadActionLabel(createArtifactCacheUiState(status())))
+      .toBe('Download Model');
+    expect(artifactDownloadActionLabel(createArtifactCacheUiState(status({ state: 'partial' }))))
+      .toBe('Resume Download');
+    expect(artifactDownloadActionLabel({
+      ...createArtifactCacheUiState(status({ state: 'partial' })),
+      lastError: {
+        message: 'Download failed',
+        operation: 'download-artifacts',
+        retryable: true,
+        retryTarget: 'download',
+      },
+    })).toBe('Retry Download');
   });
 });
 
@@ -204,6 +221,55 @@ describe('model file state transitions', () => {
     expect(refreshed.notice).toBe('Download cancelled. Partial model files were kept.');
     expect(refreshed.status?.state).toBe('partial');
   });
+
+  it('preserves mutation errors and cancellation when the follow-up inspection fails', () => {
+    const inspectError = {
+      message: 'Inspection worker failed',
+      operation: 'inspect-artifact-cache' as const,
+      retryable: true,
+      retryTarget: 'inspect' as const,
+    };
+    const interruption = (retryTarget: 'download' | 'delete') => ({
+      message: `${retryTarget} failed`,
+      operation: retryTarget === 'download'
+        ? 'download-artifacts' as const
+        : 'delete-artifact-caches' as const,
+      retryable: true,
+      retryTarget,
+    });
+    for (const retryTarget of ['download', 'delete'] as const) {
+      const error = interruption(retryTarget);
+      const failed = artifactCacheUiReducer(createArtifactCacheUiState(status()), {
+        type: 'operation-failed',
+        error,
+      });
+      const inspecting = artifactCacheUiReducer(failed, {
+        type: 'operation-started',
+        operation: 'inspect',
+      });
+
+      expect(artifactCacheUiReducer(inspecting, {
+        type: 'operation-failed',
+        error: inspectError,
+      })).toMatchObject({ operation: null, lastError: error, notice: null });
+    }
+
+    const cancelled = artifactCacheUiReducer(createArtifactCacheUiState(status()), {
+      type: 'download-cancelled',
+    });
+    const inspecting = artifactCacheUiReducer(cancelled, {
+      type: 'operation-started',
+      operation: 'inspect',
+    });
+    expect(artifactCacheUiReducer(inspecting, {
+      type: 'operation-failed',
+      error: inspectError,
+    })).toMatchObject({
+      operation: null,
+      lastError: null,
+      notice: 'Download cancelled. Partial model files were kept.',
+    });
+  });
 });
 
 describe('model file presentation', () => {
@@ -242,8 +308,28 @@ describe('model file presentation', () => {
     );
   });
 
+  it('shows a ready cache and unavailable persistence status', () => {
+    expect(describeArtifactCacheStatus(createArtifactCacheUiState(status({
+      state: 'ready',
+      completeArtifactCount: 4,
+      completeArtifactBytes: 4_096,
+      additionalBytesNeeded: 0,
+      largestPendingArtifactBytes: 0,
+      requiredHeadroomBytes: 0,
+      persistence: 'unavailable',
+    })))).toBe(
+      'Model files are ready (4.0 KiB of 4.0 KiB verified). '
+      + 'Storage capacity is sufficient (19.5 KiB available, 0 B required headroom). '
+      + 'Persistence status is unavailable.',
+    );
+  });
+
   it('formats byte counts, transfer rates, and ETA values compactly', () => {
     expect(formatBytes(0)).toBe('0 B');
+    expect(formatBytes(0.5)).toBe('1 B');
+    expect(formatBytes(-1)).toBe('0 B');
+    expect(formatBytes(Number.NaN)).toBe('0 B');
+    expect(formatBytes(Number.POSITIVE_INFINITY)).toBe('0 B');
     expect(formatBytes(1_536)).toBe('1.5 KiB');
     expect(formatRate(1_048_576)).toBe('1.0 MiB/s');
     expect(formatEta(6_000)).toBe('6s');

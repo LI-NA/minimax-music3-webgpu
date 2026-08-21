@@ -117,7 +117,10 @@ export async function requestPersistentStorage(
     };
   }
   try {
-    if (await storage.persisted() || await storage.persist()) return { state: 'persistent' };
+    const requested = storage.persist();
+    const existing = storage.persisted();
+    const [granted, alreadyPersistent] = await Promise.all([requested, existing]);
+    if (granted || alreadyPersistent) return { state: 'persistent' };
     return {
       state: 'best-effort',
       warning: 'Persistent storage was denied. Downloads may be evicted by the browser.',

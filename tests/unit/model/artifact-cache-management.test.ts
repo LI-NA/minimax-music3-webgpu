@@ -171,10 +171,36 @@ describe('withArtifactCacheReadLock', () => {
 });
 
 describe('requestPersistentStorage', () => {
-  it('does not request persistence when storage is already persistent', async () => {
-    const storage = { persisted: vi.fn().mockResolvedValue(true), persist: vi.fn() };
+  it('starts the persistence request before either storage promise settles', async () => {
+    const calls: string[] = [];
+    let resolvePersist!: (value: boolean) => void;
+    let resolvePersisted!: (value: boolean) => void;
+    const storage = {
+      persist: vi.fn(() => {
+        calls.push('persist');
+        return new Promise<boolean>((resolve) => { resolvePersist = resolve; });
+      }),
+      persisted: vi.fn(() => {
+        calls.push('persisted');
+        return new Promise<boolean>((resolve) => { resolvePersisted = resolve; });
+      }),
+    };
+
+    const result = requestPersistentStorage(storage);
+
+    expect(calls).toEqual(['persist', 'persisted']);
+    resolvePersist(false);
+    resolvePersisted(false);
+    await expect(result).resolves.toMatchObject({ state: 'best-effort' });
+  });
+
+  it('reports existing persistence after starting both checks', async () => {
+    const storage = {
+      persisted: vi.fn().mockResolvedValue(true),
+      persist: vi.fn().mockResolvedValue(false),
+    };
     await expect(requestPersistentStorage(storage)).resolves.toEqual({ state: 'persistent' });
-    expect(storage.persist).not.toHaveBeenCalled();
+    expect(storage.persist).toHaveBeenCalledOnce();
   });
 
   it('reports persistence when the request is granted', async () => {
