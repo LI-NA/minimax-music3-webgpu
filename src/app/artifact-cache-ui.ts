@@ -190,16 +190,18 @@ export function describeArtifactCacheStatus(state: ArtifactCacheUiState): string
     ? 'Inspecting model files.'
     : 'Model file status is unavailable.';
 
+  const verified = `${formatBytes(status.completeArtifactBytes)} of ${formatBytes(status.totalArtifactBytes)} verified`;
   const cache = status.state === 'ready'
-    ? `Model files are ready (${formatBytes(status.completeArtifactBytes)} verified).`
+    ? `Model files are ready (${verified}).`
     : status.state === 'partial'
-      ? `Model files are partially downloaded (${formatBytes(status.completeArtifactBytes)} of ${formatBytes(status.totalArtifactBytes)} verified).`
-      : 'Model files are not downloaded.';
-  const capacity = status.sufficient === undefined
-    ? 'Storage capacity is unavailable.'
+      ? `Model files are partially downloaded (${verified}).`
+      : `Model files are not downloaded (${verified}).`;
+  const requiredHeadroom = `${formatBytes(status.requiredHeadroomBytes)} required headroom`;
+  const capacity = status.sufficient === undefined || status.availableBytes === undefined
+    ? `Available storage is unavailable (${requiredHeadroom}).`
     : status.sufficient
-      ? 'Storage capacity is sufficient.'
-      : `Storage capacity is insufficient (${formatBytes(status.requiredHeadroomBytes)} required headroom).`;
+      ? `Storage capacity is sufficient (${formatBytes(status.availableBytes)} available, ${requiredHeadroom}).`
+      : `Storage capacity is insufficient (${formatBytes(status.availableBytes)} available, ${requiredHeadroom}).`;
   const persistence = status.persistence === 'persistent'
     ? 'Storage is persistent.'
     : status.persistence === 'best-effort'

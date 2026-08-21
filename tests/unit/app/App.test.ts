@@ -207,26 +207,39 @@ describe('model file state transitions', () => {
 });
 
 describe('model file presentation', () => {
-  it('distinguishes cache, capacity, and persistence states', () => {
-    expect(describeArtifactCacheStatus(createArtifactCacheUiState(status())))
-      .toContain('not downloaded');
+  it('shows missing verified bytes, sufficient headroom, and the best-effort warning', () => {
+    expect(describeArtifactCacheStatus(createArtifactCacheUiState(status()))).toBe(
+      'Model files are not downloaded (0 B of 4.0 KiB verified). '
+      + 'Storage capacity is sufficient (19.5 KiB available, 6.0 KiB required headroom). '
+      + 'Storage is best-effort and may be evicted.',
+    );
+  });
+
+  it('shows available versus required headroom when capacity is insufficient', () => {
     expect(describeArtifactCacheStatus(createArtifactCacheUiState(status({
       state: 'partial',
+      completeArtifactBytes: 1_024,
+      availableBytes: 5_120,
       sufficient: false,
-      persistence: 'best-effort',
-    })))).toContain('partially downloaded');
+    })))).toBe(
+      'Model files are partially downloaded (1.0 KiB of 4.0 KiB verified). '
+      + 'Storage capacity is insufficient (5.0 KiB available, 6.0 KiB required headroom). '
+      + 'Storage is best-effort and may be evicted.',
+    );
+  });
+
+  it('shows required headroom and persistence when the estimate is unavailable', () => {
     expect(describeArtifactCacheStatus(createArtifactCacheUiState(status({
-      state: 'ready',
-      completeArtifactBytes: 4_096,
+      state: 'partial',
+      completeArtifactBytes: 1_024,
+      availableBytes: undefined,
       sufficient: undefined,
       persistence: 'persistent',
     })))).toBe(
-      'Model files are ready (4.0 KiB verified). Storage capacity is unavailable. Storage is persistent.',
+      'Model files are partially downloaded (1.0 KiB of 4.0 KiB verified). '
+      + 'Available storage is unavailable (6.0 KiB required headroom). '
+      + 'Storage is persistent.',
     );
-    expect(describeArtifactCacheStatus(createArtifactCacheUiState(status({
-      sufficient: false,
-      persistence: 'unavailable',
-    })))).toContain('Storage capacity is insufficient');
   });
 
   it('formats byte counts, transfer rates, and ETA values compactly', () => {
