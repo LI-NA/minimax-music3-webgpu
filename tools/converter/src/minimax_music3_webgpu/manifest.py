@@ -381,9 +381,16 @@ def emit_global_release(paths: ArtifactPaths, num_hidden_layers: int = 36) -> Pa
             license_file=staging / "LICENSE", kv_pairs=_kv_pairs(model), reduced_head=head.model_path,
             hidden_output=_hidden_output(model))
         _validate_release(manifest)
-        _promote_directory(staging, release)
         final = release / "manifest.json"
-        _atomic_json(paths.receipts / f"global-release-{num_hidden_layers}.json", {"manifest": str(final), "reducedHead": str(release / head.model_path.relative_to(staging))})
+        _promote_directory(
+            staging,
+            release,
+            receipt_path=paths.receipts / f"global-release-{num_hidden_layers}.json",
+            receipt_payload={
+                "manifest": str(final),
+                "reducedHead": str(release / head.model_path.relative_to(staging)),
+            },
+        )
         return final
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
@@ -418,17 +425,32 @@ def _copy_tree(source: Path, destination: Path) -> None:
             shutil.copy2(file, target)
 
 
-def _promote_directory(staging: Path, release: Path) -> None:
+def _promote_directory(
+    staging: Path,
+    release: Path,
+    *,
+    receipt_path: Path | None = None,
+    receipt_payload: dict | None = None,
+) -> None:
+    if (receipt_path is None) != (receipt_payload is None):
+        raise ValueError("receipt path and payload must be provided together")
+    artifact_root = _validate_promotion_paths(staging, release, receipt_path)
+    if release.exists():
+        _archive_release(artifact_root, release, receipt_path)
     backup = release.with_name(f".{release.name}-{uuid4().hex}.backup")
     moved_old = False
+    published = False
     cleanup_backup = True
     try:
         if release.exists():
             release.replace(backup)
             moved_old = True
         staging.replace(release)
+        published = True
+        if receipt_path is not None and receipt_payload is not None:
+            _atomic_json(receipt_path, receipt_payload)
     except Exception:
-        if release.exists() and moved_old:
+        if published and release.exists():
             shutil.rmtree(release, ignore_errors=True)
         if moved_old and backup.exists():
             try:
@@ -440,6 +462,88 @@ def _promote_directory(staging: Path, release: Path) -> None:
     finally:
         if cleanup_backup and backup.exists():
             shutil.rmtree(backup, ignore_errors=True)
+
+
+def _validate_promotion_paths(
+    staging: Path,
+    release: Path,
+    receipt_path: Path | None,
+) -> Path:
+    release_root = release.parent.resolve()
+    if release_root.name != "release":
+        raise ValueError("release must be directly under the artifact release root")
+    if release.resolve().parent != release_root:
+        raise ValueError("release must be directly under the artifact release root")
+    if staging.resolve().parent != release_root or staging.resolve() == release.resolve():
+        raise ValueError("staging must be directly under the artifact release root")
+    artifact_root = release_root.parent
+    if (
+        receipt_path is not None
+        and receipt_path.resolve().parent != (artifact_root / "receipts").resolve()
+    ):
+        raise ValueError("receipt must be directly under the artifact receipts root")
+    return artifact_root
+
+
+def _archive_release(
+    artifact_root: Path,
+    release: Path,
+    receipt_path: Path | None,
+) -> Path:
+    archive_root = artifact_root / "archive" / release.name
+    generation = uuid4().hex
+    staging = archive_root / f".{generation}.staging"
+    archived = archive_root / generation
+    try:
+        _archive_tree(release, staging / "release")
+        if receipt_path is not None and receipt_path.exists():
+            _archive_file(receipt_path, staging / "receipt.json")
+        staging.replace(archived)
+        return archived
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
+def _archive_tree(source: Path, destination: Path) -> None:
+    destination.mkdir(parents=True)
+    for item in sorted(source.rglob("*")):
+        if item.is_symlink():
+            raise ValueError("release archive source must not contain symbolic links")
+        relative = item.relative_to(source)
+        target = destination / relative
+        if item.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+        elif item.is_file():
+            _archive_file(item, target)
+        else:
+            raise ValueError("release archive source contains an unsupported entry")
+    _verify_archive_tree(source, destination)
+
+
+def _archive_file(source: Path, destination: Path) -> None:
+    if source.is_symlink() or not source.is_file():
+        raise ValueError("release archive source must be a regular file")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    if (
+        destination.stat().st_size != source.stat().st_size
+        or _sha256(destination) != _sha256(source)
+    ):
+        raise OSError(f"release archive verification failed: {source}")
+
+
+def _verify_archive_tree(source: Path, destination: Path) -> None:
+    source_entries = {
+        item.relative_to(source): item.is_dir()
+        for item in source.rglob("*")
+    }
+    destination_entries = {
+        item.relative_to(destination): item.is_dir()
+        for item in destination.rglob("*")
+    }
+    if source_entries != destination_entries:
+        raise OSError("release archive tree verification failed")
 
 
 def _external_files(model: onnx.ModelProto, graph: Path) -> list[tuple[str, Path]]:

@@ -19,6 +19,33 @@ import torch
 import torch.nn.functional as torch_functional
 
 
+MAXIMUM_LATENT_LENGTH = 689
+FLOW_OVERLAP_LENGTH = 172
+FLOW_OPERATOR_ALLOWLIST = frozenset(
+    {
+        "Add",
+        "Cast",
+        "Concat",
+        "Conv",
+        "Cos",
+        "LayerNormalization",
+        "MatMul",
+        "MatMulNBits",
+        "Mul",
+        "Neg",
+        "Reshape",
+        "Sigmoid",
+        "Sin",
+        "Slice",
+        "Softmax",
+        "Split",
+        "Sub",
+        "Transpose",
+        "Unsqueeze",
+    }
+)
+
+
 @dataclass(frozen=True)
 class FlowTransformerConfig:
     in_channels: int = 128
@@ -55,6 +82,9 @@ class FlowGraphReport:
     matmul_nbits_nodes: int
     dynamic_shape_ops: tuple[str, ...]
     external_locations: tuple[str, ...]
+    operator_types: tuple[str, ...] = ()
+    max_initializer_bytes: int = 0
+    max_activation_bytes: int = 0
 
 
 @dataclass(frozen=True)
@@ -123,8 +153,13 @@ def open_flow_state(source_dir: str | Path) -> FlowSafetensorState:
 
 
 def exact_flow_schedule(num_steps: int = 30) -> FlowSchedule:
-    if num_steps != 30:
-        raise ValueError("the fixed flow graph requires exactly 30 steps")
+    if (
+        isinstance(num_steps, bool)
+        or not isinstance(num_steps, int)
+        or num_steps < 1
+        or num_steps > 2**53 - 1
+    ):
+        raise ValueError("num_steps must be a positive safe integer")
     source_sigmas = np.linspace(1.0, 1.0 / num_steps, num_steps).astype(np.float32)
     timesteps = (np.float32(1.0) - source_sigmas).astype(np.float32)
     sigmas = np.concatenate((timesteps, np.ones(1, dtype=np.float32)))
@@ -195,6 +230,34 @@ def validate_flow_metadata(
         raise ValueError(
             f"flow metadata mismatch: missing={missing}, unexpected={unexpected}, wrong_shapes={wrong}"
         )
+
+
+def maximum_flow_binding_bytes(
+    config: FlowTransformerConfig,
+    *,
+    quantized: bool,
+) -> tuple[int, int]:
+    initializer_bytes = []
+    for key, shape in expected_flow_shapes(config).items():
+        if quantized and len(shape) == 2 and key != "time_proj.weight":
+            output_dim, input_dim = shape
+            blocks = (input_dim + 127) // 128
+            initializer_bytes.extend((output_dim * blocks * 64, output_dim * blocks * 2))
+        else:
+            initializer_bytes.append(int(np.prod(shape, dtype=np.int64)) * 2)
+
+    batch = 2
+    sequence = MAXIMUM_LATENT_LENGTH + 1
+    hidden = config.hidden_size
+    concat_channels = 2 * config.in_channels + config.condition_dim
+    initializer_bytes.append(sequence * config.rotary_dim * 2)
+    activation_bytes = max(
+        batch * config.num_attention_heads * sequence * sequence * 2,
+        batch * sequence * 2 * config.ff_inner_dim * 2,
+        batch * sequence * hidden * 2,
+        batch * MAXIMUM_LATENT_LENGTH * concat_channels * 2,
+    )
+    return max(initializer_bytes), activation_bytes
 
 
 def inspect_flow_source(source_dir: str | Path) -> FlowSourceReport:
@@ -286,12 +349,14 @@ class _FlowGraphBuilder:
         quantize: bool,
         external_data: bool,
         max_file_bytes: int,
+        maximum_window: bool = False,
     ):
         self.state = state
         self.output = output
         self.config = config
         self.latent_length = latent_length
         self.quantize = quantize
+        self.maximum_window = maximum_window
         self.nodes: list[onnx.NodeProto] = []
         self.writer = _InitializerWriter(output, external_data, max_file_bytes)
         self._constant_index = 0
@@ -398,12 +463,88 @@ class _FlowGraphBuilder:
         concat_channels = 2 * self.config.in_channels + self.config.condition_dim
         axes_one = self.constant([1], np.int64, "axes.one")
         zero = self.constant(np.array(0, dtype=np.float16), prefix="zero")
+        latent_input = "latents"
+        condition_input = "condition"
+
+        if self.maximum_window:
+            channel_mask = "active_latent_mask_channels"
+            overlap_axes = self.constant([2], np.int64, "overlap.axes")
+            overlap_steps = self.constant([1], np.int64, "overlap.steps")
+            overlap_time = "overlap.time"
+            overlap_enabled = "overlap.enabled"
+            one = self.constant(np.array(1, dtype=np.float16), prefix="one")
+            blend_retention = self.constant(
+                np.array(1 - 1e-6, dtype=np.float16), prefix="blend_retention"
+            )
+            self.nodes.extend(
+                [
+                    helper.make_node(
+                        "Transpose", ["active_latent_mask"], [channel_mask], perm=[0, 2, 1]
+                    ),
+                    helper.make_node(
+                        "Slice",
+                        [
+                            "latents",
+                            self.constant([0], np.int64, "overlap.start"),
+                            self.constant([FLOW_OVERLAP_LENGTH], np.int64, "overlap.end"),
+                            overlap_axes,
+                            overlap_steps,
+                        ],
+                        ["overlap.current"],
+                    ),
+                    helper.make_node(
+                        "Slice",
+                        [
+                            "latents",
+                            self.constant([FLOW_OVERLAP_LENGTH], np.int64, "tail.start"),
+                            self.constant([self.latent_length], np.int64, "tail.end"),
+                            overlap_axes,
+                            overlap_steps,
+                        ],
+                        ["overlap.tail"],
+                    ),
+                    helper.make_node(
+                        "Unsqueeze",
+                        ["timestep", self.constant([1, 2], np.int64, "overlap.time_axes")],
+                        [overlap_time],
+                    ),
+                    helper.make_node(
+                        "Unsqueeze",
+                        ["overlap_enabled", self.constant([1, 2], np.int64, "overlap.enabled_axes")],
+                        [overlap_enabled],
+                    ),
+                    helper.make_node("Mul", [overlap_time, blend_retention], ["overlap.retained_time"]),
+                    helper.make_node("Sub", [one, "overlap.retained_time"], ["overlap.noise_scale"]),
+                    helper.make_node("Mul", ["noise_prompt", "overlap.noise_scale"], ["overlap.noise"]),
+                    helper.make_node("Mul", ["previous_latent", overlap_time], ["overlap.previous"]),
+                    helper.make_node("Add", ["overlap.noise", "overlap.previous"], ["overlap.blended"]),
+                    helper.make_node(
+                        "Mul", ["overlap.blended", overlap_enabled], ["overlap.selected_blend"]
+                    ),
+                    helper.make_node("Sub", [one, overlap_enabled], ["overlap.disabled"]),
+                    helper.make_node("Mul", ["overlap.current", "overlap.disabled"], ["overlap.selected_current"]),
+                    helper.make_node(
+                        "Add", ["overlap.selected_blend", "overlap.selected_current"], ["overlap.selected"]
+                    ),
+                    helper.make_node(
+                        "Concat", ["overlap.selected", "overlap.tail"], ["overlap.replaced_latents"], axis=2
+                    ),
+                    helper.make_node(
+                        "Mul", ["overlap.replaced_latents", channel_mask], ["masked_latents"]
+                    ),
+                    helper.make_node(
+                        "Mul", ["condition", "active_latent_mask"], ["masked_condition"]
+                    ),
+                ]
+            )
+            latent_input = "masked_latents"
+            condition_input = "masked_condition"
 
         self.nodes.extend(
             [
-                helper.make_node("Concat", ["latents", "latents"], ["latent_batch"], axis=0),
-                helper.make_node("Mul", ["condition", zero], ["zero_condition"]),
-                helper.make_node("Concat", ["condition", "zero_condition"], ["condition_batch"], axis=0),
+                helper.make_node("Concat", [latent_input, latent_input], ["latent_batch"], axis=0),
+                helper.make_node("Mul", [condition_input, zero], ["zero_condition"]),
+                helper.make_node("Concat", [condition_input, "zero_condition"], ["condition_batch"], axis=0),
                 helper.make_node("Concat", ["timestep", "timestep"], ["timestep_batch"], axis=0),
                 helper.make_node("Mul", ["latent_batch", zero], ["zero_latents"]),
                 helper.make_node("Transpose", ["condition_batch"], ["condition_channels"], perm=[0, 2, 1]),
@@ -473,12 +614,24 @@ class _FlowGraphBuilder:
                 self.nodes.append(
                     helper.make_node("Transpose", [projections[part]], [f"{prefix}.{part}.heads"], perm=[0, 2, 1, 3])
                 )
+            score_input = f"{prefix}.scaled_scores"
             self.nodes.extend(
                 [
                     helper.make_node("Transpose", [f"{prefix}.k.heads"], [f"{prefix}.k.transposed"], perm=[0, 1, 3, 2]),
                     helper.make_node("MatMul", [f"{prefix}.q.heads", f"{prefix}.k.transposed"], [f"{prefix}.scores"]),
-                    helper.make_node("Mul", [f"{prefix}.scores", attention_scale], [f"{prefix}.scaled_scores"]),
-                    helper.make_node("Softmax", [f"{prefix}.scaled_scores"], [f"{prefix}.probabilities"], axis=-1),
+                    helper.make_node("Mul", [f"{prefix}.scores", attention_scale], [score_input]),
+                ]
+            )
+            if self.maximum_window:
+                score_input = f"{prefix}.biased_scores"
+                self.nodes.append(
+                    helper.make_node(
+                        "Add", [f"{prefix}.scaled_scores", "key_attention_bias"], [score_input]
+                    )
+                )
+            self.nodes.extend(
+                [
+                    helper.make_node("Softmax", [score_input], [f"{prefix}.probabilities"], axis=-1),
                     helper.make_node("MatMul", [f"{prefix}.probabilities", f"{prefix}.v.heads"], [f"{prefix}.context"]),
                     helper.make_node("Transpose", [f"{prefix}.context"], [f"{prefix}.context_transposed"], perm=[0, 2, 1, 3]),
                     helper.make_node("Reshape", [f"{prefix}.context_transposed", flat_shape], [f"{prefix}.context_flat"]),
@@ -535,26 +688,69 @@ class _FlowGraphBuilder:
                 helper.make_node("Slice", ["velocity", self.constant([0], np.int64), self.constant([1], np.int64), batch_axis, batch_step], ["conditional_velocity"]),
                 helper.make_node("Slice", ["velocity", self.constant([1], np.int64), self.constant([2], np.int64), batch_axis, batch_step], ["unconditional_velocity"]),
                 helper.make_node("Sub", ["conditional_velocity", "unconditional_velocity"], ["guidance_delta"]),
-                helper.make_node("Mul", ["guidance_delta", self.constant(np.array(1.7, dtype=np.float16), prefix="guidance")], ["scaled_guidance"]),
+                helper.make_node("Mul", ["guidance_delta", "guidance"], ["scaled_guidance"]),
                 helper.make_node("Add", ["unconditional_velocity", "scaled_guidance"], ["guided_velocity"]),
-                helper.make_node("Cast", ["latents"], ["latents_fp32"], to=TensorProto.FLOAT),
+                helper.make_node("Cast", [latent_input], ["latents_fp32"], to=TensorProto.FLOAT),
                 helper.make_node("Cast", ["guided_velocity"], ["guided_velocity_fp32"], to=TensorProto.FLOAT),
                 helper.make_node("Unsqueeze", ["dt", self.constant([1, 2], np.int64, "dt_axes")], ["dt_broadcast"]),
                 helper.make_node("Mul", ["guided_velocity_fp32", "dt_broadcast"], ["euler_delta"]),
                 helper.make_node("Add", ["latents_fp32", "euler_delta"], ["next_latents_fp32"]),
-                helper.make_node("Cast", ["next_latents_fp32"], ["next_latents"], to=TensorProto.FLOAT16),
+                helper.make_node(
+                    "Cast",
+                    ["next_latents_fp32"],
+                    ["unmasked_next_latents" if self.maximum_window else "next_latents"],
+                    to=TensorProto.FLOAT16,
+                ),
             ]
         )
+        if self.maximum_window:
+            self.nodes.append(
+                helper.make_node("Mul", ["unmasked_next_latents", channel_mask], ["next_latents"])
+            )
+        graph_inputs = [
+            helper.make_tensor_value_info(
+                "latents", TensorProto.FLOAT16, [1, self.config.in_channels, self.latent_length]
+            ),
+            helper.make_tensor_value_info(
+                "condition", TensorProto.FLOAT16, [1, self.latent_length, self.config.condition_dim]
+            ),
+            helper.make_tensor_value_info("timestep", TensorProto.FLOAT16, [1]),
+            helper.make_tensor_value_info("dt", TensorProto.FLOAT, [1]),
+            helper.make_tensor_value_info("guidance", TensorProto.FLOAT16, [1]),
+        ]
+        if self.maximum_window:
+            graph_inputs.extend(
+                [
+                    helper.make_tensor_value_info(
+                        "active_latent_mask", TensorProto.FLOAT16, [1, self.latent_length, 1]
+                    ),
+                    helper.make_tensor_value_info(
+                        "key_attention_bias", TensorProto.FLOAT16, [1, 1, 1, sequence]
+                    ),
+                    helper.make_tensor_value_info(
+                        "noise_prompt",
+                        TensorProto.FLOAT16,
+                        [1, self.config.in_channels, FLOW_OVERLAP_LENGTH],
+                    ),
+                    helper.make_tensor_value_info(
+                        "previous_latent",
+                        TensorProto.FLOAT16,
+                        [1, self.config.in_channels, FLOW_OVERLAP_LENGTH],
+                    ),
+                    helper.make_tensor_value_info("overlap_enabled", TensorProto.FLOAT16, [1]),
+                ]
+            )
         graph = helper.make_graph(
             self.nodes,
-            f"minimax_music3_flow_step_{self.latent_length}",
+            f"minimax_music3_flow_step_{'maximum' if self.maximum_window else self.latent_length}",
+            graph_inputs,
             [
-                helper.make_tensor_value_info("latents", TensorProto.FLOAT16, [1, self.config.in_channels, self.latent_length]),
-                helper.make_tensor_value_info("condition", TensorProto.FLOAT16, [1, self.latent_length, self.config.condition_dim]),
-                helper.make_tensor_value_info("timestep", TensorProto.FLOAT16, [1]),
-                helper.make_tensor_value_info("dt", TensorProto.FLOAT, [1]),
+                helper.make_tensor_value_info(
+                    "next_latents",
+                    TensorProto.FLOAT16,
+                    [1, self.config.in_channels, self.latent_length],
+                )
             ],
-            [helper.make_tensor_value_info("next_latents", TensorProto.FLOAT16, [1, self.config.in_channels, self.latent_length])],
             self.writer.initializers,
         )
         model = helper.make_model(
@@ -579,6 +775,7 @@ def export_flow_step(
     quantize: bool = True,
     external_data: bool = False,
     max_file_bytes: int = 128 * 1024 * 1024,
+    _maximum_window: bool = False,
 ) -> Path:
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -596,16 +793,18 @@ def export_flow_step(
         quantize,
         external_data,
         max_file_bytes,
+        _maximum_window,
     )
     moved_external: list[Path] = []
     published = False
     try:
         builder.build()
-        report = validate_flow_graph(
+        validator = validate_maximum_flow_graph if _maximum_window else validate_flow_graph
+        report = validator(
             staged_output,
             config=config,
-            latent_length=latent_length,
             quantized=quantize,
+            **({} if _maximum_window else {"latent_length": latent_length}),
         )
         for location in report.external_locations:
             source = (staging / location).resolve()
@@ -631,6 +830,27 @@ def export_flow_step(
     finally:
         builder.writer.close()
         shutil.rmtree(staging, ignore_errors=True)
+
+
+def export_maximum_flow_step(
+    state_dict: Mapping[str, torch.Tensor],
+    output_path: str | Path,
+    *,
+    config: FlowTransformerConfig = FlowTransformerConfig(),
+    quantize: bool = True,
+    external_data: bool = False,
+    max_file_bytes: int = 128 * 1024 * 1024,
+) -> Path:
+    return export_flow_step(
+        state_dict,
+        output_path,
+        config=config,
+        latent_length=MAXIMUM_LATENT_LENGTH,
+        quantize=quantize,
+        external_data=external_data,
+        max_file_bytes=max_file_bytes,
+        _maximum_window=True,
+    )
 
 
 def _referenced_external_files(model_path: Path) -> tuple[Path, ...]:
@@ -659,8 +879,11 @@ def validate_flow_graph(
     config: FlowTransformerConfig = FlowTransformerConfig(),
     latent_length: int = 430,
     quantized: bool = True,
+    _maximum_window: bool = False,
 ) -> FlowGraphReport:
     path = Path(model_path)
+    if _maximum_window:
+        onnx.checker.check_model(path)
     model = onnx.load_model(path, load_external_data=False)
     inputs = {item.name: item.type.tensor_type for item in model.graph.input}
     outputs = {item.name: item.type.tensor_type for item in model.graph.output}
@@ -669,8 +892,22 @@ def validate_flow_graph(
         "condition": (TensorProto.FLOAT16, [1, latent_length, config.condition_dim]),
         "timestep": (TensorProto.FLOAT16, [1]),
         "dt": (TensorProto.FLOAT, [1]),
+        "guidance": (TensorProto.FLOAT16, [1]),
         "next_latents": (TensorProto.FLOAT16, [1, config.in_channels, latent_length]),
     }
+    if _maximum_window:
+        sequence = latent_length + 1
+        contracts.update(
+            {
+                "active_latent_mask": (TensorProto.FLOAT16, [1, latent_length, 1]),
+                "key_attention_bias": (TensorProto.FLOAT16, [1, 1, 1, sequence]),
+                "noise_prompt": (TensorProto.FLOAT16, [1, config.in_channels, FLOW_OVERLAP_LENGTH]),
+                "previous_latent": (TensorProto.FLOAT16, [1, config.in_channels, FLOW_OVERLAP_LENGTH]),
+                "overlap_enabled": (TensorProto.FLOAT16, [1]),
+            }
+        )
+    if set(inputs) != set(contracts) - {"next_latents"} or set(outputs) != {"next_latents"}:
+        raise ValueError("flow graph inputs or outputs do not match the fixed contract")
     for name, (dtype, shape) in contracts.items():
         value = inputs.get(name) or outputs.get(name)
         if value is None or value.elem_type != dtype or [dim.dim_value for dim in value.shape.dim] != shape:
@@ -679,9 +916,21 @@ def validate_flow_graph(
         sorted({node.op_type for node in model.graph.node if node.op_type in {"Shape", "Range", "ConstantOfShape"}})
     )
     q4_nodes = [node for node in model.graph.node if node.op_type == "MatMulNBits"]
-    expected_q4 = config.num_layers * 6 + 4 if quantized else 0
-    if dynamic or len(q4_nodes) != expected_q4:
+    operator_types = tuple(sorted({node.op_type for node in model.graph.node}))
+    expected_q4_dimensions = {
+        f"{key}.MatMulNBits": (shape[1], shape[0])
+        for key, shape in expected_flow_shapes(config).items()
+        if len(shape) == 2 and key != "time_proj.weight"
+    }
+    expected_q4 = len(expected_q4_dimensions) if quantized else 0
+    if (
+        dynamic
+        or len(q4_nodes) != expected_q4
+        or (quantized and {node.name for node in q4_nodes} != set(expected_q4_dimensions))
+    ):
         raise ValueError("flow graph topology does not match the fixed contract")
+    if _maximum_window and not set(operator_types) <= FLOW_OPERATOR_ALLOWLIST:
+        raise ValueError("maximum flow graph contains an operator outside the allow-list")
     for node in q4_nodes:
         attributes = {item.name: helper.get_attribute_value(item) for item in node.attribute}
         if (
@@ -691,21 +940,73 @@ def validate_flow_graph(
             or attributes.get("accuracy_level") != 4
         ):
             raise ValueError("flow MatMulNBits node has an invalid q4 contract")
+        expected_k, expected_n = expected_q4_dimensions[node.name]
+        if attributes.get("K") != expected_k or attributes.get("N") != expected_n:
+            raise ValueError("flow MatMulNBits node has invalid K/N dimensions")
     locations = set()
+    external_ranges: dict[str, list[tuple[int, int]]] = {}
+    max_initializer_bytes = 0
     for tensor in model.graph.initializer:
+        item_size = np.dtype(helper.tensor_dtype_to_np_dtype(tensor.data_type)).itemsize
+        tensor_bytes = int(np.prod(tensor.dims, dtype=np.int64)) * item_size
+        max_initializer_bytes = max(max_initializer_bytes, tensor_bytes)
         fields = {item.key: item.value for item in tensor.external_data}
         if not fields:
             continue
         location = fields.get("location")
         if not location:
             raise ValueError("flow external initializer has no location")
-        external = path.parent / location
+        parent = path.parent.resolve()
+        external = (parent / location).resolve()
         offset = int(fields.get("offset", -1))
         length = int(fields.get("length", -1))
-        if offset < 0 or length < 0 or not external.is_file() or offset + length > external.stat().st_size:
+        if (
+            not external.is_relative_to(parent)
+            or offset < 0
+            or length != tensor_bytes
+            or not external.is_file()
+            or offset + length > external.stat().st_size
+        ):
             raise ValueError("flow external initializer has an invalid range")
         locations.add(location)
-    return FlowGraphReport(len(q4_nodes), dynamic, tuple(sorted(locations)))
+        external_ranges.setdefault(location, []).append((offset, offset + length))
+    for ranges in external_ranges.values():
+        ordered = sorted(ranges)
+        if any(left[1] > right[0] for left, right in zip(ordered, ordered[1:])):
+            raise ValueError("flow external initializer ranges overlap")
+
+    max_activation_bytes = 0
+    if _maximum_window:
+        expected_initializer_bytes, max_activation_bytes = maximum_flow_binding_bytes(
+            config, quantized=quantized
+        )
+        if max_initializer_bytes != expected_initializer_bytes:
+            raise ValueError("maximum flow initializer binding calculation does not match the graph")
+        if max(max_initializer_bytes, max_activation_bytes) > 128 * 1024 * 1024:
+            raise ValueError("maximum flow graph exceeds the storage-buffer binding limit")
+    return FlowGraphReport(
+        len(q4_nodes),
+        dynamic,
+        tuple(sorted(locations)),
+        operator_types,
+        max_initializer_bytes,
+        max_activation_bytes,
+    )
+
+
+def validate_maximum_flow_graph(
+    model_path: str | Path,
+    *,
+    config: FlowTransformerConfig = FlowTransformerConfig(),
+    quantized: bool = True,
+) -> FlowGraphReport:
+    return validate_flow_graph(
+        model_path,
+        config=config,
+        latent_length=MAXIMUM_LATENT_LENGTH,
+        quantized=quantized,
+        _maximum_window=True,
+    )
 
 
 def flow_step_reference(
@@ -714,6 +1015,7 @@ def flow_step_reference(
     condition: np.ndarray,
     timestep: np.ndarray,
     dt: np.ndarray,
+    guidance: np.ndarray,
     *,
     config: FlowTransformerConfig,
 ) -> np.ndarray:
@@ -791,6 +1093,8 @@ def flow_step_reference(
         hidden = hidden + feed_forward
     output = torch_functional.linear(hidden[:, 1:], weight("proj_out.weight")).transpose(1, 2)
     velocity = torch_functional.conv1d(output, weight("postprocess_conv.weight")) + output
-    guided = velocity[1:2] + np.float16(1.7) * (velocity[0:1] - velocity[1:2])
+    guided = velocity[1:2] + torch.from_numpy(guidance).to(torch.float16).reshape(1, 1, 1) * (
+        velocity[0:1] - velocity[1:2]
+    )
     updated = latent.float() + torch.from_numpy(dt).float().reshape(1, 1, 1) * guided.float()
     return updated.to(torch.float16).numpy()

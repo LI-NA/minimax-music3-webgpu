@@ -1,8 +1,8 @@
 """Fixed-length MiniMax Music 3 vocoder export."""
 
 from collections import Counter
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
 import math
 from pathlib import Path
 import shutil
@@ -37,7 +37,25 @@ class VocoderConfig:
 
 
 EXACT_VOCODER_CONFIG = VocoderConfig()
+MAXIMUM_VOCODER_CONFIG = replace(EXACT_VOCODER_CONFIG, latent_length=689)
 EXACT_FP32_SNAKES = ("blocks.0.snake1", "blocks.1.snake1")
+VOCODER_OPERATOR_ALLOWLIST = frozenset(
+    {
+        "Add",
+        "Cast",
+        "Concat",
+        "Constant",
+        "Conv",
+        "ConvTranspose",
+        "Identity",
+        "Mul",
+        "Pow",
+        "Reciprocal",
+        "Sin",
+        "Split",
+        "Tanh",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -51,6 +69,15 @@ class GraphExpectations:
 class VocoderGraphReport:
     input_shape: tuple[int, int, int]
     output_shape: tuple[int, int, int]
+    input_dtype: int
+    output_dtype: int
+    node_counts: dict[str, int]
+
+
+@dataclass(frozen=True)
+class DynamicVocoderGraphReport:
+    input_shape: tuple[int, int, str]
+    output_shape: tuple[int, int, str]
     input_dtype: int
     output_dtype: int
     node_counts: dict[str, int]
@@ -254,6 +281,7 @@ class MiniMaxMusic3VocoderExport(nn.Module):
     def __init__(self, config: VocoderConfig, fp32_snakes: tuple[str, ...] = ()):
         super().__init__()
         self.config = config
+        self.fp32_snakes = fp32_snakes
         selected = frozenset(fp32_snakes)
         self.dec_in_proj = nn.Conv1d(config.latent_channels // 2, config.decoder_input_dim, 1)
         self.conv_in = nn.Conv1d(config.decoder_input_dim, config.decoder_hidden_dim, 7, padding=3)
@@ -299,6 +327,21 @@ class MiniMaxMusic3VocoderExport(nn.Module):
         return torch.cat((left_waveform, right_waveform), dim=1).float()
 
 
+class MiniMaxMusic3VocoderMonoExport(MiniMaxMusic3VocoderExport):
+    def forward(self, latents: torch.Tensor) -> torch.Tensor:
+        expected = (
+            1,
+            self.config.latent_channels // 2,
+            self.config.latent_length,
+        )
+        if not torch.jit.is_tracing() and tuple(latents.shape) != expected:
+            raise ValueError(f"latents shape must be {expected}")
+        hidden_states = self.conv_in(self.dec_in_proj(latents))
+        for block in self.blocks:
+            hidden_states = block(hidden_states)
+        return torch.tanh(self.conv_out(self.snake_out(hidden_states))).float()
+
+
 def build_vocoder_reference_module(
     source: Mapping[str, torch.Tensor], config: VocoderConfig = EXACT_VOCODER_CONFIG
 ) -> MiniMaxMusic3VocoderExport:
@@ -336,10 +379,93 @@ def graph_expectations(config: VocoderConfig = EXACT_VOCODER_CONFIG) -> GraphExp
     )
 
 
+def mono_graph_expectations(config: VocoderConfig = MAXIMUM_VOCODER_CONFIG) -> GraphExpectations:
+    blocks = len(config.upsampling_ratios)
+    snakes = 1 + 7 * blocks
+    return GraphExpectations(
+        input_shape=(1, config.latent_channels // 2, config.latent_length),
+        output_shape=(1, 1, config.output_samples),
+        node_counts={
+            "Conv": 3 + 6 * blocks,
+            "ConvTranspose": blocks,
+            "Sin": snakes,
+            "Pow": snakes,
+            "Reciprocal": snakes,
+            "Split": 0,
+            "Concat": 0,
+        },
+    )
+
+
+def maximum_vocoder_activation_bytes(config: VocoderConfig = MAXIMUM_VOCODER_CONFIG) -> int:
+    final_channels = config.decoder_hidden_dim // (2 ** len(config.upsampling_ratios))
+    return final_channels * config.output_samples * torch.finfo(torch.float16).bits // 8
+
+
+def maximum_vocoder_binding_bytes(config: VocoderConfig = MAXIMUM_VOCODER_CONFIG) -> int:
+    return max(
+        maximum_vocoder_activation_bytes(config),
+        config.latent_channels // 2 * config.latent_length * torch.finfo(torch.float16).bits // 8,
+        config.output_samples * torch.finfo(torch.float32).bits // 8,
+    )
+
+
 def export_vocoder_module(module: MiniMaxMusic3VocoderExport, output_path: Path) -> Path:
+    graph = _export_vocoder_module(module, output_path, graph_expectations(module.config))
+    validate_vocoder_graph(graph, module.config)
+    return graph
+
+
+def export_mono_vocoder_module(
+    module: MiniMaxMusic3VocoderMonoExport, output_path: Path
+) -> Path:
+    graph = _export_vocoder_module(module, output_path, mono_graph_expectations(module.config))
+    validate_mono_vocoder_graph(graph, module.config)
+    return graph
+
+
+def export_dynamic_mono_vocoder_module(
+    module: MiniMaxMusic3VocoderMonoExport, output_path: Path
+) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     example = torch.zeros(
-        graph_expectations(module.config).input_shape,
+        mono_graph_expectations(module.config).input_shape,
+        dtype=torch.float16,
+        device=next(module.parameters()).device,
+    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message="You are using the legacy TorchScript-based ONNX export.*"
+        )
+        warnings.filterwarnings(
+            "ignore", message="The feature will be removed. Please remove usage of this function"
+        )
+        torch.onnx.export(
+            module,
+            (example,),
+            output_path,
+            input_names=["latents"],
+            output_names=["waveform"],
+            dynamic_axes={
+                "latents": {2: "latent_length"},
+                "waveform": {2: "sample_length"},
+            },
+            opset_version=18,
+            dynamo=False,
+            do_constant_folding=True,
+        )
+    validate_dynamic_mono_vocoder_graph(
+        output_path, module.config, fp32_snakes=module.fp32_snakes
+    )
+    return output_path
+
+
+def _export_vocoder_module(
+    module: nn.Module, output_path: Path, expectations: GraphExpectations
+) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    example = torch.zeros(
+        expectations.input_shape,
         dtype=torch.float16,
         device=next(module.parameters()).device,
     )
@@ -360,7 +486,6 @@ def export_vocoder_module(module: MiniMaxMusic3VocoderExport, output_path: Path)
             dynamo=False,
             do_constant_folding=True,
         )
-    validate_vocoder_graph(output_path, module.config)
     return output_path
 
 
@@ -369,6 +494,38 @@ def publish_vocoder_module(
     output_dir: Path,
     max_file_bytes: int = ARTIFACT_FILE_LIMIT,
 ) -> VocoderArtifact:
+    return _publish_vocoder_module(
+        module,
+        output_dir,
+        max_file_bytes,
+        export_vocoder_module,
+        validate_vocoder_graph,
+    )
+
+
+def publish_mono_vocoder_module(
+    module: MiniMaxMusic3VocoderMonoExport,
+    output_dir: Path,
+    max_file_bytes: int = ARTIFACT_FILE_LIMIT,
+) -> VocoderArtifact:
+    return _publish_vocoder_module(
+        module,
+        output_dir,
+        max_file_bytes,
+        export_dynamic_mono_vocoder_module,
+        lambda path, config: validate_dynamic_mono_vocoder_graph(
+            path, config, fp32_snakes=module.fp32_snakes
+        ),
+    )
+
+
+def _publish_vocoder_module(
+    module: nn.Module,
+    output_dir: Path,
+    max_file_bytes: int,
+    exporter: Callable[[nn.Module, Path], Path],
+    validator: Callable[[Path, VocoderConfig], object],
+) -> VocoderArtifact:
     if max_file_bytes <= 0:
         raise ValueError("max_file_bytes must be positive")
     output_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -376,9 +533,9 @@ def publish_vocoder_module(
         prefix=f".{output_dir.name}-staging-", dir=output_dir.parent
     ) as temporary:
         staging = Path(temporary)
-        raw_model = export_vocoder_module(module, staging / "raw" / "vocoder.onnx")
+        raw_model = exporter(module, staging / "raw" / "vocoder.onnx")
         packed = repack_external_data(raw_model, staging / "package", max_file_bytes)
-        validate_vocoder_graph(packed.model_path, module.config)
+        validator(packed.model_path, module.config)
         if packed.model_path.stat().st_size > max_file_bytes:
             raise ValueError("vocoder graph exceeds artifact limit")
         shard_names = tuple(shard.path.name for shard in packed.shards)
@@ -416,25 +573,100 @@ def _promote_vocoder_directory(staging: Path, destination: Path) -> None:
 def validate_vocoder_graph(
     model_path: Path, config: VocoderConfig = EXACT_VOCODER_CONFIG
 ) -> VocoderGraphReport:
+    return _validate_vocoder_graph(model_path, config, graph_expectations(config), check_model=False)
+
+
+def validate_mono_vocoder_graph(
+    model_path: Path, config: VocoderConfig = MAXIMUM_VOCODER_CONFIG
+) -> VocoderGraphReport:
+    return _validate_vocoder_graph(model_path, config, mono_graph_expectations(config), check_model=True)
+
+
+def validate_dynamic_mono_vocoder_graph(
+    model_path: Path,
+    config: VocoderConfig = MAXIMUM_VOCODER_CONFIG,
+    *,
+    fp32_snakes: tuple[str, ...],
+) -> DynamicVocoderGraphReport:
     model = onnx.load_model(model_path, load_external_data=False)
+    onnx.checker.check_model(str(model_path), full_check=True)
+    if len(model.graph.input) != 1 or model.graph.input[0].name != "latents":
+        raise ValueError("dynamic mono vocoder graph must have one latents input")
+    if len(model.graph.output) != 1 or model.graph.output[0].name != "waveform":
+        raise ValueError("dynamic mono vocoder graph must have one waveform output")
+    input_shape, input_dtype = _dynamic_mono_value_contract(
+        model.graph.input[0],
+        (1, config.latent_channels // 2, "latent_length"),
+    )
+    output_shape, output_dtype = _dynamic_mono_value_contract(
+        model.graph.output[0],
+        (1, 1, "sample_length"),
+    )
+    if input_dtype != onnx.TensorProto.FLOAT16 or output_dtype != onnx.TensorProto.FLOAT:
+        raise ValueError("dynamic mono vocoder tensor dtype is invalid")
+    counts = _validate_vocoder_graph_structure(
+        model, model_path, config, mono_graph_expectations(config)
+    )
+    if counts["Cast"] != 1 + 2 * len(fp32_snakes):
+        raise ValueError(
+            "dynamic mono vocoder FP32 Snake casts are invalid: "
+            f"expected {1 + 2 * len(fp32_snakes)}, got {counts['Cast']}"
+        )
+    return DynamicVocoderGraphReport(
+        input_shape=input_shape,
+        output_shape=output_shape,
+        input_dtype=input_dtype,
+        output_dtype=output_dtype,
+        node_counts=dict(counts),
+    )
+
+
+def _validate_vocoder_graph(
+    model_path: Path, config: VocoderConfig, expected: GraphExpectations, *, check_model: bool
+) -> VocoderGraphReport:
+    model = onnx.load_model(model_path, load_external_data=False)
+    if check_model:
+        onnx.checker.check_model(str(model_path), full_check=True)
     if len(model.graph.input) != 1 or model.graph.input[0].name != "latents":
         raise ValueError("vocoder graph must have one latents input")
     if len(model.graph.output) != 1 or model.graph.output[0].name != "waveform":
         raise ValueError("vocoder graph must have one waveform output")
     input_shape, input_dtype = _value_contract(model.graph.input[0])
     output_shape, output_dtype = _value_contract(model.graph.output[0])
-    expected = graph_expectations(config)
     if input_shape != expected.input_shape or input_dtype != onnx.TensorProto.FLOAT16:
         raise ValueError("vocoder input contract is invalid")
     if output_shape != expected.output_shape or output_dtype != onnx.TensorProto.FLOAT:
         raise ValueError("vocoder output contract is invalid")
+    counts = _validate_vocoder_graph_structure(model, model_path, config, expected)
+    return VocoderGraphReport(
+        input_shape=input_shape,
+        output_shape=output_shape,
+        input_dtype=input_dtype,
+        output_dtype=output_dtype,
+        node_counts=dict(counts),
+    )
+
+
+def _validate_vocoder_graph_structure(
+    model: onnx.ModelProto,
+    model_path: Path,
+    config: VocoderConfig,
+    expected: GraphExpectations,
+) -> Counter[str]:
     counts = Counter(node.op_type for node in model.graph.node)
     for operator, count in expected.node_counts.items():
         if counts[operator] != count:
             raise ValueError(f"vocoder graph must contain {count} {operator} nodes")
+    if counts.keys() - VOCODER_OPERATOR_ALLOWLIST:
+        raise ValueError(
+            f"vocoder graph contains unsupported operators: {sorted(counts.keys() - VOCODER_OPERATOR_ALLOWLIST)}"
+        )
     forbidden = {"Reshape", "Shape", "ReduceL2"}
     if forbidden & counts.keys():
         raise ValueError("vocoder graph contains forbidden bookkeeping or weight-norm nodes")
+    if maximum_vocoder_binding_bytes(config) > ARTIFACT_FILE_LIMIT:
+        raise ValueError("vocoder activation exceeds the storage-buffer binding limit")
+    _validate_vocoder_initializer_ranges(model, model_path)
     transpose_nodes = [node for node in model.graph.node if node.op_type == "ConvTranspose"]
     for node, stride in zip(transpose_nodes, config.upsampling_ratios, strict=True):
         attributes = {attribute.name: onnx.helper.get_attribute_value(attribute) for attribute in node.attribute}
@@ -445,13 +677,32 @@ def validate_vocoder_graph(
         padding = math.ceil(stride / 2)
         if attributes.get("pads") != [padding, padding]:
             raise ValueError("ConvTranspose padding is invalid")
-    return VocoderGraphReport(
-        input_shape=input_shape,
-        output_shape=output_shape,
-        input_dtype=input_dtype,
-        output_dtype=output_dtype,
-        node_counts=dict(counts),
-    )
+    return counts
+
+
+def _validate_vocoder_initializer_ranges(model: onnx.ModelProto, model_path: Path) -> None:
+    for initializer in model.graph.initializer:
+        fields = {field.key: field.value for field in initializer.external_data}
+        if initializer.data_location != onnx.TensorProto.EXTERNAL:
+            if len(initializer.raw_data) > ARTIFACT_FILE_LIMIT:
+                raise ValueError("vocoder initializer exceeds the storage-buffer binding limit")
+            continue
+        location = fields.get("location")
+        if not location:
+            raise ValueError("vocoder external initializer has no location")
+        relative = Path(location)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("vocoder external initializer path escapes the graph directory")
+        try:
+            offset = int(fields["offset"])
+            length = int(fields["length"])
+        except (KeyError, ValueError) as error:
+            raise ValueError("vocoder external initializer has an invalid range") from error
+        source = model_path.parent / relative
+        if offset < 0 or length <= 0 or length > ARTIFACT_FILE_LIMIT or not source.is_file():
+            raise ValueError("vocoder external initializer has an invalid range")
+        if offset + length > source.stat().st_size:
+            raise ValueError("vocoder external initializer range exceeds its file")
 
 
 def run_vocoder_cpu_oracle(
@@ -487,3 +738,20 @@ def _value_contract(value: onnx.ValueInfoProto) -> tuple[tuple[int, int, int], i
     if len(dimensions) != 3 or any(dimension.dim_param or not dimension.HasField("dim_value") for dimension in dimensions):
         raise ValueError("vocoder tensor shape must be static rank three")
     return tuple(dimension.dim_value for dimension in dimensions), tensor_type.elem_type
+
+
+def _dynamic_mono_value_contract(
+    value: onnx.ValueInfoProto, expected: tuple[int, int, str]
+) -> tuple[tuple[int, int, str], int]:
+    tensor_type = value.type.tensor_type
+    dimensions = tensor_type.shape.dim
+    if len(dimensions) != 3:
+        raise ValueError("dynamic mono vocoder tensor shape must be rank three")
+    if (
+        dimensions[0].dim_value != expected[0]
+        or dimensions[1].dim_value != expected[1]
+        or dimensions[2].dim_param != expected[2]
+        or dimensions[2].HasField("dim_value")
+    ):
+        raise ValueError("dynamic mono vocoder tensor shape is invalid")
+    return expected, tensor_type.elem_type

@@ -10,7 +10,7 @@ from .global_decoder import build_global_decoder
 from .manifest import emit_global_release
 from .manifest import emit_rvq_release
 from .rvq_depth import build_rvq_stage
-from .acoustic_manifest import build_music_5s_release
+from .acoustic_manifest import build_music_5s_release, build_music_variable_release
 
 
 def main() -> None:
@@ -27,6 +27,8 @@ def main() -> None:
     rvq_parser.add_argument("--artifacts-dir", type=Path, default=Path("artifacts"))
     music_parser = subparsers.add_parser("build-music-5s")
     music_parser.add_argument("--artifacts-dir", type=Path, default=Path("artifacts"))
+    variable_parser = subparsers.add_parser("build-music-variable")
+    variable_parser.add_argument("--artifacts-dir", type=Path, default=Path("artifacts"))
     args = parser.parse_args()
     if args.command == "download-global":
         download_global_source(ArtifactPaths.from_root(args.artifacts_dir))
@@ -41,6 +43,8 @@ def main() -> None:
         emit_rvq_release(paths, build_rvq_stage(paths))
     if args.command == "build-music-5s":
         build_music_5s_release(ArtifactPaths.from_root(args.artifacts_dir))
+    if args.command == "build-music-variable":
+        build_music_variable_release(ArtifactPaths.from_root(args.artifacts_dir))
 
 
 if __name__ == "__main__":

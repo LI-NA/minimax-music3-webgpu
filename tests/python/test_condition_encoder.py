@@ -12,6 +12,7 @@ import torch
 import torch.nn.functional as F
 
 from minimax_music3_webgpu.condition_encoder import (
+    ConditionEncoderWeights,
     condition_encoder_model,
     export_condition_encoder,
     load_condition_encoder_weights,
@@ -22,14 +23,15 @@ from minimax_music3_webgpu.paths import ArtifactPaths
 
 
 def test_nearest_indices_match_diffusers_interpolate_contract() -> None:
-    source = torch.arange(125, dtype=torch.float32).reshape(1, 1, 125)
-    expected = F.interpolate(source, size=430, mode="nearest").numpy().reshape(-1)
+    for frame_count, latent_length in ((125, 430), (150, 516), (175, 602), (200, 689)):
+        source = torch.arange(frame_count, dtype=torch.float32).reshape(1, 1, frame_count)
+        expected = F.interpolate(source, size=latent_length, mode="nearest").numpy().reshape(-1)
 
-    indices = nearest_indices(125, 430)
+        indices = nearest_indices(frame_count, latent_length)
 
-    np.testing.assert_array_equal(indices, expected)
-    np.testing.assert_array_equal(indices[:8], np.array([0, 0, 0, 0, 1, 1, 1, 2]))
-    assert indices[-1] == 124
+        np.testing.assert_array_equal(indices, expected)
+    assert nearest_indices(125, 430)[:8].tolist() == [0, 0, 0, 0, 1, 1, 1, 2]
+    assert nearest_indices(150, 516)[430] == 124
 
 
 def test_load_weights_requires_exact_keys_and_shapes(tmp_path) -> None:
@@ -71,6 +73,125 @@ def test_fixed_graph_matches_tiny_diffusers_math_without_runtime_resize(tmp_path
     op_types = {node.op_type for node in model.graph.node}
     assert {"Mul", "ReduceSum", "Conv", "Gather"} <= op_types
     assert not {"Shape", "Resize", "Einsum", "Softmax"} & op_types
+
+
+def test_maximum_window_matches_source_math_and_zeros_inactive_tail(tmp_path) -> None:
+    source = tmp_path / "tiny.safetensors"
+    tensors = _tiny_weights()
+    save_file(tensors, source)
+    weights = load_condition_encoder_weights(source, condition_hidden_dim=4, out_dim=3)
+    maximum_model = condition_encoder_model(
+        weights,
+        frame_count=200,
+        latent_length=689,
+        maximum_window=True,
+    )
+    maximum_path = tmp_path / "condition-maximum.onnx"
+    onnx.save_model(maximum_model, maximum_path)
+    maximum_session = ort.InferenceSession(str(maximum_path), providers=["CPUExecutionProvider"])
+
+    frame_hiddens = np.linspace(-0.5, 0.5, 1 * 200 * 8 * 4, dtype=np.float32).reshape(
+        1, 200, 8 * 4
+    )
+    for frame_count, latent_length in ((1, 3), (125, 430), (162, 558), (200, 689)):
+        padded_frames = frame_hiddens.copy()
+        padded_frames[:, frame_count:] = 0
+        nearest_index = np.zeros(689, dtype=np.int64)
+        nearest_index[:latent_length] = nearest_indices(frame_count, latent_length)
+        active_latent_mask = np.zeros((1, 689, 1), dtype=np.float16)
+        active_latent_mask[:, :latent_length] = 1
+        (actual,) = maximum_session.run(
+            None,
+            {
+                "frame_hiddens": padded_frames.astype(np.float16),
+                "nearest_index": nearest_index,
+                "active_latent_mask": active_latent_mask,
+            },
+        )
+        expected = _condition_encoder_oracle(
+            padded_frames[:, :frame_count],
+            tensors,
+            latent_length=latent_length,
+        )
+
+        assert actual.shape == (1, 689, 3)
+        np.testing.assert_allclose(actual[:, :latent_length], expected, atol=2e-3, rtol=2e-3)
+        np.testing.assert_array_equal(actual[:, latent_length:], 0)
+
+
+def test_maximum_window_uses_fixed_webgpu_safe_bindings() -> None:
+    model = condition_encoder_model(
+        _weights_from_tensors(_tiny_weights()),
+        frame_count=200,
+        latent_length=689,
+        maximum_window=True,
+    )
+
+    input_shapes = {
+        value.name: [dimension.dim_value for dimension in value.type.tensor_type.shape.dim]
+        for value in model.graph.input
+    }
+    assert input_shapes == {
+        "frame_hiddens": [1, 200, 32],
+        "nearest_index": [689],
+        "active_latent_mask": [1, 689, 1],
+    }
+    input_types = {
+        value.name: value.type.tensor_type.elem_type for value in model.graph.input
+    }
+    assert input_types == {
+        "frame_hiddens": onnx.TensorProto.FLOAT16,
+        "nearest_index": onnx.TensorProto.INT64,
+        "active_latent_mask": onnx.TensorProto.FLOAT16,
+    }
+    assert [
+        dimension.dim_value for dimension in model.graph.output[0].type.tensor_type.shape.dim
+    ] == [1, 689, 3]
+    assert {node.op_type for node in model.graph.node} <= {
+        "Conv",
+        "Gather",
+        "Mul",
+        "ReduceSum",
+        "Reshape",
+        "Transpose",
+    }
+    binding_sizes = {
+        "frame_hiddens": 1 * 200 * 32768 * 2,
+        "grouped_hiddens": 1 * 200 * 8 * 4096 * 2,
+        "projected_hiddens": 1 * 2048 * 200 * 2,
+        "condition": 1 * 689 * 2048 * 2,
+        "proj_weight": 2048 * 4096 * 3 * 2,
+    }
+    assert max(binding_sizes.values()) <= 128 * 1024 * 1024
+
+
+def test_maximum_window_export_bounds_external_ranges(tmp_path) -> None:
+    source = tmp_path / "tiny.safetensors"
+    save_file(_tiny_weights(), source)
+
+    exported = export_condition_encoder(
+        source,
+        tmp_path / "packed",
+        condition_hidden_dim=4,
+        out_dim=3,
+        frame_count=200,
+        latent_length=689,
+        maximum_window=True,
+        max_file_bytes=256,
+    )
+
+    model = onnx.load_model(exported.model_path, load_external_data=False)
+    for initializer in model.graph.initializer:
+        fields = {entry.key: entry.value for entry in initializer.external_data}
+        if fields:
+            assert int(fields["offset"]) + int(fields["length"]) <= 256
+    session = ort.InferenceSession(str(exported.model_path), providers=["CPUExecutionProvider"])
+    assert [item.name for item in session.get_inputs()] == [
+        "frame_hiddens",
+        "nearest_index",
+        "active_latent_mask",
+    ]
+    assert session.get_outputs()[0].shape == [1, 689, 3]
 
 
 def test_export_packs_every_initializer_below_artifact_limit(tmp_path) -> None:
@@ -142,18 +263,43 @@ def test_real_checkpoint_matches_pinned_diffusers_oracle(tmp_path) -> None:
 
     source_dir = Path("artifacts/source/condition_encoder")
     source_weights = source_dir / "diffusion_pytorch_model.safetensors"
-    reference = MiniMaxMusic3ConditionEncoder.from_pretrained(source_dir).eval()
-    values = torch.linspace(-0.05, 0.05, 125 * 32768, dtype=torch.float32).reshape(1, 125, 32768)
-    with torch.no_grad():
-        expected = reference(values).numpy()
+    reference = MiniMaxMusic3ConditionEncoder.from_pretrained(source_dir).eval().half()
+    weights = load_condition_encoder_weights(source_weights)
+    values = torch.linspace(-0.05, 0.05, 200 * 32768, dtype=torch.float32).reshape(1, 200, 32768)
+    maximum_model = condition_encoder_model(
+        weights,
+        frame_count=200,
+        latent_length=689,
+        maximum_window=True,
+    )
+    maximum_path = tmp_path / "condition-maximum.onnx"
+    onnx.save_model(maximum_model, maximum_path)
+    maximum_session = ort.InferenceSession(str(maximum_path), providers=["CPUExecutionProvider"])
 
-    exported = export_condition_encoder(source_weights, tmp_path / "condition-125")
-    session = ort.InferenceSession(str(exported.model_path), providers=["CPUExecutionProvider"])
-    (actual,) = session.run(None, {"frame_hiddens": values.numpy().astype(np.float16)})
+    for frame_count, latent_length in ((125, 430), (150, 516), (175, 602), (200, 689)):
+        padded_frames = values.clone()
+        padded_frames[:, frame_count:] = 0
+        nearest_index = np.zeros(689, dtype=np.int64)
+        nearest_index[:latent_length] = nearest_indices(frame_count, latent_length)
+        active_latent_mask = np.zeros((1, 689, 1), dtype=np.float16)
+        active_latent_mask[:, :latent_length] = 1
+        (actual,) = maximum_session.run(
+            None,
+            {
+                "frame_hiddens": padded_frames.numpy().astype(np.float16),
+                "nearest_index": nearest_index,
+                "active_latent_mask": active_latent_mask,
+            },
+        )
+        with torch.no_grad():
+            expected = reference(padded_frames[:, :frame_count].half()).numpy()
 
-    assert actual.shape == (1, 430, 2048)
-    assert np.isfinite(actual).all()
-    np.testing.assert_allclose(actual.astype(np.float32), expected, atol=5e-4, rtol=5e-3)
+        assert actual.shape == (1, 689, 2048)
+        assert np.isfinite(actual).all()
+        np.testing.assert_allclose(
+            actual[:, :latent_length].astype(np.float32), expected, atol=5e-4, rtol=5e-3
+        )
+        np.testing.assert_array_equal(actual[:, latent_length:], 0)
 
 
 def _tiny_weights() -> dict[str, np.ndarray]:
@@ -163,6 +309,15 @@ def _tiny_weights() -> dict[str, np.ndarray]:
         "proj.weight": np.arange(3 * 4 * 3, dtype=np.float32).reshape(3, 4, 3) / 100,
         "proj.bias": np.linspace(-0.2, 0.2, 3, dtype=np.float32),
     }
+
+
+def _weights_from_tensors(tensors: dict[str, np.ndarray]) -> ConditionEncoderWeights:
+    return ConditionEncoderWeights(
+        layer_weight_logits=tensors["layer_weight_logits"],
+        layer_scale=tensors["layer_scale"],
+        proj_weight=tensors["proj.weight"],
+        proj_bias=tensors["proj.bias"],
+    )
 
 
 def _condition_encoder_oracle(

@@ -2,6 +2,7 @@ from collections import Counter
 from dataclasses import replace
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import warnings
@@ -13,10 +14,13 @@ import pytest
 from safetensors.torch import save_file
 import torch
 
+import minimax_music3_webgpu.vocoder as vocoder
+
 from minimax_music3_webgpu.manifest import emit_vocoder_release
 from minimax_music3_webgpu.paths import ArtifactPaths
 from minimax_music3_webgpu.vocoder import (
     EXACT_VOCODER_CONFIG,
+    MAXIMUM_VOCODER_CONFIG,
     MiniMaxMusic3VocoderExport,
     VocoderConfig,
     build_vocoder_reference_module,
@@ -189,6 +193,186 @@ def test_exact_graph_expectations_are_fixed_to_five_second_contract() -> None:
     }
 
 
+def test_maximum_mono_graph_has_the_pinned_window_and_binding_contract() -> None:
+    expected = vocoder.mono_graph_expectations(vocoder.MAXIMUM_VOCODER_CONFIG)
+
+    assert expected.input_shape == (1, 64, 689)
+    assert expected.output_shape == (1, 1, 352_768)
+    assert expected.node_counts == {
+        "Conv": 27,
+        "ConvTranspose": 4,
+        "Sin": 29,
+        "Pow": 29,
+        "Reciprocal": 29,
+        "Split": 0,
+        "Concat": 0,
+    }
+    assert vocoder.maximum_vocoder_activation_bytes(vocoder.MAXIMUM_VOCODER_CONFIG) == 67_731_456
+    assert vocoder.maximum_vocoder_binding_bytes(vocoder.MAXIMUM_VOCODER_CONFIG) <= 128 * 1024 * 1024
+
+
+def test_mono_maximum_window_matches_stereo_channels_on_zero_padded_tails() -> None:
+    maximum = _tiny_maximum_config()
+    source = _source_state(maximum)
+    prepared, fp32_snakes = prepare_vocoder_state_dict(source, maximum)
+    mono = vocoder.MiniMaxMusic3VocoderMonoExport.from_prepared_state(
+        maximum, prepared, fp32_snakes
+    )
+    values = torch.arange(maximum.latent_channels * maximum.latent_length, dtype=torch.float32)
+    stereo_latents = (((values % 257) - 128) / 1024).reshape(
+        1, maximum.latent_channels, maximum.latent_length
+    ).to(torch.float16)
+    half = maximum.latent_channels // 2
+    stereo = MiniMaxMusic3VocoderExport.from_prepared_state(maximum, prepared, fp32_snakes)
+
+    with torch.no_grad():
+        for active_length in (3, 4, 5, 7):
+            left = torch.zeros_like(stereo_latents[:, :half])
+            right = torch.zeros_like(left)
+            left[:, :, :active_length] = stereo_latents[:, :half, :active_length]
+            right[:, :, :active_length] = stereo_latents[:, half:, :active_length]
+            expected = stereo(torch.cat((left, right), dim=1))
+            sample_count = active_length * math.prod(maximum.upsampling_ratios)
+
+            torch.testing.assert_close(
+                mono(left)[:, :, :sample_count], expected[:, :1, :sample_count], rtol=0.002, atol=0.002
+            )
+            torch.testing.assert_close(
+                mono(right)[:, :, :sample_count], expected[:, 1:, :sample_count], rtol=0.002, atol=0.002
+            )
+
+
+def test_mono_export_passes_checker_allowlist_and_binding_limits(tmp_path: Path) -> None:
+    config = _tiny_maximum_config()
+    source = _source_state(config)
+    prepared, fp32_snakes = prepare_vocoder_state_dict(source, config)
+    module = vocoder.MiniMaxMusic3VocoderMonoExport.from_prepared_state(
+        config, prepared, fp32_snakes
+    )
+
+    graph_path = vocoder.export_mono_vocoder_module(module, tmp_path / "vocoder-mono.onnx")
+    report = vocoder.validate_mono_vocoder_graph(graph_path, config)
+    model = onnx.load_model(graph_path, load_external_data=False)
+
+    onnx.checker.check_model(str(graph_path), full_check=True)
+    assert report.input_shape == (1, 4, 7)
+    assert report.output_shape == (1, 1, 112)
+    assert set(report.node_counts) <= vocoder.VOCODER_OPERATOR_ALLOWLIST
+    assert all(
+        len(initializer.raw_data) <= 128 * 1024 * 1024 for initializer in model.graph.initializer
+    )
+
+
+def test_publish_mono_exports_dynamic_checked_external_initializer_ranges(tmp_path: Path) -> None:
+    config = _tiny_maximum_config()
+    source = _source_state(config)
+    prepared, fp32_snakes = prepare_vocoder_state_dict(source, config)
+    module = vocoder.MiniMaxMusic3VocoderMonoExport.from_prepared_state(
+        config, prepared, fp32_snakes
+    )
+
+    artifact = vocoder.publish_mono_vocoder_module(
+        module, tmp_path / "published", max_file_bytes=128 * 1024
+    )
+    model = onnx.load_model(artifact.model_path, load_external_data=False)
+
+    assert model.graph.input[0].type.tensor_type.shape.dim[2].dim_param == "latent_length"
+    assert model.graph.output[0].type.tensor_type.shape.dim[2].dim_param == "sample_length"
+    vocoder.validate_dynamic_mono_vocoder_graph(
+        artifact.model_path, config, fp32_snakes=module.fp32_snakes
+    )
+    for initializer in model.graph.initializer:
+        fields = {field.key: field.value for field in initializer.external_data}
+        assert int(fields["length"]) <= 128 * 1024
+        source = artifact.model_path.parent / fields["location"]
+        assert int(fields["offset"]) + int(fields["length"]) <= source.stat().st_size
+
+
+def test_dynamic_mono_graph_matches_fixed_stereo_channels_for_all_tail_lengths(
+    tmp_path: Path,
+) -> None:
+    maximum = replace(
+        _tiny_maximum_config(),
+        upsampling_ratios=MAXIMUM_VOCODER_CONFIG.upsampling_ratios,
+        latent_length=689,
+    )
+    source = _source_state(maximum)
+    for name in source:
+        if name.endswith("weight_g"):
+            source[name].mul_(0.02)
+    source["blocks.0.snake1.alpha"].flatten()[0] = 4.748142e-6
+    prepared, fp32_snakes = prepare_vocoder_state_dict(source, maximum)
+    mono = vocoder.MiniMaxMusic3VocoderMonoExport.from_prepared_state(
+        maximum, prepared, fp32_snakes
+    )
+    graph_path = vocoder.export_dynamic_mono_vocoder_module(mono, tmp_path / "vocoder-mono.onnx")
+    model = onnx.load_model(graph_path, load_external_data=False)
+    session = ort.InferenceSession(str(graph_path), providers=["CPUExecutionProvider"])
+    half = maximum.latent_channels // 2
+
+    onnx.checker.check_model(str(graph_path), full_check=True)
+    report = vocoder.validate_dynamic_mono_vocoder_graph(
+        graph_path, maximum, fp32_snakes=fp32_snakes
+    )
+    assert fp32_snakes == ("blocks.0.snake1",)
+    assert model.graph.input[0].type.tensor_type.shape.dim[2].dim_param == "latent_length"
+    operators = {node.op_type for node in model.graph.node}
+    assert operators <= vocoder.VOCODER_OPERATOR_ALLOWLIST
+    assert not ({"Shape", "Reshape"} & operators)
+    assert report.node_counts["Cast"] == 3
+
+    for active_length in (1, 430, 516, 558, 602, 689):
+        fixed = replace(maximum, latent_length=active_length)
+        stereo = MiniMaxMusic3VocoderExport.from_prepared_state(fixed, prepared, fp32_snakes)
+        values = torch.arange(maximum.latent_channels * active_length, dtype=torch.float32)
+        latents = (((values % 257) - 128) / 1024).reshape(
+            1, maximum.latent_channels, active_length
+        ).to(torch.float16)
+        with torch.no_grad():
+            expected = stereo(latents).float().numpy()
+        left = session.run(["waveform"], {"latents": latents[:, :half].numpy()})[0]
+        right = session.run(["waveform"], {"latents": latents[:, half:].numpy()})[0]
+
+        assert left.shape == right.shape == (1, 1, active_length * 512)
+        assert np.isfinite(left).all()
+        assert np.isfinite(right).all()
+        np.testing.assert_allclose(left, expected[:, :1], rtol=0.002, atol=0.002)
+        np.testing.assert_allclose(right, expected[:, 1:], rtol=0.002, atol=0.002)
+
+
+def test_static_zero_padded_mono_cannot_replace_a_fixed_active_length_graph() -> None:
+    maximum = _tiny_maximum_config()
+    source = _source_state(maximum)
+    prepared, fp32_snakes = prepare_vocoder_state_dict(source, maximum)
+    mono = vocoder.MiniMaxMusic3VocoderMonoExport.from_prepared_state(
+        maximum, prepared, fp32_snakes
+    )
+    fixed = replace(maximum, latent_length=3)
+    stereo = MiniMaxMusic3VocoderExport.from_prepared_state(fixed, prepared, fp32_snakes)
+    values = torch.arange(maximum.latent_channels * fixed.latent_length, dtype=torch.float32)
+    latents = (((values % 257) - 128) / 1024).reshape(
+        1, maximum.latent_channels, fixed.latent_length
+    ).to(torch.float16)
+    padded_left = torch.zeros((1, maximum.latent_channels // 2, maximum.latent_length), dtype=torch.float16)
+    padded_left[:, :, : fixed.latent_length] = latents[:, : maximum.latent_channels // 2]
+
+    with torch.no_grad():
+        expected = stereo(latents)[:, :1]
+        actual = mono(padded_left)[:, :, : fixed.output_samples]
+
+    assert (actual - expected).abs().max().item() > 0.002
+
+
+def _tiny_maximum_config() -> VocoderConfig:
+    return VocoderConfig(
+        latent_channels=8,
+        decoder_input_dim=8,
+        decoder_hidden_dim=16,
+        upsampling_ratios=(4, 4),
+        latent_length=7,
+    )
+
+
 def test_publish_exports_external_data_atomically(tmp_path: Path) -> None:
     config = _tiny_config()
     source = _source_state(config)
@@ -343,6 +527,31 @@ def test_vocoder_release_restore_failure_preserves_existing_backup(
     assert (backups[0] / "manifest.json").read_bytes() == original_manifest
     assert not release.exists()
     assert list(paths.release.glob(".vocoder-*.staging")) == []
+
+
+@pytest.mark.skipif(
+    os.environ.get("MINIMAX_RUN_REAL_VOCODER") != "1",
+    reason="real vocoder gate is opt-in",
+)
+def test_real_checkpoint_short_mono_matches_each_stereo_channel() -> None:
+    source_path = Path("artifacts/source/vocoder/diffusion_pytorch_model.safetensors")
+    state = load_vocoder_state_dict(source_path)
+    short_config = replace(MAXIMUM_VOCODER_CONFIG, latent_length=1)
+    prepared, fp32_snakes = prepare_vocoder_state_dict(state, short_config)
+    stereo = MiniMaxMusic3VocoderExport.from_prepared_state(short_config, prepared, fp32_snakes)
+    mono = vocoder.MiniMaxMusic3VocoderMonoExport.from_prepared_state(
+        short_config, prepared, fp32_snakes
+    )
+    values = torch.arange(short_config.latent_channels, dtype=torch.float32)
+    latents = (((values % 257) - 128) / 1024).to(torch.float16).reshape(1, 128, 1)
+
+    with torch.no_grad():
+        expected = stereo(latents)
+        left = mono(latents[:, :64])
+        right = mono(latents[:, 64:])
+
+    torch.testing.assert_close(left, expected[:, :1], rtol=0.002, atol=0.002)
+    torch.testing.assert_close(right, expected[:, 1:], rtol=0.002, atol=0.002)
 
 
 @pytest.mark.skipif(

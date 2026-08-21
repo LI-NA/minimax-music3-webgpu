@@ -153,6 +153,11 @@ def test_emit_global_release_assembles_all_browser_artifacts(tmp_path, monkeypat
     (paths.source / "tokenizer" / "tokenizer.json").write_text("{}")
     (paths.source / "LICENSE").write_text("license")
     release = paths.release / release_name
+    release.mkdir(parents=True)
+    (release / "previous.bin").write_bytes(b"previous release")
+    receipt = paths.receipts / f"global-release-{layers}.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text('{"generation":"previous"}', encoding="utf-8")
     packed = paths.work / f"global-packed-{layers}"
     packed.mkdir(parents=True)
     _write_external_decoder_fixture(packed / "global_decoder.onnx")
@@ -189,7 +194,11 @@ def test_emit_global_release_assembles_all_browser_artifacts(tmp_path, monkeypat
     assert (release / "reduced-head" / "reduced-head.onnx").is_file()
     assert (release / "tokenizer" / "tokenizer.json").is_file()
     assert (release / "LICENSE").is_file()
-    assert (paths.receipts / f"global-release-{layers}.json").is_file()
+    assert receipt.is_file()
+    archives = list((paths.root / "archive" / release_name).iterdir())
+    assert len(archives) == 1
+    assert (archives[0] / "release" / "previous.bin").read_bytes() == b"previous release"
+    assert (archives[0] / "receipt.json").read_text(encoding="utf-8") == '{"generation":"previous"}'
 
 
 def test_emit_global_release_keeps_existing_release_when_assembly_fails(tmp_path, monkeypatch) -> None:
@@ -214,6 +223,134 @@ def test_emit_global_release_keeps_existing_release_when_assembly_fails(tmp_path
         manifest.emit_global_release(paths, 1)
 
     assert original.read_bytes() == b"unchanged"
+
+
+def test_promote_directory_archives_prior_release_and_receipt(tmp_path) -> None:
+    release = tmp_path / "release" / "global"
+    staging = tmp_path / "release" / ".global-next.staging"
+    receipt = tmp_path / "receipts" / "global-release-36.json"
+    release.mkdir(parents=True)
+    staging.mkdir(parents=True)
+    receipt.parent.mkdir(parents=True)
+    (release / "manifest.json").write_bytes(b"old manifest")
+    (release / "weights.bin").write_bytes(b"old weights")
+    (staging / "manifest.json").write_bytes(b"new manifest")
+    receipt.write_text('{"generation":"old"}', encoding="utf-8")
+
+    manifest._promote_directory(
+        staging,
+        release,
+        receipt_path=receipt,
+        receipt_payload={"generation": "new"},
+    )
+
+    archives = list((tmp_path / "archive" / "global").iterdir())
+    assert len(archives) == 1
+    assert (archives[0] / "release" / "manifest.json").read_bytes() == b"old manifest"
+    assert (archives[0] / "release" / "weights.bin").read_bytes() == b"old weights"
+    assert (archives[0] / "receipt.json").read_text(encoding="utf-8") == '{"generation":"old"}'
+    assert (release / "manifest.json").read_bytes() == b"new manifest"
+    assert json.loads(receipt.read_text(encoding="utf-8")) == {"generation": "new"}
+
+
+def test_archive_file_copies_prior_release_without_linking_active_files(tmp_path) -> None:
+    release = tmp_path / "release" / "global"
+    release.mkdir(parents=True)
+    previous = release / "manifest.json"
+    previous.write_bytes(b"old")
+    archived_copy = tmp_path / "archived-copy"
+
+    manifest._archive_file(previous, archived_copy)
+
+    assert archived_copy.read_bytes() == b"old"
+    assert not previous.samefile(archived_copy)
+
+
+def test_archive_file_rejects_an_unverified_copy(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "source.bin"
+    destination = tmp_path / "archive" / "source.bin"
+    source.write_bytes(b"expected")
+
+    def corrupt_copy(_source: Path, target: Path) -> None:
+        target.write_bytes(b"corrupt")
+
+    monkeypatch.setattr(manifest.shutil, "copy2", corrupt_copy)
+
+    with pytest.raises(OSError, match="archive verification failed"):
+        manifest._archive_file(source, destination)
+
+
+def test_promote_directory_never_removes_prior_archive_generations(tmp_path) -> None:
+    release = tmp_path / "release" / "global"
+    release.mkdir(parents=True)
+    (release / "manifest.json").write_bytes(b"first")
+
+    for value in (b"second", b"third"):
+        staging = tmp_path / "release" / f".global-{value.decode()}.staging"
+        staging.mkdir()
+        (staging / "manifest.json").write_bytes(value)
+        manifest._promote_directory(staging, release)
+
+    archives = list((tmp_path / "archive" / "global").iterdir())
+    archived_manifests = {
+        (archive / "release" / "manifest.json").read_bytes()
+        for archive in archives
+    }
+    assert archived_manifests == {b"first", b"second"}
+
+
+def test_promote_directory_rejects_paths_outside_artifact_release_root(tmp_path) -> None:
+    release = tmp_path / "published" / "global"
+    staging = tmp_path / "published" / ".global-next.staging"
+    release.mkdir(parents=True)
+    staging.mkdir(parents=True)
+    (release / "manifest.json").write_bytes(b"old")
+    (staging / "manifest.json").write_bytes(b"new")
+
+    with pytest.raises(ValueError, match="artifact release root"):
+        manifest._promote_directory(staging, release)
+
+    assert (release / "manifest.json").read_bytes() == b"old"
+    assert (staging / "manifest.json").read_bytes() == b"new"
+
+
+def test_promote_directory_retains_backup_when_rollback_restore_fails(tmp_path, monkeypatch) -> None:
+    release = tmp_path / "release" / "global"
+    staging = tmp_path / "release" / ".global-next.staging"
+    receipt = tmp_path / "receipts" / "global-release-36.json"
+    release.mkdir(parents=True)
+    staging.mkdir(parents=True)
+    receipt.parent.mkdir(parents=True)
+    (release / "manifest.json").write_bytes(b"old")
+    (staging / "manifest.json").write_bytes(b"new")
+    receipt.write_text('{"generation":"old"}', encoding="utf-8")
+    original_replace = Path.replace
+
+    def fail_backup_restore(source: Path, target: Path) -> Path:
+        if source.name.endswith(".backup") and target == release:
+            raise OSError("restore failed")
+        return original_replace(source, target)
+
+    monkeypatch.setattr(Path, "replace", fail_backup_restore)
+    monkeypatch.setattr(
+        manifest,
+        "_atomic_json",
+        lambda *_: (_ for _ in ()).throw(OSError("receipt failed")),
+    )
+
+    with pytest.raises(OSError, match="restore failed"):
+        manifest._promote_directory(
+            staging,
+            release,
+            receipt_path=receipt,
+            receipt_payload={"generation": "new"},
+        )
+
+    backups = list((tmp_path / "release").glob(".global-*.backup"))
+    assert len(backups) == 1
+    assert (backups[0] / "manifest.json").read_bytes() == b"old"
+    assert receipt.read_text(encoding="utf-8") == '{"generation":"old"}'
+
 
 def test_prompt_contract_has_exact_40_token_rows() -> None:
     fixture = json.loads(

@@ -60,9 +60,8 @@ def load_condition_encoder_weights(
 def nearest_indices(input_length: int, output_length: int) -> np.ndarray:
     if input_length <= 0 or output_length <= 0:
         raise ValueError("nearest-neighbor lengths must be positive")
-    return np.floor(
-        np.arange(output_length, dtype=np.float64) * input_length / output_length
-    ).astype(np.int64)
+    scale = np.float32(input_length / output_length)
+    return np.floor(np.arange(output_length, dtype=np.float32) * scale).astype(np.int64)
 
 
 def condition_encoder_model(
@@ -70,6 +69,7 @@ def condition_encoder_model(
     *,
     frame_count: int = 125,
     latent_length: int = 430,
+    maximum_window: bool = False,
 ) -> onnx.ModelProto:
     if weights.proj_weight.ndim != 3 or weights.proj_weight.shape[2] != 3:
         raise ValueError("condition projection must be a width-three Conv1D kernel")
@@ -82,6 +82,8 @@ def condition_encoder_model(
         or latent_length <= 0
     ):
         raise ValueError("condition encoder weights or fixed lengths are invalid")
+    if maximum_window and (frame_count, latent_length) != (200, 689):
+        raise ValueError("maximum condition window must be 200 frames and 689 latents")
 
     logits = weights.layer_weight_logits.astype(np.float32)
     exponents = np.exp(logits - logits.max())
@@ -96,8 +98,12 @@ def condition_encoder_model(
         numpy_helper.from_array(weights.layer_scale.astype(np.float16), "layer_scale"),
         numpy_helper.from_array(weights.proj_weight.astype(np.float16), "proj_weight"),
         numpy_helper.from_array(weights.proj_bias.astype(np.float16), "proj_bias"),
-        numpy_helper.from_array(nearest_indices(frame_count, latent_length), "nearest_index"),
     ]
+    if not maximum_window:
+        initializers.append(
+            numpy_helper.from_array(nearest_indices(frame_count, latent_length), "nearest_index")
+        )
+    resampled_output = "resampled_condition" if maximum_window else "condition"
     nodes = [
         helper.make_node("Reshape", ["frame_hiddens", "grouped_shape"], ["grouped_hiddens"]),
         helper.make_node("Mul", ["grouped_hiddens", "layer_weights"], ["weighted_hiddens"]),
@@ -117,19 +123,39 @@ def condition_encoder_model(
             pads=[1, 1],
         ),
         helper.make_node("Gather", ["projected_hiddens", "nearest_index"], ["resampled_hiddens"], axis=2),
-        helper.make_node("Transpose", ["resampled_hiddens"], ["condition"], perm=[0, 2, 1]),
+        helper.make_node("Transpose", ["resampled_hiddens"], [resampled_output], perm=[0, 2, 1]),
     ]
+    if maximum_window:
+        nodes.append(
+            helper.make_node(
+                "Mul",
+                ["resampled_condition", "active_latent_mask"],
+                ["condition"],
+            )
+        )
+    inputs = [
+        helper.make_tensor_value_info(
+            "frame_hiddens",
+            TensorProto.FLOAT16,
+            [1, frame_count, num_layers * hidden_dim],
+        )
+    ]
+    if maximum_window:
+        inputs.extend(
+            [
+                helper.make_tensor_value_info(
+                    "nearest_index", TensorProto.INT64, [latent_length]
+                ),
+                helper.make_tensor_value_info(
+                    "active_latent_mask", TensorProto.FLOAT16, [1, latent_length, 1]
+                ),
+            ]
+        )
     model = helper.make_model(
         helper.make_graph(
             nodes,
-            "minimax_music3_condition_125",
-            [
-                helper.make_tensor_value_info(
-                    "frame_hiddens",
-                    TensorProto.FLOAT16,
-                    [1, frame_count, num_layers * hidden_dim],
-                )
-            ],
+            f"minimax_music3_condition_{frame_count}",
+            inputs,
             [
                 helper.make_tensor_value_info(
                     "condition",
@@ -154,6 +180,7 @@ def export_condition_encoder(
     out_dim: int = 2048,
     frame_count: int = 125,
     latent_length: int = 430,
+    maximum_window: bool = False,
     max_file_bytes: int = ARTIFACT_FILE_LIMIT,
 ) -> RepackedModel:
     weights = load_condition_encoder_weights(
@@ -166,6 +193,7 @@ def export_condition_encoder(
         weights,
         frame_count=frame_count,
         latent_length=latent_length,
+        maximum_window=maximum_window,
     )
     with TemporaryDirectory() as temporary_directory:
         model_path = Path(temporary_directory) / "condition-125.onnx"

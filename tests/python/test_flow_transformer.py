@@ -17,11 +17,14 @@ from minimax_music3_webgpu.flow_transformer import (
     exact_flow_schedule,
     expected_flow_shapes,
     export_flow_step,
+    export_maximum_flow_step,
     flow_step_reference,
     fixed_rope_tables,
     inspect_flow_source,
+    maximum_flow_binding_bytes,
     open_flow_state,
     validate_flow_graph,
+    validate_maximum_flow_graph,
     validate_flow_metadata,
 )
 from minimax_music3_webgpu.manifest import emit_flow_release
@@ -137,6 +140,37 @@ def test_exact_schedule_matches_frozen_float32_bits() -> None:
     assert len(set(fixture["dt_f32_bits"])) == 2
 
 
+def test_exact_schedule_supports_any_positive_step_count() -> None:
+    schedule = exact_flow_schedule(7)
+
+    assert schedule.timesteps.view(np.uint32).tolist() == [
+        0,
+        1041385764,
+        1049774372,
+        1054567862,
+        1058162980,
+        1060559726,
+        1062956471,
+    ]
+    assert schedule.dts.view(np.uint32).tolist() == [
+        1041385764,
+        1041385764,
+        1041385764,
+        1041385764,
+        1041385768,
+        1041385764,
+        1041385764,
+    ]
+    assert exact_flow_schedule(1).timesteps.tolist() == [0.0]
+    assert exact_flow_schedule(1).dts.tolist() == [1.0]
+
+
+@pytest.mark.parametrize("num_steps", [0, -1, 1.5, True, 2**53])
+def test_exact_schedule_rejects_invalid_step_counts(num_steps) -> None:
+    with pytest.raises(ValueError, match="positive safe integer"):
+        exact_flow_schedule(num_steps)
+
+
 def test_fixed_production_rope_tables_match_the_pinned_431_token_contract() -> None:
     cosine, sine = fixed_rope_tables(431, 32)
 
@@ -164,12 +198,247 @@ def test_one_block_fixed_export_matches_reference_and_has_no_dynamic_shape_ops(t
     timestep = np.array([0.25], dtype=np.float16)
     dt = np.array([0.125], dtype=np.float32)
 
-    actual = session.run(None, {"latents": latents, "condition": condition, "timestep": timestep, "dt": dt})[0]
-    expected = flow_step_reference(state, latents, condition, timestep, dt, config=config)
+    guidance = np.array([1.25], dtype=np.float16)
+    actual = session.run(
+        None,
+        {
+            "latents": latents,
+            "condition": condition,
+            "timestep": timestep,
+            "dt": dt,
+            "guidance": guidance,
+        },
+    )[0]
+    expected = flow_step_reference(
+        state, latents, condition, timestep, dt, guidance, config=config
+    )
 
     assert report.matmul_nbits_nodes == 0
     assert report.dynamic_shape_ops == ()
+    assert session.get_inputs()[-1].name == "guidance"
+    assert session.get_inputs()[-1].type == "tensor(float16)"
     np.testing.assert_allclose(actual, expected, atol=2e-3, rtol=2e-3)
+
+
+def test_one_block_maximum_graph_matches_legacy_and_162_frame_558_latent_tail(
+    tmp_path: Path,
+) -> None:
+    config = tiny_config()
+    state = state_for(config)
+    maximum_graph = export_maximum_flow_step(
+        state,
+        tmp_path / "flow-step-maximum.onnx",
+        config=config,
+        quantize=False,
+    )
+    report = validate_maximum_flow_graph(maximum_graph, config=config, quantized=False)
+    maximum_session = ort.InferenceSession(str(maximum_graph), providers=["CPUExecutionProvider"])
+    generator = np.random.default_rng(17)
+    latents = generator.standard_normal((1, config.in_channels, 689), dtype=np.float32).astype(np.float16)
+    condition = generator.standard_normal((1, 689, config.condition_dim), dtype=np.float32).astype(np.float16)
+    timestep = np.array([0.25], dtype=np.float16)
+    dt = np.array([0.125], dtype=np.float32)
+    disabled_overlap = {
+        "noise_prompt": np.zeros((1, config.in_channels, 172), dtype=np.float16),
+        "previous_latent": np.zeros((1, config.in_channels, 172), dtype=np.float16),
+        "overlap_enabled": np.zeros((1,), dtype=np.float16),
+    }
+
+    assert report.dynamic_shape_ops == ()
+    for latent_length in (430, 516, 558, 602, 689):
+        fixed_graph = export_flow_step(
+            state,
+            tmp_path / f"flow-step-{latent_length}.onnx",
+            config=config,
+            latent_length=latent_length,
+            quantize=False,
+        )
+        fixed_session = ort.InferenceSession(str(fixed_graph), providers=["CPUExecutionProvider"])
+        (fixed_output,) = fixed_session.run(
+            None,
+            {
+                "latents": latents[..., :latent_length],
+                "condition": condition[:, :latent_length],
+                "timestep": timestep,
+                "dt": dt,
+                "guidance": np.array([1.7], dtype=np.float16),
+            },
+        )
+        reference_output = flow_step_reference(
+            state,
+            latents[..., :latent_length],
+            condition[:, :latent_length],
+            timestep,
+            dt,
+            np.array([1.7], dtype=np.float16),
+            config=config,
+        )
+        active_latent_mask = np.zeros((1, 689, 1), dtype=np.float16)
+        active_latent_mask[:, :latent_length] = 1
+        key_attention_bias = np.full((1, 1, 1, 690), np.finfo(np.float16).min, dtype=np.float16)
+        key_attention_bias[..., : latent_length + 1] = 0
+        (actual,) = maximum_session.run(
+            None,
+            {
+                "latents": latents,
+                "condition": condition,
+                "timestep": timestep,
+                "dt": dt,
+                "guidance": np.array([1.7], dtype=np.float16),
+                "active_latent_mask": active_latent_mask,
+                "key_attention_bias": key_attention_bias,
+                **disabled_overlap,
+            },
+        )
+
+        np.testing.assert_allclose(fixed_output, reference_output, atol=2e-3, rtol=2e-3)
+        np.testing.assert_allclose(
+            actual[..., :latent_length], reference_output, atol=2e-3, rtol=2e-3
+        )
+        assert np.count_nonzero(actual[..., latent_length:]) == 0
+
+
+def test_maximum_graph_applies_pinned_overlap_before_transformer_and_euler(tmp_path: Path) -> None:
+    config = tiny_config()
+    state = state_for(config)
+    maximum_graph = export_maximum_flow_step(
+        state,
+        tmp_path / "flow-step-maximum.onnx",
+        config=config,
+        quantize=False,
+    )
+    fixed_graph = export_flow_step(
+        state,
+        tmp_path / "flow-step-430.onnx",
+        config=config,
+        latent_length=430,
+        quantize=False,
+    )
+    maximum_session = ort.InferenceSession(str(maximum_graph), providers=["CPUExecutionProvider"])
+    fixed_session = ort.InferenceSession(str(fixed_graph), providers=["CPUExecutionProvider"])
+    generator = np.random.default_rng(19)
+    latents = generator.standard_normal((1, config.in_channels, 689), dtype=np.float32).astype(np.float16)
+    condition = generator.standard_normal((1, 689, config.condition_dim), dtype=np.float32).astype(np.float16)
+    noise_prompt = generator.standard_normal(
+        (1, config.in_channels, 172), dtype=np.float32
+    ).astype(np.float16)
+    previous_latent = generator.standard_normal(
+        (1, config.in_channels, 172), dtype=np.float32
+    ).astype(np.float16)
+    timestep = np.array([0.375], dtype=np.float16)
+    dt = np.array([1 / 30], dtype=np.float32)
+    blended = latents[..., :430].copy()
+    time_value = torch.from_numpy(timestep)
+    blended[..., :172] = (
+        (1.0 - (1.0 - 1e-6) * time_value) * torch.from_numpy(noise_prompt)
+        + time_value * torch.from_numpy(previous_latent)
+    ).numpy()
+    (expected,) = fixed_session.run(
+        None,
+        {
+            "latents": blended,
+            "condition": condition[:, :430],
+            "timestep": timestep,
+            "dt": dt,
+            "guidance": np.array([1.7], dtype=np.float16),
+        },
+    )
+    active_latent_mask = np.zeros((1, 689, 1), dtype=np.float16)
+    active_latent_mask[:, :430] = 1
+    key_attention_bias = np.full((1, 1, 1, 690), np.finfo(np.float16).min, dtype=np.float16)
+    key_attention_bias[..., :431] = 0
+
+    (actual,) = maximum_session.run(
+        None,
+        {
+            "latents": latents,
+            "condition": condition,
+            "timestep": timestep,
+            "dt": dt,
+            "guidance": np.array([1.7], dtype=np.float16),
+            "active_latent_mask": active_latent_mask,
+            "key_attention_bias": key_attention_bias,
+            "noise_prompt": noise_prompt,
+            "previous_latent": previous_latent,
+            "overlap_enabled": np.ones((1,), dtype=np.float16),
+        },
+    )
+
+    np.testing.assert_allclose(actual[..., :430], expected, atol=2e-3, rtol=2e-3)
+    assert np.count_nonzero(actual[..., 430:]) == 0
+
+
+def test_maximum_q4_graph_preserves_weights_and_has_bounded_static_contract(tmp_path: Path) -> None:
+    config = tiny_config()
+    state = state_for(config)
+    fixed_graph = export_flow_step(
+        state,
+        tmp_path / "fixed" / "flow-step-q4.onnx",
+        config=config,
+        latent_length=6,
+        quantize=True,
+        external_data=True,
+        max_file_bytes=16 * 1024,
+    )
+    maximum_graph = export_maximum_flow_step(
+        state,
+        tmp_path / "maximum" / "flow-step-q4.onnx",
+        config=config,
+        quantize=True,
+        external_data=True,
+        max_file_bytes=16 * 1024,
+    )
+
+    report = validate_maximum_flow_graph(maximum_graph, config=config, quantized=True)
+    fixed_model = onnx.load_model(fixed_graph, load_external_data=True)
+    maximum_model = onnx.load_model(maximum_graph, load_external_data=True)
+    fixed_q4 = {
+        tensor.name: onnx.numpy_helper.to_array(tensor)
+        for tensor in fixed_model.graph.initializer
+        if tensor.name.endswith((".q4", ".scales"))
+    }
+    maximum_q4 = {
+        tensor.name: onnx.numpy_helper.to_array(tensor)
+        for tensor in maximum_model.graph.initializer
+        if tensor.name.endswith((".q4", ".scales"))
+    }
+
+    assert report.matmul_nbits_nodes == 10
+    assert report.external_locations
+    assert all(
+        (maximum_graph.parent / location).stat().st_size <= 16 * 1024
+        for location in report.external_locations
+    )
+    assert report.max_initializer_bytes <= 128 * 1024 * 1024
+    assert report.max_activation_bytes <= 128 * 1024 * 1024
+    assert set(report.operator_types) <= {
+        "Add",
+        "Cast",
+        "Concat",
+        "Conv",
+        "Cos",
+        "LayerNormalization",
+        "MatMul",
+        "MatMulNBits",
+        "Mul",
+        "Neg",
+        "Reshape",
+        "Sigmoid",
+        "Sin",
+        "Slice",
+        "Softmax",
+        "Split",
+        "Sub",
+        "Transpose",
+        "Unsqueeze",
+    }
+    assert fixed_q4.keys() == maximum_q4.keys()
+    for name, fixed_value in fixed_q4.items():
+        np.testing.assert_array_equal(maximum_q4[name], fixed_value)
+    assert maximum_flow_binding_bytes(FlowTransformerConfig(), quantized=True) == (
+        16_777_216,
+        60_940_800,
+    )
 
 
 def test_one_block_q4_graph_has_ten_symmetric_matmul_nbits_and_bounded_external_files(tmp_path: Path) -> None:
@@ -194,7 +463,15 @@ def test_one_block_q4_graph_has_ten_symmetric_matmul_nbits_and_bounded_external_
         if node.op_type != "MatMulNBits":
             continue
         attributes = {item.name: onnx.helper.get_attribute_value(item) for item in node.attribute}
-        assert attributes == {"K": attributes["K"], "N": attributes["N"], "accuracy_level": 4, "bits": 4, "block_size": 128}
+        weight_key = node.name.removesuffix(".MatMulNBits")
+        output_dim, input_dim = expected_flow_shapes(config)[weight_key]
+        assert attributes == {
+            "K": input_dim,
+            "N": output_dim,
+            "accuracy_level": 4,
+            "bits": 4,
+            "block_size": 128,
+        }
         assert len(node.input) == 3
 
     session = ort.InferenceSession(str(graph), providers=["CPUExecutionProvider"])
@@ -206,10 +483,30 @@ def test_one_block_q4_graph_has_ten_symmetric_matmul_nbits_and_bounded_external_
             "condition": generator.standard_normal((1, 6, 8), dtype=np.float32).astype(np.float16),
             "timestep": np.array([0.5], dtype=np.float16),
             "dt": np.array([1 / 30], dtype=np.float32),
+            "guidance": np.array([1.7], dtype=np.float16),
         },
     )[0]
     assert result.shape == (1, 4, 6)
     assert np.isfinite(result).all()
+
+
+def test_q4_validator_rejects_wrong_matmul_nbits_dimensions(tmp_path: Path) -> None:
+    config = tiny_config()
+    graph = export_flow_step(
+        state_for(config),
+        tmp_path / "flow-step-q4.onnx",
+        config=config,
+        latent_length=6,
+        quantize=True,
+    )
+    model = onnx.load_model(graph, load_external_data=False)
+    q4_node = next(node for node in model.graph.node if node.op_type == "MatMulNBits")
+    k_attribute = next(item for item in q4_node.attribute if item.name == "K")
+    k_attribute.i += 1
+    onnx.save_model(model, graph)
+
+    with pytest.raises(ValueError, match="MatMulNBits.*dimensions"):
+        validate_flow_graph(graph, config=config, latent_length=6, quantized=True)
 
 
 def test_failed_external_export_preserves_published_generation_and_removes_staging(
@@ -317,12 +614,7 @@ def test_flow_release_is_hashed_exact_and_failed_rebuild_preserves_it(tmp_path: 
     assert not list(paths.release.glob(".flow-*.staging"))
 
 
-@pytest.mark.converter_smoke
-@pytest.mark.skipif(
-    os.environ.get("MINIMAX_RUN_REAL_FLOW") != "1",
-    reason="set MINIMAX_RUN_REAL_FLOW=1 for the pinned checkpoint layer-0 oracle",
-)
-def test_real_layer_zero_boundary_matches_pinned_diffusers_oracle(tmp_path: Path) -> None:
+def pinned_real_layer_zero():
     from diffusers import MiniMaxMusic3Transformer1DModel
 
     source = Path("artifacts/source/transformer")
@@ -334,6 +626,16 @@ def test_real_layer_zero_boundary_matches_pinned_diffusers_oracle(tmp_path: Path
         for key, target in reference.state_dict().items():
             target.copy_(source_state[key])
     reference.to(torch.float16)
+    return config, reference
+
+
+@pytest.mark.converter_smoke
+@pytest.mark.skipif(
+    os.environ.get("MINIMAX_RUN_REAL_FLOW") != "1",
+    reason="set MINIMAX_RUN_REAL_FLOW=1 for the pinned checkpoint layer-0 oracle",
+)
+def test_real_layer_zero_boundary_matches_pinned_diffusers_oracle(tmp_path: Path) -> None:
+    config, reference = pinned_real_layer_zero()
     graph = export_flow_step(
         reference.state_dict(),
         tmp_path / "flow-step-layer-zero.onnx",
@@ -367,12 +669,117 @@ def test_real_layer_zero_boundary_matches_pinned_diffusers_oracle(tmp_path: Path
             "condition": condition.numpy(),
             "timestep": timestep.numpy(),
             "dt": dt,
+            "guidance": np.array([1.7], dtype=np.float16),
         },
     )
 
     assert actual.shape == (1, 128, 2)
     assert np.isfinite(actual).all()
     np.testing.assert_allclose(actual, expected.numpy(), atol=3e-3, rtol=3e-3)
+
+
+@pytest.mark.converter_smoke
+@pytest.mark.skipif(
+    os.environ.get("MINIMAX_RUN_REAL_FLOW_MAXIMUM") != "1",
+    reason="set MINIMAX_RUN_REAL_FLOW_MAXIMUM=1 for the pinned layer-0 maximum-window oracle",
+)
+def test_real_layer_zero_maximum_graph_matches_pinned_diffusers_at_all_active_lengths(
+    tmp_path: Path,
+) -> None:
+    config, reference = pinned_real_layer_zero()
+    state = reference.state_dict()
+    maximum_graph = export_maximum_flow_step(
+        state,
+        tmp_path / "maximum" / "flow-step-layer-zero.onnx",
+        config=config,
+        quantize=False,
+        external_data=True,
+    )
+    maximum_session = ort.InferenceSession(
+        str(maximum_graph), providers=["CPUExecutionProvider"]
+    )
+    generator = torch.Generator().manual_seed(29)
+    latents = (torch.randn((1, 128, 689), generator=generator) * 0.05).to(torch.float16)
+    condition = (torch.randn((1, 689, 2048), generator=generator) * 0.05).to(
+        torch.float16
+    )
+    timestep = torch.tensor([0.25], dtype=torch.float16)
+    dt = exact_flow_schedule().dts[:1]
+    disabled_overlap = {
+        "noise_prompt": np.zeros((1, 128, 172), dtype=np.float16),
+        "previous_latent": np.zeros((1, 128, 172), dtype=np.float16),
+        "overlap_enabled": np.zeros((1,), dtype=np.float16),
+    }
+
+    for latent_length in (430, 516, 602, 689):
+        active_latents = latents[..., :latent_length]
+        active_condition = condition[:, :latent_length]
+        fixed_graph = export_flow_step(
+            state,
+            tmp_path / f"fixed-{latent_length}" / "flow-step-layer-zero.onnx",
+            config=config,
+            latent_length=latent_length,
+            quantize=False,
+            external_data=True,
+        )
+        fixed_session = ort.InferenceSession(
+            str(fixed_graph), providers=["CPUExecutionProvider"]
+        )
+        (fixed_output,) = fixed_session.run(
+            None,
+            {
+                "latents": active_latents.numpy(),
+                "condition": active_condition.numpy(),
+                "timestep": timestep.numpy(),
+                "dt": dt,
+                "guidance": np.array([1.7], dtype=np.float16),
+            },
+        )
+        with torch.no_grad():
+            velocity = reference(
+                torch.cat((active_latents, active_latents), dim=0),
+                torch.cat((timestep, timestep), dim=0),
+                torch.cat((active_condition, torch.zeros_like(active_condition)), dim=0),
+                return_dict=False,
+            )[0]
+            guided = velocity[1:2] + 1.7 * (velocity[0:1] - velocity[1:2])
+            reference_output = (
+                active_latents.float()
+                + torch.from_numpy(dt).reshape(1, 1, 1) * guided.float()
+            ).half()
+        active_latent_mask = np.zeros((1, 689, 1), dtype=np.float16)
+        active_latent_mask[:, :latent_length] = 1
+        key_attention_bias = np.full(
+            (1, 1, 1, 690), np.finfo(np.float16).min, dtype=np.float16
+        )
+        key_attention_bias[..., : latent_length + 1] = 0
+        (maximum_output,) = maximum_session.run(
+            None,
+            {
+                "latents": latents.numpy(),
+                "condition": condition.numpy(),
+                "timestep": timestep.numpy(),
+                "dt": dt,
+                "guidance": np.array([1.7], dtype=np.float16),
+                "active_latent_mask": active_latent_mask,
+                "key_attention_bias": key_attention_bias,
+                **disabled_overlap,
+            },
+        )
+
+        np.testing.assert_allclose(
+            fixed_output, reference_output.numpy(), atol=3e-3, rtol=3e-3
+        )
+        np.testing.assert_allclose(
+            maximum_output[..., :latent_length],
+            reference_output.numpy(),
+            atol=3e-3,
+            rtol=3e-3,
+        )
+        np.testing.assert_allclose(
+            maximum_output[..., :latent_length], fixed_output, atol=3e-3, rtol=3e-3
+        )
+        assert np.count_nonzero(maximum_output[..., latent_length:]) == 0
 
 
 @pytest.mark.converter_smoke

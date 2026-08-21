@@ -30,6 +30,8 @@ packages = ["tools/converter/src/minimax_music3_webgpu"]
 allow-direct-references = true
 
 [tool.pytest.ini_options]
+testpaths = ["tests/python"]
+norecursedirs = ["artifacts"]
 markers = [
   "converter_smoke: local ONNX Runtime conversion smoke",
   "real: requires downloaded pinned source artifacts",

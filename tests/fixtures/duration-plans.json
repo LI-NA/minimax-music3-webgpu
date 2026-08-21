@@ -1,0 +1,209 @@
+{
+  "cases": [
+    {
+      "durationSeconds": 5,
+      "promptTokens": 40,
+      "plan": {
+        "retainedFrames": 125, "termination": "max-frames", "chunks": [{ "startFrame": 0, "frameLength": 125, "latentLength": 430, "cropLeftLatents": 0, "cropRightLatents": 0, "samplesPerChannel": 220160 }],
+        "samplesPerChannel": 220160,
+        "wavBytes": 880684,
+        "flowCalls": 30,
+        "vocoderCalls": 2,
+        "semanticDecisions": 126,
+        "rvqCalls": 882,
+        "feedbackCalls": 125
+      }
+    },
+    {
+      "durationSeconds": 6,
+      "promptTokens": 40,
+      "plan": {
+        "retainedFrames": 150, "termination": "max-frames", "chunks": [{ "startFrame": 0, "frameLength": 150, "latentLength": 516, "cropLeftLatents": 0, "cropRightLatents": 0, "samplesPerChannel": 264192 }],
+        "samplesPerChannel": 264192,
+        "wavBytes": 1056812,
+        "flowCalls": 30,
+        "vocoderCalls": 2,
+        "semanticDecisions": 151,
+        "rvqCalls": 1057,
+        "feedbackCalls": 150
+      }
+    },
+    {
+      "durationSeconds": 10,
+      "promptTokens": 40,
+      "plan": {
+        "retainedFrames": 250, "termination": "max-frames", "chunks": [
+          { "startFrame": 0, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 0, "cropRightLatents": 258, "samplesPerChannel": 220672 },
+          { "startFrame": 100, "frameLength": 150, "latentLength": 516, "cropLeftLatents": 86, "cropRightLatents": 0, "samplesPerChannel": 220160 }
+        ],
+        "samplesPerChannel": 440832,
+        "wavBytes": 1763372,
+        "flowCalls": 60,
+        "vocoderCalls": 4,
+        "semanticDecisions": 251,
+        "rvqCalls": 1757,
+        "feedbackCalls": 250
+      }
+    },
+    {
+      "durationSeconds": 30,
+      "promptTokens": 40,
+      "plan": {
+        "retainedFrames": 750, "termination": "max-frames", "chunks": [
+          { "startFrame": 0, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 0, "cropRightLatents": 258, "samplesPerChannel": 220672 },
+          { "startFrame": 100, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 200, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 300, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 400, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 500, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 600, "frameLength": 150, "latentLength": 516, "cropLeftLatents": 86, "cropRightLatents": 0, "samplesPerChannel": 220160 }
+        ],
+        "samplesPerChannel": 1324032,
+        "wavBytes": 5296172,
+        "flowCalls": 210,
+        "vocoderCalls": 14,
+        "semanticDecisions": 751,
+        "rvqCalls": 5257,
+        "feedbackCalls": 750
+      }
+    },
+    {
+      "durationSeconds": 60,
+      "promptTokens": 40,
+      "plan": {
+        "retainedFrames": 1500, "termination": "max-frames", "chunks": [
+          { "startFrame": 0, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 0, "cropRightLatents": 258, "samplesPerChannel": 220672 },
+          { "startFrame": 100, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 200, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 300, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 400, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 500, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 600, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 700, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 800, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 900, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 1000, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 1100, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 1200, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 1300, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 0, "samplesPerChannel": 308736 }
+        ],
+        "samplesPerChannel": 2649088,
+        "wavBytes": 10596396,
+        "flowCalls": 420,
+        "vocoderCalls": 28,
+        "semanticDecisions": 1501,
+        "rvqCalls": 10507,
+        "feedbackCalls": 1500
+      }
+    },
+    {
+      "durationSeconds": 300,
+      "promptTokens": 40,
+      "plan": {
+        "retainedFrames": 7500, "termination": "max-frames", "chunks": [
+          { "startFrame": 0, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 0, "cropRightLatents": 258, "samplesPerChannel": 220672 },
+          { "startFrame": 100, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 200, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 300, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 400, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 500, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 600, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 700, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 800, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 900, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 1000, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 1100, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 1200, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 1300, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 1400, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 1500, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 1600, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 1700, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 1800, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 1900, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 2000, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 2100, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 2200, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 2300, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 2400, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 2500, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 2600, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 2700, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 2800, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 2900, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 3000, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 3100, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 3200, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 3300, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 3400, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 3500, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 3600, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 3700, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 3800, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 3900, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 4000, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 4100, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 4200, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 4300, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 4400, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 4500, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 4600, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 4700, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 4800, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 4900, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 5000, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 5100, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 5200, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 5300, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 5400, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 5500, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 5600, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 5700, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 5800, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 5900, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 6000, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 6100, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 6200, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 6300, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 6400, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 6500, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 6600, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 6700, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 6800, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 6900, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 7000, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 7100, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 7200, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 258, "samplesPerChannel": 176640 },
+          { "startFrame": 7300, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 86, "cropRightLatents": 0, "samplesPerChannel": 308736 }
+        ],
+        "samplesPerChannel": 13247488,
+        "wavBytes": 52989996,
+        "flowCalls": 2220,
+        "vocoderCalls": 148,
+        "semanticDecisions": 7501,
+        "rvqCalls": 52507,
+        "feedbackCalls": 7500
+      }
+    }
+  ],
+  "retainedFrameCases": [
+    {
+      "retainedFrames": 201,
+      "promptTokens": 40,
+      "termination": "natural-end",
+      "plan": {
+        "retainedFrames": 201, "termination": "natural-end", "chunks": [
+          { "startFrame": 0, "frameLength": 200, "latentLength": 689, "cropLeftLatents": 0, "cropRightLatents": 258, "samplesPerChannel": 220672 },
+          { "startFrame": 100, "frameLength": 101, "latentLength": 347, "cropLeftLatents": 86, "cropRightLatents": 0, "samplesPerChannel": 133632 }
+        ],
+        "samplesPerChannel": 354304,
+        "wavBytes": 1417260,
+        "flowCalls": 60,
+        "vocoderCalls": 4,
+        "semanticDecisions": 203,
+        "rvqCalls": 1414,
+        "feedbackCalls": 202
+      }
+    }
+  ]
+}
