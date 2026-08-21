@@ -2,9 +2,11 @@
 
 MiniMax Music 3 WebGPU is an experimental community project that aims to run the exact `MiniMaxAI/MiniMax-Music3` checkpoint locally in a desktop Chromium browser through WebGPU.
 
-The exact checkpoint now passes a complete fixed five-second browser gate. Headed Chrome runs the q4 Global LLM, RVQ, condition encoder, q4 flow transformer, and mixed-precision vocoder sequentially with CPU fallback disabled, then emits and decodes a 44.1 kHz stereo WAV. This is a runtime milestone, not the final prompt and lyrics UI.
+The exact checkpoint now passes end-to-end variable-duration browser gates. Headed Chrome runs the q4 Global LLM, RVQ, condition encoder, q4 flow transformer, and mixed-precision vocoder sequentially with CPU fallback disabled, then emits and decodes a 44.1 kHz stereo WAV. This is a runtime milestone, not the final prompt and lyrics UI.
 
-The combined release contains 8,083,469,618 referenced artifact bytes and is cached in OPFS. The measured total-system GPU peak is 6,834 MiB. The current recommendation is 10 GiB or more physical VRAM, while 8 GiB remains an unverified compatibility target.
+The active programmatic-input release contains 8,083,501,198 referenced artifact bytes and is cached in OPFS. It passed 6 and 10-second generation with raw prompt, lyrics, seed, duration, and sampling inputs. The archived pre-programmatic release reached the requested maximum at 30 and 60 seconds, returned a valid natural end for a 120-second request, and completed a separate five-minute capacity-only diagnostic. Those longer measurements remain historical evidence for that archived manifest and are not presented as fresh qualification of the active release.
+
+The current physical VRAM guidance is 10 GiB for short generation, 12 GiB for the measured one-minute workload, and 16 GiB for the tested five-minute capacity workload. The one-minute and five-minute figures come from the archived pre-programmatic manifest. These are recommendations from one RTX 4080 system, not certified hardware minimums. The 12,288 MiB development budget means project-attributable growth above the pre-run baseline, not 12 GiB total device use.
 
 ## Phase 1 goal
 
@@ -13,12 +15,12 @@ Phase 1 will grow the validated runtime into a minimal local music generator tha
 - runs entirely in the browser after downloading model artifacts;
 - uses the official MiniMax Music 3 checkpoint without distillation or model substitution;
 - accepts a music description and tagged lyrics;
-- first generates the validated five-second vocal and accompaniment slice, then expands duration after separate measurements;
+- accepts any positive requested maximum through 300 seconds at 25-frame-per-second resolution and preserves a shorter natural audio-end result;
 - plays and saves the result as a 44.1 kHz stereo WAV file;
-- targets Windows desktop Chromium and a practical 12 GB GPU-memory ceiling; and
+- targets Windows desktop Chromium with a measured 12 GiB incremental GPU-memory budget; and
 - caches approximately 8.08 GB of converted model artifacts in browser storage.
 
-The first version prioritizes one complete generation over UI polish, broad browser support, full-song generation, or automated audio-quality analysis.
+The first version prioritizes reliable local generation over UI polish, broad browser support, forced exact-duration output, or automated audio-quality analysis.
 
 ## Proposed architecture
 
@@ -28,7 +30,7 @@ Large model stages will be loaded and released separately to stay below the GPU-
 
 See the [approved phase 1 design](docs/superpowers/specs/2026-08-20-minimax-music3-webgpu-design.md) for the full requirements and technical decisions.
 
-For the exact Global LLM conversion and headed diagnostic commands, see [development conversion notes](docs/development/conversion.md) and the [feasibility record](docs/development/global-llm-feasibility.md). The complete fixed-slice gate is documented in [five-second browser generation](docs/development/five-second-generation.md), with measured VRAM tiers and retained optimizations in [WebGPU runtime requirements](docs/development/webgpu-runtime-requirements.md).
+For the exact Global LLM conversion and headed diagnostic commands, see [development conversion notes](docs/development/conversion.md) and the [feasibility record](docs/development/global-llm-feasibility.md). The original fixed-slice gate is documented in [five-second browser generation](docs/development/five-second-generation.md). Current duration evidence is in [variable-duration browser generation](docs/development/variable-duration-generation.md), with hardware guidance and retained optimizations in [WebGPU runtime requirements](docs/development/webgpu-runtime-requirements.md).
 
 ## Model and license
 

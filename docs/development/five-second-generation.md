@@ -1,5 +1,7 @@
 # Five-second browser generation gate
 
+This is the historical fixed-slice benchmark. The current product release supports variable requested maxima, preserves natural audio-end, and has separate 6, 10, 30, 60, 120, and 300-second evidence. See [Variable-duration browser generation](variable-duration-generation.md) for the current duration contract and the distinction between native product output and the five-minute capacity-only diagnostic.
+
 Run the exact combined release in headed branded Chrome with one worker and a persistent profile:
 
 ```powershell
@@ -37,7 +39,7 @@ GPU FP16 stage handoffs now use `Tensor.getData()` as the ONNX Runtime flush and
 
 The corrected headed Chrome gate passed twice from the persistent profile. The saved WAV has a longest constant stereo-frame run of 2 samples, 220,047 of 220,160 frames differ between channels, and the final second has nonzero variation with normalized RMS `0.2225`. The test now rejects a one-second constant run, a non-varying final second, and identical stereo channels. These are narrow regressions for the observed defect, not general music-quality scoring.
 
-During this corrected gate, total-system dedicated GPU memory rose from 2,138 MiB to an observed maximum of 7,269 MiB. This remains below the 12,288 MiB acceptance limit. The earlier clean three-run measurements remain the basis for hardware guidance because the background baseline differed.
+During this corrected gate, total-system dedicated GPU memory rose from 2,138 MiB to an observed maximum of 7,269 MiB, an increase of 5,131 MiB. This remains below the 12,288 MiB incremental acceptance budget. The earlier clean three-run measurements remain the basis for the fixed-slice comparison because the background baseline differed.
 
 The post-optimization three-run mean timings were:
 
@@ -60,7 +62,7 @@ Total-system dedicated GPU memory was sampled through `nvidia-smi` across the po
 - Observed total-system peak: 6,834 MiB
 - Observed increase from baseline: 5,130 MiB
 - Final after Chrome closed: 1,704 MiB
-- Limit: 12,288 MiB
+- Incremental project budget: 12,288 MiB
 
 The combined autoregressive segment reached the 6,834 MiB peak. A later condition/flow segment reached about 3,323 to 3,332 MiB, but its internal boundary was not externally labelled, so separate combined condition and flow peaks are not claimed. The combined vocoder peak was also not separately attributable. Standalone measurements provide supporting context only: condition was 1,947 to 2,188 MiB, flow was 1,695 to 3,252 MiB, and vocoder was 1,695 to 2,751 MiB. These are total-system samples, not isolated process allocations.
 
