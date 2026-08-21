@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createProductMusicRequest } from '../../../src/app/App';
+import { createProductMusicRequest } from '../../../src/app/DiagnosticsApp';
 import {
   artifactCacheUiReducer,
   artifactDownloadActionLabel,

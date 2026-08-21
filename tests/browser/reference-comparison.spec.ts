@@ -229,7 +229,7 @@ test('captures two fixed ten-second WebGPU runs and publishes a verified cloud r
   let first!: CapturedRun;
   let second!: CapturedRun;
   try {
-    await page.goto('http://127.0.0.1:5173/');
+    await page.goto('http://127.0.0.1:5173/diagnostics');
     await page.getByLabel('Music duration').selectOption('10');
     first = await captureRun(page, layout, 1);
     second = await captureRun(page, layout, 2);

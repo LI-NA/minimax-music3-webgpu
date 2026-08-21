@@ -1,661 +1,829 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
-import {
-  requestPersistentStorage,
-} from '../runtime/model/artifact-cache-management';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import { requestPersistentStorage } from '../runtime/model/artifact-cache-management';
 import { inspectWebGpu, type WebGpuCapability } from '../runtime/model/webgpu-device';
 import {
-  cancelWorker,
-  progressView,
-  type ProgressView,
-} from '../workers/music-progress';
-import type {
-  ConditionSmokeResult,
-  FlowSmokeResult,
-  FrameGenerationResult,
-  GlobalSmokeResult,
-  AnyMusicGenerationWorkerResult,
-  RvqSmokeResult,
-  VocoderSmokeResult,
-  WorkerResponse,
-} from '../workers/protocol';
-import type { ArtifactCacheRequest, ArtifactOperation } from '../workers/protocol';
-import {
   createMusicGenerationRequest,
+  type AnyMusicGenerationWorkerResult,
+  type ArtifactCacheRequest,
+  type ArtifactOperation,
+  type MusicGenerationRequest,
+  type WorkerResponse,
 } from '../workers/protocol';
-import { FIXED_COMPARISON_CASE } from '../runtime/reference/fixed-comparison';
 import {
   artifactCacheUiReducer,
-  artifactDownloadActionLabel,
   createArtifactCacheUiState,
-  describeArtifactCacheStatus,
   deriveArtifactCacheControls,
-  formatBytes,
-  formatEta,
-  formatRate,
   type ArtifactCacheRetryTarget,
   type ArtifactCacheUiError,
   type ArtifactCacheUiOperation,
 } from './artifact-cache-ui';
+import { Composer, createComposerState, type ComposerState } from './components/Composer';
+import { DownloadCard } from './components/DownloadCard';
+import { EmptyView } from './components/EmptyView';
+import { GenerationProgress } from './components/GenerationProgress';
+import { Header, MobileTabs, type MobileView } from './components/Header';
+import { Library } from './components/Library';
+import { PlayerBar } from './components/PlayerBar';
+import { ResultView } from './components/ResultView';
+import { EXAMPLES } from './examples';
+import { wavFileName } from './format';
+import {
+  applyGenerationProgress,
+  createGenerationView,
+  generationPercent,
+  type GenerationView,
+} from './generation-view';
+import { detectLanguage, messages, type Language } from './i18n';
+import {
+  deleteStoredTrack,
+  listStoredTracks,
+  saveStoredTrack,
+  type TrackSettings,
+} from './track-store';
+import {
+  INSTRUMENTAL_LYRICS,
+  lyricsFromSettings,
+  promptFromSettings,
+  randomSeed,
+  trackFromStored,
+  trackToStored,
+  type Track,
+} from './tracks';
+import { pseudoBars, wavBars } from './waveform';
 
-type CapabilityState = WebGpuCapability | null;
-const PRODUCT_DURATIONS = Array.from({ length: 60 }, (_, index) => (index + 1) * 5);
-const PRODUCT_MANIFEST_URL = 'http://127.0.0.1:5174/manifest.json';
-const durationLabel = (durationSeconds: number) =>
-  durationSeconds === 5 ? 'five-second' : `${durationSeconds}-second`;
+const MANIFEST_URL = 'http://127.0.0.1:5174/manifest.json';
+const WAVEFORM_BARS = 88;
+const SAMPLE_RATE = 44_100;
 
-export function createProductMusicRequest(durationSeconds: number) {
-  return createMusicGenerationRequest({
-    manifestUrl: PRODUCT_MANIFEST_URL,
-    prompt: FIXED_COMPARISON_CASE.input.prompt,
-    lyrics: FIXED_COMPARISON_CASE.input.lyrics,
-    seed: 7,
-    durationSeconds,
-    sampling: {
-      globalGuidance: 1.5,
-      semanticTopK: 50,
-      residualTopK: 50,
-      temperature: 1,
-      flowGuidance: 1.7,
-      flowSteps: 30,
-    },
-  });
+type Generation = {
+  trackId: string;
+  startedAt: number;
+  view: GenerationView;
+};
+
+type CacheOperation = Exclude<ArtifactCacheUiOperation, null | 'request-persistence'>;
+
+function readStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage may be unavailable */
+  }
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 export function App() {
-  const [capability, setCapability] = useState<CapabilityState>(null);
-  const [progress, setProgress] = useState('Awaiting diagnostic command');
-  const [result, setResult] = useState<GlobalSmokeResult | null>(null);
-  const [rvqResult, setRvqResult] = useState<RvqSmokeResult | null>(null);
-  const [frameResult, setFrameResult] = useState<FrameGenerationResult | null>(null);
-  const [conditionResult, setConditionResult] = useState<ConditionSmokeResult | null>(null);
-  const [flowResult, setFlowResult] = useState<FlowSmokeResult | null>(null);
-  const [vocoderResult, setVocoderResult] = useState<VocoderSmokeResult | null>(null);
-  const [musicResult, setMusicResult] = useState<AnyMusicGenerationWorkerResult | null>(null);
-  const [musicProgress, setMusicProgress] = useState<ProgressView | null>(null);
-  const [durationSeconds, setDurationSeconds] = useState(5);
-  const [musicIsRunning, setMusicIsRunning] = useState(false);
-  const [musicUrl, setMusicUrl] = useState<string | null>(null);
+  const [lang, setLang] = useState<Language>(() => detectLanguage(readStorage('mm3-lang')));
+  const [theme, setTheme] = useState<'dark' | 'light'>(() =>
+    readStorage('mm3-theme') === 'light' ? 'light' : 'dark',
+  );
+  const tr = messages[lang];
+
+  const [vw, setVw] = useState(() => window.innerWidth);
+  const [leftWidth, setLeftWidth] = useState(352);
+  const [mobileView, setMobileView] = useState<MobileView>('create');
+  const isMobile = vw < 760;
+  const isMid = vw < 1180;
+
+  const [capability, setCapability] = useState<WebGpuCapability | null>(null);
   const [cacheState, dispatchCache] = useReducer(
     artifactCacheUiReducer,
     null,
     createArtifactCacheUiState,
   );
-  const musicUrlRef = useRef<string | null>(null);
-  const worker = useRef<Worker | null>(null);
-  const cacheWorker = useRef<Worker | null>(null);
-  const musicRunning = useRef(false);
+
+  const [composer, setComposer] = useState<ComposerState>(createComposerState);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [currentId, setCurrentId] = useState<string | null>(null);
+  const [generation, setGeneration] = useState<Generation | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [position, setPosition] = useState(0);
+  const [volume, setVolume] = useState(80);
+  const [loop, setLoop] = useState(false);
+  const [bars, setBars] = useState<number[]>([]);
+
   const mounted = useRef(true);
+  const cacheWorker = useRef<Worker | null>(null);
+  const musicWorker = useRef<Worker | null>(null);
   const persistenceGeneration = useRef(0);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const pendingSeek = useRef<number | null>(null);
 
-  const finishCacheWorker = (activeWorker: Worker): boolean => {
-    if (cacheWorker.current !== activeWorker) return false;
-    cacheWorker.current = null;
-    activeWorker.terminate();
-    return true;
-  };
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    writeStorage('mm3-theme', theme);
+  }, [theme]);
 
-  const retryTarget = (
-    operation: ArtifactCacheUiOperation,
-    protocolOperation?: ArtifactOperation,
-  ): ArtifactCacheRetryTarget => {
-    if (protocolOperation === 'download-artifacts' || operation === 'download') return 'download';
-    if (protocolOperation === 'delete-artifact-caches' || operation === 'delete') return 'delete';
-    return 'inspect';
-  };
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    writeStorage('mm3-lang', lang);
+  }, [lang]);
 
-  const protocolOperation = (
-    operation: Exclude<ArtifactCacheUiOperation, null | 'request-persistence'>,
-  ): ArtifactOperation => operation === 'download'
-    ? 'download-artifacts'
-    : operation === 'delete'
-      ? 'delete-artifact-caches'
-      : 'inspect-artifact-cache';
+  useEffect(() => {
+    const onResize = () => setVw(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
-  const runtimeCacheError = (
-    operation: Exclude<ArtifactCacheUiOperation, null | 'request-persistence'>,
-    error: unknown,
-  ) => ({
-    message: error instanceof Error && error.message
-      ? error.message
-      : 'Model file worker failed',
-    operation: protocolOperation(operation),
-    retryable: true,
-    retryTarget: retryTarget(operation),
-  });
-
-  const failCacheOperation = (
-    operation: Exclude<ArtifactCacheUiOperation, null | 'request-persistence'>,
-    error: ArtifactCacheUiError,
-    activeWorker?: Worker,
-  ) => {
-    if (activeWorker && !finishCacheWorker(activeWorker)) return;
-    dispatchCache({ type: 'operation-failed', error });
-    if (operation === 'download' || operation === 'delete') inspectCache();
-  };
-
-  const runCacheWorker = (
-    request: ArtifactCacheRequest,
-    operation: Exclude<ArtifactCacheUiOperation, null | 'request-persistence'>,
-  ) => {
-    const previous = cacheWorker.current;
-    cacheWorker.current = null;
-    previous?.terminate();
-    let next: Worker;
-    try {
-      next = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), {
-        type: 'module',
-      });
-    } catch (error) {
-      failCacheOperation(operation, runtimeCacheError(operation, error));
-      return;
-    }
-    cacheWorker.current = next;
-    next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
-      if (cacheWorker.current !== next) return;
-      if (data.type === 'progress') {
-        if (operation === 'download' && data.stage === 'artifact') {
-          dispatchCache({ type: 'progress-received', progress: data });
+  const cache = useMemo(() => {
+    const finish = (active: Worker): boolean => {
+      if (cacheWorker.current !== active) return false;
+      cacheWorker.current = null;
+      active.terminate();
+      return true;
+    };
+    const retryTarget = (
+      operation: CacheOperation,
+      protocolOperation?: ArtifactOperation,
+    ): ArtifactCacheRetryTarget => {
+      if (protocolOperation === 'download-artifacts' || operation === 'download') return 'download';
+      if (protocolOperation === 'delete-artifact-caches' || operation === 'delete') return 'delete';
+      return 'inspect';
+    };
+    const toProtocol = (operation: CacheOperation): ArtifactOperation =>
+      operation === 'download'
+        ? 'download-artifacts'
+        : operation === 'delete'
+          ? 'delete-artifact-caches'
+          : 'inspect-artifact-cache';
+    const runtimeError = (operation: CacheOperation, error: unknown): ArtifactCacheUiError => ({
+      message: errorMessage(error, 'Model file worker failed'),
+      operation: toProtocol(operation),
+      retryable: true,
+      retryTarget: retryTarget(operation),
+    });
+    const fail = (operation: CacheOperation, error: ArtifactCacheUiError, active?: Worker) => {
+      if (active && !finish(active)) return;
+      dispatchCache({ type: 'operation-failed', error });
+      if (operation === 'download' || operation === 'delete') inspect();
+    };
+    const run = (request: ArtifactCacheRequest, operation: CacheOperation) => {
+      const previous = cacheWorker.current;
+      cacheWorker.current = null;
+      previous?.terminate();
+      let next: Worker;
+      try {
+        next = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), {
+          type: 'module',
+        });
+      } catch (error) {
+        fail(operation, runtimeError(operation, error));
+        return;
+      }
+      cacheWorker.current = next;
+      next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
+        if (cacheWorker.current !== next) return;
+        if (data.type === 'progress') {
+          if (operation === 'download' && data.stage === 'artifact')
+            dispatchCache({ type: 'progress-received', progress: data });
+          return;
         }
-        return;
-      }
-      if (
-        data.type === 'artifact-cache-status'
-        || data.type === 'artifact-download-complete'
-        || data.type === 'artifact-cache-deleted'
-      ) {
-        const source = data.type === 'artifact-cache-status'
-          ? 'inspect'
-          : data.type === 'artifact-download-complete'
-            ? 'download'
-            : 'delete';
-        dispatchCache({ type: 'status-received', source, status: data.status });
-        finishCacheWorker(next);
-        return;
-      }
-      if (data.type === 'error') {
-        failCacheOperation(operation, {
-          message: data.message,
-          code: data.code,
-          operation: data.operation,
-          retryable: data.retryable === true,
-          retryTarget: retryTarget(operation, data.operation),
-        }, next);
+        if (
+          data.type === 'artifact-cache-status' ||
+          data.type === 'artifact-download-complete' ||
+          data.type === 'artifact-cache-deleted'
+        ) {
+          const source =
+            data.type === 'artifact-cache-status'
+              ? 'inspect'
+              : data.type === 'artifact-download-complete'
+                ? 'download'
+                : 'delete';
+          dispatchCache({ type: 'status-received', source, status: data.status });
+          finish(next);
+          return;
+        }
+        if (data.type === 'error') {
+          fail(
+            operation,
+            {
+              message: data.message,
+              code: data.code,
+              operation: data.operation,
+              retryable: data.retryable === true,
+              retryTarget: retryTarget(operation, data.operation),
+            },
+            next,
+          );
+        }
+      };
+      next.onerror = (event) => {
+        if (cacheWorker.current !== next) return;
+        event.preventDefault();
+        fail(operation, runtimeError(operation, event.error ?? new Error(event.message)), next);
+      };
+      try {
+        next.postMessage(request);
+      } catch (error) {
+        fail(operation, runtimeError(operation, error), next);
       }
     };
-    next.onerror = (event) => {
-      if (cacheWorker.current !== next) return;
-      event.preventDefault();
-      failCacheOperation(
-        operation,
-        runtimeCacheError(operation, event.error ?? new Error(event.message)),
-        next,
-      );
+    const inspect = () => {
+      persistenceGeneration.current++;
+      dispatchCache({ type: 'operation-started', operation: 'inspect' });
+      run({ type: 'inspect-artifact-cache', manifestUrl: MANIFEST_URL }, 'inspect');
     };
-    try {
-      next.postMessage(request);
-    } catch (error) {
-      failCacheOperation(operation, runtimeCacheError(operation, error), next);
-    }
-  };
-
-  const inspectCache = () => {
-    persistenceGeneration.current++;
-    dispatchCache({ type: 'operation-started', operation: 'inspect' });
-    runCacheWorker({
-      type: 'inspect-artifact-cache',
-      manifestUrl: PRODUCT_MANIFEST_URL,
-    }, 'inspect');
-  };
+    const download = async () => {
+      const requestGeneration = ++persistenceGeneration.current;
+      dispatchCache({ type: 'operation-started', operation: 'request-persistence' });
+      const persistence = await requestPersistentStorage(navigator.storage);
+      if (!mounted.current || persistenceGeneration.current !== requestGeneration) return;
+      dispatchCache({ type: 'persistence-resolved', warning: persistence.warning });
+      dispatchCache({ type: 'download-started' });
+      run({ type: 'download-artifacts', manifestUrl: MANIFEST_URL }, 'download');
+    };
+    const cancelDownload = () => {
+      const active = cacheWorker.current;
+      cacheWorker.current = null;
+      active?.terminate();
+      dispatchCache({ type: 'download-cancelled' });
+      inspect();
+    };
+    const remove = () => {
+      persistenceGeneration.current++;
+      dispatchCache({ type: 'operation-started', operation: 'delete' });
+      run({ type: 'delete-artifact-caches', manifestUrl: MANIFEST_URL }, 'delete');
+    };
+    return { inspect, download, cancelDownload, remove };
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
-    void inspectWebGpu(navigator.gpu).then((nextCapability) => {
-      if (mounted.current) setCapability(nextCapability);
+    void inspectWebGpu(navigator.gpu).then((next) => {
+      if (mounted.current) setCapability(next);
     });
-    inspectCache();
+    cache.inspect();
+    void listStoredTracks()
+      .then((stored) => {
+        if (!mounted.current) return;
+        const restored = stored.map(trackFromStored);
+        setTracks(restored);
+        setSelectedId((previous) => previous ?? restored[0]?.id ?? null);
+      })
+      .catch(() => {});
     return () => {
       mounted.current = false;
-      persistenceGeneration.current++;
-      const activeCacheWorker = cacheWorker.current;
+      cacheWorker.current?.terminate();
       cacheWorker.current = null;
-      activeCacheWorker?.terminate();
-      const activeInferenceWorker = worker.current;
-      worker.current = null;
-      activeInferenceWorker?.terminate();
-      if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
-      musicUrlRef.current = null;
+      musicWorker.current?.terminate();
+      musicWorker.current = null;
     };
-  }, []);
+  }, [cache]);
 
-  const finishInferenceWorker = (activeWorker: Worker): boolean => {
-    if (worker.current !== activeWorker) return false;
-    worker.current = null;
-    activeWorker.terminate();
-    return true;
+  const generating = generation !== null;
+  const [, tick] = useReducer((count: number) => count + 1, 0);
+  useEffect(() => {
+    if (!generating) return;
+    const interval = setInterval(tick, 500);
+    return () => clearInterval(interval);
+  }, [generating]);
+
+  const selectedTrack = tracks.find((track) => track.id === selectedId) ?? null;
+  const currentTrack = tracks.find((track) => track.id === currentId) ?? null;
+  const currentWav = currentTrack?.wav ?? null;
+  const readyTracks = tracks.filter((track) => track.status === 'ready');
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (!currentWav) {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+      setPosition(0);
+      return;
+    }
+    const url = URL.createObjectURL(currentWav);
+    audio.src = url;
+    void audio.play().catch(() => {});
+    return () => URL.revokeObjectURL(url);
+  }, [currentWav]);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = volume / 100;
+  }, [volume]);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.loop = loop;
+  }, [loop]);
+
+  useEffect(() => {
+    if (!selectedTrack) {
+      setBars([]);
+      return;
+    }
+    if (!selectedTrack.wav) {
+      setBars(pseudoBars(selectedTrack.settings.seed, WAVEFORM_BARS));
+      return;
+    }
+    let cancelled = false;
+    void wavBars(selectedTrack.wav, WAVEFORM_BARS).then((next) => {
+      if (!cancelled) setBars(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTrack]);
+
+  const patchComposer = (patch: Partial<ComposerState>) => {
+    setNotice(null);
+    setComposer((previous) => ({ ...previous, ...patch }));
   };
 
-  const workerFailureMessage = (error: unknown) => error instanceof Error && error.message
-    ? error.message
-    : 'Inference worker failed';
+  const restoreSettings = (settings: TrackSettings) => {
+    setComposer((previous) => ({
+      ...previous,
+      title: settings.title,
+      mode: settings.mode,
+      fineMeta: settings.fineMeta,
+      fineVocal: settings.fineVocal,
+      fineArrangement: settings.fineArrangement,
+      rawPrompt: settings.rawPrompt,
+      rawTouched: settings.rawPrompt.length > 0,
+      lyrics: settings.instrumental ? INSTRUMENTAL_LYRICS : settings.lyrics,
+      savedLyrics: settings.instrumental ? settings.lyrics : previous.savedLyrics,
+      instrumental: settings.instrumental,
+      durationSeconds: settings.durationSeconds,
+      seedInput: String(settings.seed),
+      sampling: { ...settings.sampling },
+    }));
+  };
 
-  const createInferenceWorker = (onFailure?: () => void): Worker | null => {
-    let next: Worker;
+  const settingsFromComposer = (): TrackSettings => {
+    const seedText = composer.seedInput.trim();
+    return {
+      title: composer.title.trim() || `Untitled ${tracks.length + 1}`,
+      mode: composer.mode,
+      fineMeta: composer.fineMeta,
+      fineVocal: composer.fineVocal,
+      fineArrangement: composer.fineArrangement,
+      rawPrompt: composer.rawPrompt,
+      lyrics: composer.instrumental ? composer.savedLyrics : composer.lyrics,
+      instrumental: composer.instrumental,
+      durationSeconds: composer.durationSeconds,
+      seed: seedText ? Math.min(4_294_967_295, Number(seedText)) : randomSeed(),
+      sampling: { ...composer.sampling },
+    };
+  };
+
+  const finishMusicWorker = (active: Worker) => {
+    if (musicWorker.current !== active) return;
+    musicWorker.current = null;
+    active.terminate();
+  };
+
+  const failGeneration = (trackId: string, message: string) => {
+    setGeneration((previous) => (previous?.trackId === trackId ? null : previous));
+    setTracks((previous) =>
+      previous.map((track) =>
+        track.id === trackId ? { ...track, status: 'error', error: message } : track,
+      ),
+    );
+  };
+
+  const completeGeneration = (pending: Track, result: AnyMusicGenerationWorkerResult) => {
+    const wav = new Blob([result.wav], { type: 'audio/wav' });
+    const actualSeconds = result.plan
+      ? result.plan.samplesPerChannel / SAMPLE_RATE
+      : Math.max(0, result.wav.byteLength - 44) / 4 / SAMPLE_RATE;
+    const ready: Track = { ...pending, status: 'ready', actualSeconds, wav };
+    setGeneration((previous) => (previous?.trackId === pending.id ? null : previous));
+    setTracks((previous) => previous.map((track) => (track.id === pending.id ? ready : track)));
+    setCurrentId(pending.id);
+    setPosition(0);
+    void saveStoredTrack(trackToStored(ready, wav)).catch(() => {});
+  };
+
+  const generateFromSettings = (settings: TrackSettings) => {
+    const prompt = promptFromSettings(settings);
+    if (!prompt) {
+      setNotice(tr.promptRequired);
+      return;
+    }
+    const lyrics = lyricsFromSettings(settings);
+    if (!lyrics) {
+      setNotice(tr.lyricsRequired);
+      return;
+    }
+    let request: MusicGenerationRequest;
     try {
-      next = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), {
+      request = createMusicGenerationRequest({
+        manifestUrl: MANIFEST_URL,
+        prompt,
+        lyrics,
+        seed: settings.seed,
+        durationSeconds: settings.durationSeconds,
+        sampling: settings.sampling,
+      });
+    } catch (error) {
+      setNotice(errorMessage(error, 'Invalid generation request'));
+      return;
+    }
+    musicWorker.current?.terminate();
+    musicWorker.current = null;
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), {
         type: 'module',
       });
     } catch (error) {
-      setProgress(`Error: ${workerFailureMessage(error)}`);
-      onFailure?.();
-      return null;
+      setNotice(errorMessage(error, 'Inference worker failed'));
+      return;
     }
-    worker.current = next;
-    next.onerror = (event) => {
-      if (worker.current !== next) return;
-      event.preventDefault();
-      setProgress(`Error: ${workerFailureMessage(event.error ?? new Error(event.message))}`);
-      onFailure?.();
-      finishInferenceWorker(next);
+    const pending: Track = {
+      id: `track-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`,
+      createdAt: Date.now(),
+      status: 'generating',
+      actualSeconds: 0,
+      settings,
     };
-    return next;
-  };
-
-  const cancel = () => {
-    const wasMusicRunning = musicRunning.current;
-    musicRunning.current = false;
-    setMusicIsRunning(false);
-    if (wasMusicRunning) {
-      const cancelled = cancelWorker(worker.current, musicProgress ?? {
-        status: 'running',
-        text: 'Music generation running',
-        indeterminate: true,
-      });
-      setMusicProgress(cancelled);
-      setProgress(cancelled.text);
-      if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
-      musicUrlRef.current = null;
-      setMusicUrl(null);
-      setMusicResult(null);
-    } else {
-      worker.current?.terminate();
-      setProgress('Diagnostic cancelled');
-    }
-    worker.current = null;
-  };
-  const run = () => {
-    cancel();
-    setResult(null);
-    setProgress('Starting isolated runtime worker');
-    const next = createInferenceWorker();
-    if (!next) return;
-    next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
-      if (worker.current !== next) return;
-      if (data.type === 'progress') setProgress(`${data.stage}: ${data.detail}`);
-      else if (data.type === 'result') {
-        setResult(data.result);
-        setProgress('Runtime ready');
-      } else if (data.type === 'error') setProgress(`Error: ${data.message}`);
-    };
-    next.postMessage({
-      type: 'run-global-smoke',
-      manifestUrl: 'http://127.0.0.1:5174/manifest.json',
-    });
-  };
-  const runRvq = () => {
-    cancel();
-    setRvqResult(null);
-    setProgress('Starting isolated RVQ runtime worker');
-    const next = createInferenceWorker();
-    if (!next) return;
-    next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
-      if (worker.current !== next) return;
-      if (data.type === 'progress') setProgress(`${data.stage}: ${data.detail}`);
-      else if (data.type === 'rvq-result') {
-        setRvqResult(data.result);
-        setProgress('RVQ runtime passed');
-      } else if (data.type === 'error') setProgress(`Error: ${data.message}`);
-    };
-    next.postMessage({
-      type: 'run-rvq-smoke',
-      manifestUrl: 'http://127.0.0.1:5174/manifest.json',
-    });
-  };
-  const generateFrames = () => {
-    cancel();
-    setFrameResult(null);
-    const parsed = Number(new URLSearchParams(window.location.search).get('frames') ?? '2');
-    const maxFrames = Number.isInteger(parsed) && parsed > 0 ? parsed : 2;
-    setProgress(`Generating ${maxFrames} RVQ frames`);
-    const next = createInferenceWorker();
-    if (!next) return;
-    next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
-      if (worker.current !== next) return;
-      if (data.type === 'progress') setProgress(`${data.stage}: ${data.detail}`);
-      else if (data.type === 'frame-result') {
-        setFrameResult(data.result);
-        setProgress('RVQ frame generation passed');
-      } else if (data.type === 'error') setProgress(`Error: ${data.message}`);
-    };
-    next.postMessage({
-      type: 'generate-frames',
-      globalManifestUrl: 'http://127.0.0.1:5174/manifest.json',
-      rvqManifestUrl: 'http://127.0.0.1:5175/manifest.json',
-      maxFrames,
-      seed: 7,
-    });
-  };
-  const runCondition = () => {
-    cancel();
-    setConditionResult(null);
-    setProgress('Starting isolated condition runtime worker');
-    const next = createInferenceWorker();
-    if (!next) return;
-    next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
-      if (worker.current !== next) return;
-      if (data.type === 'progress') setProgress(`${data.stage}: ${data.detail}`);
-      else if (data.type === 'condition-result') {
-        setConditionResult(data.result);
-        setProgress('Condition encoder runtime passed');
-      } else if (data.type === 'error') setProgress(`Error: ${data.message}`);
-    };
-    next.postMessage({
-      type: 'run-condition-smoke',
-      manifestUrl: 'http://127.0.0.1:5176/manifest.json',
-    });
-  };
-  const runFlow = () => {
-    cancel();
-    setFlowResult(null);
-    setProgress('Starting isolated flow runtime worker');
-    const next = createInferenceWorker();
-    if (!next) return;
-    next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
-      if (worker.current !== next) return;
-      if (data.type === 'progress') setProgress(`${data.stage}: ${data.detail}`);
-      else if (data.type === 'flow-result') {
-        setFlowResult(data.result);
-        setProgress('Flow transformer runtime passed');
-      } else if (data.type === 'error') setProgress(`Error: ${data.message}`);
-    };
-    next.postMessage({
-      type: 'run-flow-smoke',
-      manifestUrl: 'http://127.0.0.1:5177/manifest.json',
-    });
-  };
-  const runVocoder = () => {
-    cancel();
-    setVocoderResult(null);
-    setProgress('Starting isolated vocoder runtime worker');
-    const next = createInferenceWorker();
-    if (!next) return;
-    next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
-      if (worker.current !== next) return;
-      if (data.type === 'progress') setProgress(`${data.stage}: ${data.detail}`);
-      else if (data.type === 'vocoder-result') {
-        setVocoderResult(data.result);
-        setProgress('Vocoder runtime passed');
-      } else if (data.type === 'error') setProgress(`Error: ${data.message}`);
-    };
-    next.postMessage({
-      type: 'run-vocoder-smoke',
-      manifestUrl: 'http://127.0.0.1:5178/manifest.json',
-    });
-  };
-  const generateMusic = () => {
-    cancel();
-    setMusicResult(null);
-    if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
-    musicUrlRef.current = null;
-    setMusicUrl(null);
-    const request = createProductMusicRequest(durationSeconds);
-    const starting = `Starting ${durationLabel(durationSeconds)} music generation`;
-    setProgress(starting);
-    setMusicProgress({
-      status: 'running',
-      text: starting,
-      indeterminate: true,
-    });
-    const resetMusicWorkerState = () => {
-      setMusicProgress(null);
-      musicRunning.current = false;
-      setMusicIsRunning(false);
-    };
-    const next = createInferenceWorker(resetMusicWorkerState);
-    if (!next) return;
-    musicRunning.current = true;
-    setMusicIsRunning(true);
-    next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
-      if (worker.current !== next) return;
+    musicWorker.current = worker;
+    setNotice(null);
+    setTracks((previous) => [pending, ...previous]);
+    setSelectedId(pending.id);
+    setMobileView('studio');
+    setGeneration({ trackId: pending.id, startedAt: Date.now(), view: createGenerationView() });
+    worker.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
+      if (musicWorker.current !== worker) return;
       if (data.type === 'progress') {
-        const view = progressView(data);
-        setMusicProgress(view);
-        setProgress(view.text);
-      }
-      else if (data.type === 'music-result') {
-        const url = URL.createObjectURL(new Blob([data.result.wav], { type: 'audio/wav' }));
-        musicUrlRef.current = url;
-        setMusicUrl(url);
-        setMusicResult(data.result);
-        musicRunning.current = false;
-        setMusicIsRunning(false);
-        finishInferenceWorker(next);
+        setGeneration((previous) =>
+          previous?.trackId === pending.id
+            ? { ...previous, view: applyGenerationProgress(previous.view, data) }
+            : previous,
+        );
+      } else if (data.type === 'music-result') {
+        finishMusicWorker(worker);
+        completeGeneration(pending, data.result);
       } else if (data.type === 'error') {
-        setProgress(`Error: ${data.message}`);
-        resetMusicWorkerState();
-        finishInferenceWorker(next);
+        finishMusicWorker(worker);
+        failGeneration(pending.id, data.message);
       }
     };
-    next.postMessage(request);
+    worker.onerror = (event) => {
+      if (musicWorker.current !== worker) return;
+      event.preventDefault();
+      finishMusicWorker(worker);
+      failGeneration(
+        pending.id,
+        errorMessage(event.error ?? new Error(event.message), 'Inference worker failed'),
+      );
+    };
+    try {
+      worker.postMessage(request);
+    } catch (error) {
+      finishMusicWorker(worker);
+      failGeneration(pending.id, errorMessage(error, 'Inference worker failed'));
+    }
   };
 
-  const downloadArtifacts = async () => {
-    const requestGeneration = ++persistenceGeneration.current;
-    dispatchCache({ type: 'operation-started', operation: 'request-persistence' });
-    const persistence = await requestPersistentStorage(navigator.storage);
-    if (!mounted.current || persistenceGeneration.current !== requestGeneration) return;
-    dispatchCache({ type: 'persistence-resolved', warning: persistence.warning });
-    dispatchCache({ type: 'download-started' });
-    runCacheWorker({
-      type: 'download-artifacts',
-      manifestUrl: PRODUCT_MANIFEST_URL,
-    }, 'download');
+  const cancelGeneration = () => {
+    if (!generation) return;
+    musicWorker.current?.terminate();
+    musicWorker.current = null;
+    const trackId = generation.trackId;
+    setGeneration(null);
+    setTracks((previous) =>
+      previous.map((track) => (track.id === trackId ? { ...track, status: 'canceled' } : track)),
+    );
   };
 
-  const cancelArtifactDownload = () => {
-    const activeWorker = cacheWorker.current;
-    cacheWorker.current = null;
-    activeWorker?.terminate();
-    dispatchCache({ type: 'download-cancelled' });
-    inspectCache();
+  const modelReady = cacheState.status?.state === 'ready';
+  const canGenerate = capability?.supported === true && modelReady && !generating;
+
+  const startGeneration = () => {
+    if (generating) {
+      cancelGeneration();
+      return;
+    }
+    if (!canGenerate) return;
+    generateFromSettings(settingsFromComposer());
   };
 
-  const deleteArtifactCaches = () => {
-    if (!window.confirm('Delete all downloaded MiniMax Music 3 model files?')) return;
-    persistenceGeneration.current++;
-    dispatchCache({ type: 'operation-started', operation: 'delete' });
-    runCacheWorker({
-      type: 'delete-artifact-caches',
-      manifestUrl: PRODUCT_MANIFEST_URL,
-    }, 'delete');
+  const generateVariation = (source: Track) => {
+    if (!canGenerate) return;
+    restoreSettings(source.settings);
+    patchComposer({ seedInput: '' });
+    generateFromSettings({
+      ...source.settings,
+      seed: randomSeed(),
+      sampling: { ...source.settings.sampling },
+    });
   };
 
-  const cacheControls = deriveArtifactCacheControls(cacheState, musicIsRunning);
-  const downloadLabel = artifactDownloadActionLabel(cacheState);
+  const selectTrack = (track: Track) => {
+    setSelectedId(track.id);
+    restoreSettings(track.settings);
+    if (isMobile) setMobileView('studio');
+  };
 
-  const status =
-    capability === null
-      ? 'Checking WebGPU capability…'
-      : capability.supported
-        ? 'WebGPU with shader-f16 is available.'
-        : capability.reason;
+  const togglePlayback = () => {
+    const audio = audioRef.current;
+    if (!audio || !currentTrack) return;
+    if (audio.paused) void audio.play().catch(() => {});
+    else audio.pause();
+  };
+
+  const playToggleTrack = (track: Track) => {
+    if (track.status !== 'ready') return;
+    if (track.id === currentId) togglePlayback();
+    else {
+      setCurrentId(track.id);
+      setPosition(0);
+    }
+  };
+
+  const seekToFraction = (fraction: number) => {
+    const audio = audioRef.current;
+    if (!audio || !currentTrack) return;
+    audio.currentTime = fraction * (currentTrack.actualSeconds || audio.duration || 0);
+    setPosition(audio.currentTime);
+  };
+
+  const waveClick = (fraction: number) => {
+    if (!selectedTrack || selectedTrack.status !== 'ready') return;
+    if (selectedTrack.id === currentId) {
+      seekToFraction(fraction);
+      const audio = audioRef.current;
+      if (audio?.paused) void audio.play().catch(() => {});
+    } else {
+      pendingSeek.current = fraction;
+      setCurrentId(selectedTrack.id);
+      setPosition(0);
+    }
+  };
+
+  const stepTrack = (delta: number) => {
+    if (!readyTracks.length) return;
+    const index = readyTracks.findIndex((track) => track.id === currentId);
+    const next = readyTracks[(index + delta + readyTracks.length) % readyTracks.length];
+    setCurrentId(next.id);
+    setSelectedId(next.id);
+    setPosition(0);
+    restoreSettings(next.settings);
+  };
+
+  const deleteTrack = (track: Track) => {
+    if (track.status === 'ready' && !window.confirm(tr.delConfirm)) return;
+    if (generation?.trackId === track.id) {
+      musicWorker.current?.terminate();
+      musicWorker.current = null;
+      setGeneration(null);
+    }
+    setTracks((previous) => previous.filter((item) => item.id !== track.id));
+    if (selectedId === track.id)
+      setSelectedId(tracks.find((item) => item.id !== track.id)?.id ?? null);
+    if (currentId === track.id) {
+      setCurrentId(null);
+      setPlaying(false);
+      setPosition(0);
+    }
+    void deleteStoredTrack(track.id).catch(() => {});
+  };
+
+  const downloadTrack = (track: Track | null) => {
+    if (!track?.wav) return;
+    const url = URL.createObjectURL(track.wav);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = wavFileName(track.settings.title);
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5_000);
+  };
+
+  const newDraft = () => {
+    setSelectedId(null);
+    setComposer({
+      ...createComposerState(),
+      fineMeta: '',
+      fineVocal: '',
+      fineArrangement: '',
+      lyrics: '',
+    });
+    setNotice(null);
+    setMobileView('create');
+  };
+
+  const loadExample = (instrumental: boolean) => {
+    setSelectedId(null);
+    patchComposer(
+      instrumental
+        ? {
+            mode: 'fine',
+            fineMeta: EXAMPLES.instrumentalMeta,
+            fineVocal: EXAMPLES.instrumentalVocal,
+            fineArrangement: EXAMPLES.arrangement,
+            lyrics: INSTRUMENTAL_LYRICS,
+            savedLyrics: '',
+            instrumental: true,
+          }
+        : {
+            mode: 'fine',
+            fineMeta: EXAMPLES.meta,
+            fineVocal: EXAMPLES.vocal,
+            fineArrangement: EXAMPLES.arrangement,
+            lyrics: EXAMPLES.lyrics,
+            instrumental: false,
+          },
+    );
+    if (isMobile) setMobileView('create');
+  };
+
+  const startResize = (event: ReactPointerEvent) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = leftWidth;
+    const max = Math.max(280, vw - (isMid ? 260 : 296) - 6 - 380);
+    const move = (ev: PointerEvent) =>
+      setLeftWidth(Math.min(max, Math.max(280, startWidth + ev.clientX - startX)));
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  const cacheControls = deriveArtifactCacheControls(cacheState, generating);
+  const seedFixed = composer.seedInput.trim().length > 0;
+  const summary = [
+    `${composer.durationSeconds}s`,
+    composer.mode === 'fine' ? tr.fineTab : tr.rawTab,
+    composer.instrumental ? tr.inst : tr.vocal,
+    seedFixed ? tr.sFixed : tr.sRandom,
+    capability !== null && !capability.supported
+      ? tr.sWebgpu
+      : cacheState.operation === 'download'
+        ? tr.sDl
+        : modelReady
+          ? tr.sReady
+          : tr.sModelMissing,
+  ].join(' · ');
+
+  const generatingTrack = generation
+    ? (tracks.find((track) => track.id === generation.trackId) ?? null)
+    : null;
+  const positionFraction =
+    currentTrack && currentTrack.actualSeconds > 0 ? position / currentTrack.actualSeconds : 0;
+
+  let main: ReactNode;
+  if (generation && generatingTrack) {
+    main = (
+      <GenerationProgress
+        tr={tr}
+        track={generatingTrack}
+        view={generation.view}
+        elapsedMs={Date.now() - generation.startedAt}
+        onCancel={cancelGeneration}
+      />
+    );
+  } else if (selectedTrack) {
+    main = (
+      <ResultView
+        tr={tr}
+        track={selectedTrack}
+        bars={bars}
+        isCurrent={selectedTrack.id === currentId}
+        playing={playing}
+        posFraction={selectedTrack.id === currentId ? positionFraction : 0}
+        canVariation={canGenerate}
+        onWaveClick={waveClick}
+        onTogglePlay={() =>
+          selectedTrack.id === currentId ? togglePlayback() : playToggleTrack(selectedTrack)
+        }
+        onDownload={() => downloadTrack(selectedTrack)}
+        onReuse={() => restoreSettings(selectedTrack.settings)}
+        onVariation={() => generateVariation(selectedTrack)}
+        onDelete={() => deleteTrack(selectedTrack)}
+      />
+    );
+  } else if (modelReady) {
+    main = <EmptyView tr={tr} onExample={loadExample} />;
+  } else {
+    main = (
+      <DownloadCard
+        tr={tr}
+        cacheState={cacheState}
+        controls={cacheControls}
+        onDownload={() => void cache.download()}
+        onCancel={cache.cancelDownload}
+        onDelete={() => {
+          if (window.confirm(tr.dlDeleteConfirm)) cache.remove();
+        }}
+        onRefresh={cache.inspect}
+      />
+    );
+  }
+
+  const gridColumns = isMobile
+    ? 'minmax(0,1fr)'
+    : `${leftWidth}px 6px minmax(0,1fr) ${isMid ? 260 : 296}px`;
 
   return (
-    <main className="app-shell">
-      <section aria-labelledby="page-title" className="diagnostic-card">
-        <p className="eyebrow">MiniMax Music 3</p>
-        <h1 id="page-title">WebGPU feasibility diagnostic</h1>
-        <p aria-live="polite" className={capability?.supported ? 'status supported' : 'status'}>
-          {status}
-        </p>
-        <section aria-labelledby="model-files-title" className="model-files">
-          <h2 id="model-files-title">Model files</h2>
-          <p aria-live="polite" className="cache-status">
-            {describeArtifactCacheStatus(cacheState)}
-          </p>
-          {cacheState.persistenceWarning && (
-            <p className="cache-warning">{cacheState.persistenceWarning}</p>
-          )}
-          {cacheState.lastError && (
-            <p role="alert" className="cache-error">{cacheState.lastError.message}</p>
-          )}
-          {cacheState.notice && (
-            <p aria-live="polite" className="cache-warning">{cacheState.notice}</p>
-          )}
-          <div className="cache-actions">
-            <button
-              type="button"
-              disabled={!cacheControls.canDownload && !cacheControls.canRetry}
-              onClick={() => void downloadArtifacts()}
-            >
-              {downloadLabel}
-            </button>
-            <button type="button" className="secondary" disabled={!cacheControls.canRefresh} onClick={inspectCache}>
-              Refresh Status
-            </button>
-            <button type="button" className="secondary" disabled={!cacheControls.canDelete} onClick={deleteArtifactCaches}>
-              Remove Cached Model
-            </button>
-            <button type="button" className="secondary" disabled={!cacheControls.canCancel} onClick={cancelArtifactDownload}>
-              Cancel Download
-            </button>
-          </div>
-          {cacheState.operation === 'download' && !cacheState.downloadProgress && (
-            <progress aria-label="Model download progress" />
-          )}
-          {cacheState.downloadProgress && (
-            <div className="cache-progress">
-              <p id="model-download-current-file">
-                Current file: {cacheState.downloadProgress.currentFile}
-              </p>
-              <progress
-                aria-label="Model download progress"
-                aria-describedby="model-download-current-file"
-                value={cacheState.downloadProgress.completedBytes}
-                max={cacheState.downloadProgress.totalBytes}
-              />
-              <p>
-                {formatBytes(cacheState.downloadProgress.completedBytes)} of{' '}
-                {formatBytes(cacheState.downloadProgress.totalBytes)} verified
-                {cacheState.downloadProgress.rate !== undefined
-                  ? `, ${formatRate(cacheState.downloadProgress.rate)}`
-                  : ''}
-                {cacheState.downloadProgress.etaMs !== undefined
-                  ? `, ETA ${formatEta(cacheState.downloadProgress.etaMs)}`
-                  : ''}
-              </p>
-            </div>
-          )}
-        </section>
-        <div className="command-row">
-          <button type="button" disabled={!capability?.supported} onClick={run}>
-            Run Global LLM smoke
-          </button>
-          <button type="button" disabled={!capability?.supported} onClick={runRvq}>
-            Run RVQ depth smoke
-          </button>
-          <button type="button" disabled={!capability?.supported} onClick={generateFrames}>
-            Generate RVQ frames
-          </button>
-          <button type="button" disabled={!capability?.supported} onClick={runCondition}>
-            Run condition encoder smoke
-          </button>
-          <button type="button" disabled={!capability?.supported} onClick={runFlow}>
-            Run flow transformer smoke
-          </button>
-          <button type="button" disabled={!capability?.supported} onClick={runVocoder}>
-            Run vocoder smoke
-          </button>
-          <label>
-            Duration
-            <select
-              aria-label="Music duration"
-              value={durationSeconds}
-              onChange={(event) => setDurationSeconds(Number(event.target.value))}
-            >
-              {PRODUCT_DURATIONS.map((duration) => (
-                <option key={duration} value={duration}>{duration} seconds</option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            disabled={!capability?.supported || !cacheControls.canGenerate}
-            onClick={generateMusic}
-          >
-            Generate {durationLabel(durationSeconds)} music
-          </button>
-          <button type="button" className="secondary" disabled={!worker.current} onClick={cancel}>
-            Cancel worker
-          </button>
-        </div>
-        <output aria-live="polite" className="progress">
-          {progress}
-        </output>
-        {musicProgress?.indeterminate && musicProgress.status === 'running' && (
-          <progress data-testid="music-progress" aria-label="Music generation progress" />
-        )}
-        {musicProgress?.value !== undefined && musicProgress.max !== undefined && (
-          <progress
-            data-testid="music-progress"
-            aria-label="Music generation progress"
-            value={musicProgress.value}
-            max={musicProgress.max}
+    <div className="flex h-dvh flex-col bg-bg font-sans text-ink">
+      <Header
+        tr={tr}
+        lang={lang}
+        theme={theme}
+        isMobile={isMobile}
+        isMid={isMid}
+        capability={capability}
+        cacheState={cacheState}
+        generating={generating}
+        onToggleLang={() => setLang(lang === 'ko' ? 'en' : 'ko')}
+        onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+      />
+      {isMobile && <MobileTabs tr={tr} view={mobileView} onChange={setMobileView} />}
+      <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: gridColumns }}>
+        <section
+          className={`min-h-0 overflow-y-auto border-r border-line bg-panel ${
+            !isMobile || mobileView === 'create' ? '' : 'hidden'
+          }`}
+        >
+          <Composer
+            tr={tr}
+            composer={composer}
+            generating={generating}
+            canGenerate={canGenerate}
+            summary={summary}
+            notice={notice}
+            onPatch={patchComposer}
+            onGenerate={startGeneration}
           />
-        )}
-        {result && (
-          <pre data-testid="global-smoke-result" className="result">
-            {`steps: ${result.stepMs.length - 1}\nfinite logits: ${result.finiteLogits ? 'yes' : 'no'}\nKV location: ${result.tensorLocations.every((location) => location === 'gpu-buffer') ? 'gpu-buffer' : 'non-GPU'}\n${JSON.stringify(result, null, 2)}`}
-          </pre>
-        )}
-        {rvqResult && (
-          <pre data-testid="rvq-smoke-result" className="result">
-            {`lengths: ${rvqResult.lengths.join(', ')}\nfinite logits: ${rvqResult.finiteLogits ? 'yes' : 'no'}\nhidden location: ${rvqResult.hiddenLocations.every((location) => location === 'gpu-buffer') ? 'gpu-buffer' : 'non-GPU'}\nfeedback location: ${rvqResult.feedbackLocation}\n${JSON.stringify(rvqResult, null, 2)}`}
-          </pre>
-        )}
-        {frameResult && (
-          <pre data-testid="frame-generation-result" className="result">
-            {`frames: ${frameResult.frames}\nsemantic decisions: ${frameResult.semanticDecisions}\nRVQ calls: ${frameResult.rvqCalls}\nfeedback decodes: ${frameResult.feedbackDecodes}\ncache lengths: ${frameResult.cacheLengths.join(', ')}\nfinite hidden groups: ${frameResult.finiteHiddenGroups ? 'yes' : 'no'}\ncodes in range: ${frameResult.codesInRange ? 'yes' : 'no'}\n${JSON.stringify(frameResult, null, 2)}`}
-          </pre>
-        )}
-        {conditionResult && (
-          <pre data-testid="condition-smoke-result" className="result">
-            {`shape: ${conditionResult.shape.join(', ')}\noutput location: ${conditionResult.outputLocation}\nfinite: ${conditionResult.finite ? 'yes' : 'no'}\n${JSON.stringify(conditionResult, null, 2)}`}
-          </pre>
-        )}
-        {flowResult && (
-          <pre data-testid="flow-smoke-result" className="result">
-            {`one-step shape: ${flowResult.shape.join(', ')}\none-step location: ${flowResult.oneStepLocation}\none-step finite: ${flowResult.oneStepFinite ? 'yes' : 'no'}\nsteps: ${flowResult.stepMs.length}\nfinal location: ${flowResult.finalLocation}\nfinal finite: ${flowResult.finalFinite ? 'yes' : 'no'}\n${JSON.stringify(flowResult, null, 2)}`}
-          </pre>
-        )}
-        {vocoderResult && (
-          <pre data-testid="vocoder-smoke-result" className="result">
-            {`waveform: ${vocoderResult.outputType} ${vocoderResult.shape.join(', ')}\nfinite: ${vocoderResult.finite ? 'yes' : 'no'}\nWAV bytes: ${vocoderResult.wavBytes}\naudio: ${vocoderResult.sampleRate} Hz, ${vocoderResult.channels} channels, ${vocoderResult.samples} samples, ${vocoderResult.bitsPerSample}-bit PCM\n${JSON.stringify(vocoderResult, null, 2)}`}
-          </pre>
-        )}
-        {musicResult && musicUrl && (
-          <section data-testid="music-generation-result" className="result">
-            <audio data-testid="generated-audio" controls src={musicUrl} />
-            <a
-              data-testid="download-music"
-              download={`minimax-music3-${musicResult.plan?.durationSeconds ?? durationSeconds}s.wav`}
-              href={musicUrl}
-            >
-              Download WAV
-            </a>
-            <pre>{JSON.stringify({ ...musicResult, wav: undefined }, null, 2)}</pre>
-          </section>
-        )}
-      </section>
-    </main>
+        </section>
+        <div
+          onPointerDown={startResize}
+          className={`-ml-px cursor-col-resize hover:bg-accent-soft ${isMobile ? 'hidden' : ''}`}
+        />
+        <main
+          className={`min-h-0 overflow-y-auto p-6 pb-10 ${
+            !isMobile || mobileView === 'studio' ? '' : 'hidden'
+          }`}
+        >
+          {main}
+        </main>
+        <aside
+          className={`min-h-0 overflow-y-auto border-l border-line bg-panel ${
+            !isMobile || mobileView === 'library' ? '' : 'hidden'
+          }`}
+        >
+          <Library
+            tr={tr}
+            tracks={tracks}
+            selectedId={selectedId}
+            currentId={currentId}
+            playing={playing}
+            generationPercent={generation ? generationPercent(generation.view) : 0}
+            onSelect={selectTrack}
+            onPlayToggle={playToggleTrack}
+            onDelete={deleteTrack}
+            onNew={newDraft}
+          />
+        </aside>
+      </div>
+      <PlayerBar
+        tr={tr}
+        track={currentTrack}
+        playing={playing}
+        position={position}
+        volume={volume}
+        loop={loop}
+        isMobile={isMobile}
+        hasReady={readyTracks.length > 0}
+        onPrev={() => stepTrack(-1)}
+        onNext={() => stepTrack(1)}
+        onTogglePlay={togglePlayback}
+        onSeek={seekToFraction}
+        onVolume={setVolume}
+        onToggleLoop={() => setLoop(!loop)}
+        onDownload={() => downloadTrack(currentTrack)}
+      />
+      <audio
+        ref={audioRef}
+        className="hidden"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)}
+        onLoadedMetadata={(event) => {
+          if (pendingSeek.current === null) return;
+          event.currentTarget.currentTime =
+            pendingSeek.current * (event.currentTarget.duration || 0);
+          pendingSeek.current = null;
+        }}
+      />
+    </div>
   );
 }

@@ -1,145 +1,133 @@
+@import 'tailwindcss';
+
 :root {
-  color: #e8edf0;
-  background: #111416;
-  font-family: Bahnschrift, 'Segoe UI', sans-serif;
+  --bg: #0e0f12;
+  --panel: #15171c;
+  --panel2: #1b1e25;
+  --border: #262a33;
+  --text: #e9ebf1;
+  --muted: #a7aebc;
+  --muted2: #7b8494;
+  --accent: #ff6d52;
+  --accent2: #ff9078;
+  --accent-fg: #2a0b05;
+  --accent-soft: rgba(255, 109, 82, 0.13);
+  --wave: #333947;
+  --good: #5ad19a;
+  --danger: #e2695a;
+  --input: #101216;
 }
 
-* {
-  box-sizing: border-box;
+:root[data-theme='light'] {
+  --bg: #f5f2ef;
+  --panel: #ffffff;
+  --panel2: #efe9e4;
+  --border: #ddd4cc;
+  --text: #1d1815;
+  --muted: #5d534c;
+  --muted2: #8a7d74;
+  --accent: #d64b2f;
+  --accent2: #e2664c;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(214, 75, 47, 0.1);
+  --wave: #dcd2c9;
+  --good: #2e9d6e;
+  --danger: #c74f3f;
+  --input: #faf7f4;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel2: var(--panel2);
+  --color-line: var(--border);
+  --color-ink: var(--text);
+  --color-muted: var(--muted);
+  --color-muted2: var(--muted2);
+  --color-accent: var(--accent);
+  --color-accent2: var(--accent2);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-wave: var(--wave);
+  --color-good: var(--good);
+  --color-danger: var(--danger);
+  --color-input: var(--input);
+  --font-sans: 'Space Grotesk', 'IBM Plex Sans KR', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes eq1 {
+  0%,
+  100% {
+    height: 4px;
+  }
+  50% {
+    height: 11px;
+  }
+}
+
+@keyframes eq2 {
+  0%,
+  100% {
+    height: 10px;
+  }
+  50% {
+    height: 5px;
+  }
+}
+
+@keyframes eq3 {
+  0%,
+  100% {
+    height: 6px;
+  }
+  50% {
+    height: 12px;
+  }
+}
+
+@keyframes slide {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 28px 0;
+  }
 }
 
 body {
   margin: 0;
-  min-width: 320px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
 }
 
-.app-shell {
-  display: grid;
-  min-height: 100vh;
-  place-items: center;
-  padding: clamp(1rem, 4vw, 3rem);
+input[type='range'] {
+  accent-color: var(--accent);
 }
 
-.diagnostic-card {
-  width: min(100%, 48rem);
-  padding: clamp(1.25rem, 5vw, 3rem);
-  border: 1px solid #485155;
-  border-radius: 0;
-  background: #1a1f21;
-  box-shadow: 12px 12px 0 #07090a;
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
 }
 
-.eyebrow {
-  margin: 0;
-  color: #9babb1;
-  font-size: 0.875rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background-clip: content-box;
 }
 
-h1 {
-  margin: 0.5rem 0 1.5rem;
-  font-size: clamp(1.8rem, 5vw, 2.75rem);
-}
-
-.status {
-  margin: 0;
-  color: #ffd38a;
-}
-
-.status.supported {
-  color: #8fe0b1;
-}
-
-.model-files {
-  margin-top: 1.5rem;
-  padding: 1rem;
-  border: 1px solid #485155;
-  background: #14181a;
-}
-
-.model-files h2 {
-  margin: 0 0 0.5rem;
-  font-size: 1rem;
-}
-
-.cache-status,
-.cache-warning,
-.cache-error,
-.cache-progress p {
-  margin: 0.4rem 0 0;
-  font:
-    0.8rem/1.5 Cascadia Code,
-    monospace;
-}
-
-.cache-warning {
-  color: #ffd38a;
-}
-
-.cache-error {
-  color: #ff9e9e;
-}
-
-.cache-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.9rem;
-}
-
-.cache-actions button {
-  padding: 0.55rem 0.75rem;
-  font-size: 0.8rem;
-}
-
-.command-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-top: 2rem;
-}
-button {
-  border: 1px solid #c8d1d4;
-  background: #d7e2e5;
-  color: #101416;
-  padding: 0.7rem 1rem;
-  font:
-    700 0.9rem Cascadia Code,
-    monospace;
-  cursor: pointer;
-}
-button.secondary {
+::-webkit-scrollbar-track {
   background: transparent;
-  color: #d7e2e5;
-}
-button:focus-visible {
-  outline: 3px solid #ffd38a;
-  outline-offset: 3px;
-}
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-.progress,
-.result {
-  display: block;
-  margin-top: 1.25rem;
-  color: #d7e2e5;
-  font:
-    0.85rem/1.6 Cascadia Code,
-    monospace;
-  white-space: pre-wrap;
-}
-progress {
-  display: block;
-  width: 100%;
-  height: 0.75rem;
-  margin-top: 0.75rem;
-  accent-color: #8fe0b1;
-}
-.result {
-  border-left: 3px solid #8fe0b1;
-  padding-left: 1rem;
 }

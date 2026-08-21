@@ -1,0 +1,188 @@
+import type { MouseEvent } from 'react';
+import { formatClock, formatTimeOfDay } from '../format';
+import type { Messages } from '../i18n';
+import { lyricsFromSettings, promptFromSettings, type Track } from '../tracks';
+import { PauseIcon, PlayIcon } from './icons';
+
+const actionButton =
+  'rounded-[9px] border border-line bg-panel px-4 py-[9px] text-[12.5px] font-semibold text-ink ' +
+  'disabled:cursor-not-allowed disabled:opacity-45';
+
+export type ResultViewProps = {
+  tr: Messages;
+  track: Track;
+  bars: number[];
+  isCurrent: boolean;
+  playing: boolean;
+  posFraction: number;
+  canVariation: boolean;
+  onWaveClick: (fraction: number) => void;
+  onTogglePlay: () => void;
+  onDownload: () => void;
+  onReuse: () => void;
+  onVariation: () => void;
+  onDelete: () => void;
+};
+
+export function ResultView({
+  tr,
+  track,
+  bars,
+  isCurrent,
+  playing,
+  posFraction,
+  canVariation,
+  onWaveClick,
+  onTogglePlay,
+  onDownload,
+  onReuse,
+  onVariation,
+  onDelete,
+}: ResultViewProps) {
+  const ready = track.status === 'ready';
+  const canceled = track.status === 'canceled';
+  const failed = track.status === 'error';
+  const statusLabel = ready
+    ? tr.stReady
+    : canceled
+      ? tr.stCanceled
+      : failed
+        ? tr.stError
+        : tr.stGen;
+  const selPlaying = isCurrent && playing;
+  const settings = track.settings;
+  const settingsText = [
+    `flow guidance   ${settings.sampling.flowGuidance}    flow steps   ${settings.sampling.flowSteps}    global guidance   ${settings.sampling.globalGuidance}`,
+    `semantic top-k  ${settings.sampling.semanticTopK}    residual top-k  ${settings.sampling.residualTopK}    temperature   ${settings.sampling.temperature}`,
+  ].join('\n');
+  const metaCells = [
+    { key: tr.kLen, value: ready ? formatClock(track.actualSeconds) : '--' },
+    { key: tr.kReq, value: `${settings.durationSeconds}s` },
+    { key: tr.kSeed, value: String(settings.seed) },
+    { key: tr.kMode, value: settings.mode === 'fine' ? tr.fineTab : 'Raw' },
+    { key: tr.kVocal, value: settings.instrumental ? tr.inst : tr.vocal },
+    { key: tr.kTime, value: formatTimeOfDay(track.createdAt) },
+  ];
+
+  const handleWaveClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (!ready) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    onWaveClick(Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)));
+  };
+
+  return (
+    <div className="mx-auto flex max-w-[640px] flex-col gap-[18px]">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="font-mono text-[10px] tracking-[.12em] text-muted">{tr.resultLabel}</div>
+          <div className="mt-1 text-2xl font-bold tracking-tight">{settings.title}</div>
+          <div className="mt-1.5 font-mono text-[11px] text-muted">
+            Seed {settings.seed} · {settings.mode === 'fine' ? tr.fineTab : tr.rawTab} ·{' '}
+            {settings.instrumental ? tr.inst : tr.vocal}
+          </div>
+        </div>
+        <div
+          className={`mt-1 whitespace-nowrap rounded-full px-2.5 py-1 font-mono text-[9.5px] tracking-[.08em] ${
+            canceled || failed ? 'bg-danger/15 text-danger' : 'bg-accent-soft text-accent'
+          }`}
+        >
+          {statusLabel}
+        </div>
+      </div>
+
+      {failed && track.error && (
+        <div role="alert" className="text-xs leading-normal text-danger">
+          {track.error}
+        </div>
+      )}
+
+      <div
+        onClick={handleWaveClick}
+        className={`flex h-28 items-center gap-[2px] rounded-xl border border-line bg-panel px-4 py-[18px] ${
+          ready ? 'cursor-pointer' : ''
+        }`}
+      >
+        {bars.map((height, index) => (
+          <div
+            key={index}
+            className={`flex-1 rounded-[1.5px] ${
+              isCurrent && index / bars.length < posFraction ? 'bg-accent' : 'bg-wave'
+            }`}
+            style={{ height: `${height}%` }}
+          />
+        ))}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onTogglePlay}
+          disabled={!ready}
+          className="flex items-center gap-2 rounded-[9px] border-none bg-accent px-5 py-[9px] text-[12.5px] font-bold text-accent-fg disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {selPlaying ? <PauseIcon size={11} /> : <PlayIcon size={11} />}
+          {selPlaying ? tr.pause : tr.play}
+        </button>
+        <button type="button" onClick={onDownload} disabled={!ready} className={actionButton}>
+          {tr.dlWav}
+        </button>
+        <button type="button" onClick={onReuse} className={actionButton}>
+          {tr.reuse}
+        </button>
+        <button
+          type="button"
+          onClick={onVariation}
+          disabled={!canVariation}
+          className={actionButton}
+        >
+          {tr.variation}
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="rounded-[9px] border border-line bg-transparent px-4 py-[9px] text-[12.5px] font-semibold text-danger"
+        >
+          {tr.del}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2">
+        {metaCells.map((cell) => (
+          <div key={cell.key} className="rounded-[10px] border border-line bg-panel px-3 py-2.5">
+            <div className="font-mono text-[9px] uppercase tracking-[.1em] text-muted2">
+              {cell.key}
+            </div>
+            <div className="mt-[5px] font-mono text-[13px] text-ink">{cell.value}</div>
+          </div>
+        ))}
+      </div>
+
+      <div>
+        <div className="mb-2 font-mono text-[10px] tracking-[.12em] text-muted">
+          {tr.modelSettings}
+        </div>
+        <div className="whitespace-pre-wrap rounded-[10px] border border-line bg-input px-4 py-3 font-mono text-[11px] leading-loose text-muted">
+          {settingsText}
+        </div>
+      </div>
+
+      <div>
+        <div className="mb-2 font-mono text-[10px] tracking-[.12em] text-muted">
+          {tr.promptLabel}
+        </div>
+        <div className="whitespace-pre-wrap rounded-[10px] border border-line bg-panel px-4 py-3.5 text-xs leading-[1.7] text-ink">
+          {promptFromSettings(settings)}
+        </div>
+      </div>
+
+      <div>
+        <div className="mb-2 font-mono text-[10px] tracking-[.12em] text-muted">
+          {tr.lyricsLabel}
+        </div>
+        <div className="whitespace-pre-wrap rounded-[10px] border border-line bg-panel px-4 py-3.5 font-mono text-[11.5px] leading-[1.8] text-muted">
+          {lyricsFromSettings(settings)}
+        </div>
+      </div>
+    </div>
+  );
+}
