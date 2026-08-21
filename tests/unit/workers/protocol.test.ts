@@ -3,13 +3,94 @@ import {
   createMusicGenerationRequest,
   createResolvedMusicGenerationRequest,
   createMusicGenerationResultPlan,
+  validateArtifactCacheRequest,
+  type ArtifactCacheRequest,
+  type ArtifactCacheStatus,
+  type ArtifactErrorCode,
+  type ArtifactOperation,
   validateMusicCapacityDiagnosticRequest,
   validateMusicGenerationRequest,
   type LegacyFiveSecondMusicWorkerResult,
   type MusicGenerationEffectiveInput,
   type MusicGenerationResultPlan,
   type MusicGenerationWorkerResult,
+  type WorkerResponse,
 } from '../../../src/workers/protocol';
+
+describe('artifact cache worker protocol', () => {
+  it('defines cache operations, status, success responses, and structured errors', () => {
+    expectTypeOf<ArtifactCacheRequest>().toEqualTypeOf<
+      | { type: 'inspect-artifact-cache'; manifestUrl: string }
+      | { type: 'download-artifacts'; manifestUrl: string }
+      | { type: 'delete-artifact-caches'; manifestUrl: string }
+    >();
+    expectTypeOf<ArtifactOperation>().toEqualTypeOf<
+      | 'inspect-artifact-cache'
+      | 'download-artifacts'
+      | 'delete-artifact-caches'
+      | 'generate-music'
+    >();
+    expectTypeOf<ArtifactErrorCode>().toEqualTypeOf<
+      | 'manifest-unavailable'
+      | 'manifest-invalid'
+      | 'storage-estimate-unavailable'
+      | 'quota-insufficient'
+      | 'cache-not-ready'
+      | 'download-failed'
+      | 'quota-exceeded'
+      | 'cache-inspection-failed'
+      | 'cache-delete-failed'
+    >();
+
+    const status: ArtifactCacheStatus = {
+      manifestHash: 'abc',
+      state: 'partial',
+      artifactCount: 2,
+      totalArtifactBytes: 100,
+      completeArtifactCount: 1,
+      completeArtifactBytes: 40,
+      storedReferencedBytes: 50,
+      additionalBytesNeeded: 50,
+      largestPendingArtifactBytes: 60,
+      projectCacheCount: 2,
+      projectCacheBytes: 75,
+      persistence: 'best-effort',
+      requiredHeadroomBytes: 110,
+    };
+    const responses: WorkerResponse[] = [
+      { type: 'artifact-cache-status', status },
+      { type: 'artifact-download-complete', status },
+      { type: 'artifact-cache-deleted', status },
+      {
+        type: 'error',
+        message: 'cache is incomplete',
+        code: 'cache-not-ready',
+        operation: 'generate-music',
+        retryable: true,
+      },
+    ];
+
+    expect(responses).toHaveLength(4);
+  });
+
+  it.each([
+    'inspect-artifact-cache',
+    'download-artifacts',
+    'delete-artifact-caches',
+  ] as const)('accepts an exact %s request', (type) => {
+    const request = { type, manifestUrl: '/music/manifest.json' };
+
+    expect(validateArtifactCacheRequest(request)).toEqual(request);
+  });
+
+  it.each([
+    ['missing manifest URL', { type: 'inspect-artifact-cache' }],
+    ['extra field', { type: 'download-artifacts', manifestUrl: '/music/manifest.json', extra: true }],
+    ['empty manifest URL', { type: 'delete-artifact-caches', manifestUrl: '' }],
+  ])('rejects a request with an %s', (_label, request) => {
+    expect(() => validateArtifactCacheRequest(request)).toThrow();
+  });
+});
 
 describe('music generation worker protocol', () => {
   it('requires resolved product metadata without imposing it on the legacy result', () => {

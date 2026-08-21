@@ -2,6 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { createArtifactProgressReporter } from '../../../src/workers/artifact-progress';
 
 describe('artifact progress reporting', () => {
+  it('derives rate from aggregate transferred bytes and ETA from remaining verified bytes', () => {
+    const events: unknown[] = [];
+    let now = 0;
+    const reporter = createArtifactProgressReporter({ totalBytes: 100, send: (event) => events.push(event), now: () => now });
+
+    reporter.report('a.bin', 10, 100, 0, 10);
+    now = 1_000;
+    reporter.report('a.bin', 50, 100, 0, 60);
+
+    expect(events[0]).not.toHaveProperty('rate');
+    expect(events[0]).not.toHaveProperty('etaMs');
+    expect(events[1]).toEqual(expect.objectContaining({
+      completedBytes: 50,
+      rate: 50,
+      etaMs: 1_000,
+    }));
+  });
+
   it('reports the first callback immediately and coalesces a small-chunk download to its exact final total', () => {
     const events: unknown[] = [];
     const now = 0;
@@ -77,6 +95,8 @@ describe('artifact progress reporting', () => {
     const reporter = createArtifactProgressReporter({ totalBytes: 200, send: (event) => events.push(event), now: () => now });
 
     reporter.complete('cached.bin', 100, 100, true);
+    expect(events[0]).not.toHaveProperty('rate');
+    expect(events[0]).not.toHaveProperty('etaMs');
     reporter.report('failed.bin', 10, 100, 100);
     reporter.discard();
     now = 200;

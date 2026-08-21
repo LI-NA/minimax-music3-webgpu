@@ -29,6 +29,44 @@ export type MusicGenerationRequestInput = {
 export type MusicGenerationRequest = {
   type: 'generate-music';
 } & MusicGenerationRequestInput;
+export type ArtifactOperation =
+  | 'inspect-artifact-cache'
+  | 'download-artifacts'
+  | 'delete-artifact-caches'
+  | 'generate-music';
+export type ArtifactCacheRequest =
+  | { type: 'inspect-artifact-cache'; manifestUrl: string }
+  | { type: 'download-artifacts'; manifestUrl: string }
+  | { type: 'delete-artifact-caches'; manifestUrl: string };
+export type ArtifactErrorCode =
+  | 'manifest-unavailable'
+  | 'manifest-invalid'
+  | 'storage-estimate-unavailable'
+  | 'quota-insufficient'
+  | 'cache-not-ready'
+  | 'download-failed'
+  | 'quota-exceeded'
+  | 'cache-inspection-failed'
+  | 'cache-delete-failed';
+export interface ArtifactCacheStatus {
+  manifestHash: string;
+  state: 'missing' | 'partial' | 'ready';
+  artifactCount: number;
+  totalArtifactBytes: number;
+  completeArtifactCount: number;
+  completeArtifactBytes: number;
+  storedReferencedBytes: number;
+  additionalBytesNeeded: number;
+  largestPendingArtifactBytes: number;
+  projectCacheCount: number;
+  projectCacheBytes: number;
+  persistence: 'persistent' | 'best-effort' | 'unavailable';
+  usageBytes?: number;
+  quotaBytes?: number;
+  availableBytes?: number;
+  sufficient?: boolean;
+  requiredHeadroomBytes: number;
+}
 export type ResolvedMusicGenerationRequest = MusicGenerationRequest & {
   promptTokens: number;
   requestedFrames: number;
@@ -83,6 +121,22 @@ export function validateMusicCapacityDiagnosticRequest(
 
 function sameKeys(value: Record<string, unknown>, keys: readonly string[]) {
   return JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort());
+}
+
+export function validateArtifactCacheRequest(raw: unknown): ArtifactCacheRequest {
+  if (typeof raw !== 'object' || raw === null)
+    throw new Error('Artifact cache request must be an object');
+  const request = raw as Record<string, unknown>;
+  if (!sameKeys(request, ['manifestUrl', 'type']))
+    throw new Error('Artifact cache request fields are invalid');
+  if (
+    request.type !== 'inspect-artifact-cache'
+    && request.type !== 'download-artifacts'
+    && request.type !== 'delete-artifact-caches'
+  ) throw new Error('Invalid artifact cache request type');
+  if (typeof request.manifestUrl !== 'string' || request.manifestUrl.length === 0)
+    throw new Error('Artifact cache manifest URL must be a non-empty string');
+  return request as ArtifactCacheRequest;
 }
 
 function validateSampling(value: unknown): asserts value is MusicSamplingInput {
@@ -248,6 +302,7 @@ export type WorkerRequest =
       seed: number;
     }
   | MusicGenerationRequest
+  | ArtifactCacheRequest
   | MusicCapacityDiagnosticRequest
   | { type: 'generate-music-5s'; manifestUrl: string; seed: number };
 export type MusicStage = 'autoregressive' | 'acoustic' | 'condition' | 'flow' | 'vocoder' | 'wav';
@@ -393,6 +448,9 @@ export type AnyMusicGenerationWorkerResult =
   | MusicCapacityDiagnosticWorkerResult;
 export type WorkerResponse =
   | WorkerProgress
+  | { type: 'artifact-cache-status'; status: ArtifactCacheStatus }
+  | { type: 'artifact-download-complete'; status: ArtifactCacheStatus }
+  | { type: 'artifact-cache-deleted'; status: ArtifactCacheStatus }
   | { type: 'result'; result: GlobalSmokeResult }
   | { type: 'rvq-result'; result: RvqSmokeResult }
   | { type: 'frame-result'; result: FrameGenerationResult }
@@ -403,4 +461,10 @@ export type WorkerResponse =
       type: 'music-result';
       result: AnyMusicGenerationWorkerResult;
     }
-  | { type: 'error'; message: string };
+  | {
+      type: 'error';
+      message: string;
+      code?: ArtifactErrorCode;
+      operation?: ArtifactOperation;
+      retryable?: boolean;
+    };
