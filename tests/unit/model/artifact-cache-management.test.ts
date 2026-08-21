@@ -6,6 +6,7 @@ import {
   inspectProjectArtifactCaches,
   requestPersistentStorage,
   withArtifactCacheMutationLock,
+  withArtifactCacheReadLock,
   type ArtifactCacheInspection,
 } from '../../../src/runtime/model/artifact-cache-management';
 import type { ArtifactStore } from '../../../src/runtime/model/artifact-cache';
@@ -133,6 +134,35 @@ describe('withArtifactCacheMutationLock', () => {
     vi.stubGlobal('navigator', {});
     try {
       await expect(withArtifactCacheMutationLock(action)).rejects.toThrow(/lock/i);
+      expect(action).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('withArtifactCacheReadLock', () => {
+  it('uses the shared project lock once and returns the action result', async () => {
+    const action = vi.fn().mockResolvedValue('result');
+    const request = vi.fn(async (_name, _options, callback) => callback());
+
+    await expect(withArtifactCacheReadLock(
+      action,
+      { request } as unknown as Pick<LockManager, 'request'>,
+    )).resolves.toBe('result');
+    expect(request).toHaveBeenCalledWith(
+      'minimax-music3-artifact-cache',
+      { mode: 'shared' },
+      expect.any(Function),
+    );
+    expect(action).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed before invoking the action when locks are unavailable', async () => {
+    const action = vi.fn();
+    vi.stubGlobal('navigator', {});
+    try {
+      await expect(withArtifactCacheReadLock(action)).rejects.toThrow(/lock/i);
       expect(action).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();

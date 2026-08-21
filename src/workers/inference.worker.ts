@@ -6,6 +6,7 @@ import {
   inspectArtifactCache,
   inspectProjectArtifactCaches,
   withArtifactCacheMutationLock,
+  withArtifactCacheReadLock,
 } from '../runtime/model/artifact-cache-management';
 import { OpfsFp16EmbeddingTable } from '../runtime/model/embedding-table';
 import {
@@ -214,12 +215,18 @@ export async function runWorkerRequest(rawRequest: unknown) {
     rawRequest
     && typeof rawRequest === 'object'
     && (rawRequest as { type?: unknown }).type === 'generate-music'
-  ) return runVariableMusicGeneration(validateMusicGenerationRequest(rawRequest));
+  ) {
+    const request = validateMusicGenerationRequest(rawRequest);
+    return withArtifactCacheReadLock(() => runVariableMusicGeneration(request));
+  }
   if (
     rawRequest
     && typeof rawRequest === 'object'
     && (rawRequest as { type?: unknown }).type === 'diagnose-music-capacity'
-  ) return runVariableMusicGeneration(validateMusicCapacityDiagnosticRequest(rawRequest));
+  ) {
+    const request = validateMusicCapacityDiagnosticRequest(rawRequest);
+    return withArtifactCacheMutationLock(() => runVariableMusicGeneration(request));
+  }
   if (
     rawRequest
     && typeof rawRequest === 'object'
@@ -232,13 +239,23 @@ export async function runWorkerRequest(rawRequest: unknown) {
     return runArtifactCacheDeletion(request);
   }
   const request = rawRequest as WorkerRequest;
-  if (request.type === 'generate-music-5s') return runMusicGeneration(request);
-  if (request.type === 'run-vocoder-smoke') return runVocoder(request.manifestUrl);
-  if (request.type === 'run-flow-smoke') return runFlow(request.manifestUrl);
-  if (request.type === 'run-condition-smoke') return runCondition(request.manifestUrl);
-  if (request.type === 'generate-frames') return runFrameGeneration(request);
-  if (request.type === 'run-rvq-smoke') return runRvq(request.manifestUrl);
+  if (request.type === 'generate-music-5s')
+    return withArtifactCacheMutationLock(() => runMusicGeneration(request));
+  if (request.type === 'run-vocoder-smoke')
+    return withArtifactCacheMutationLock(() => runVocoder(request.manifestUrl));
+  if (request.type === 'run-flow-smoke')
+    return withArtifactCacheMutationLock(() => runFlow(request.manifestUrl));
+  if (request.type === 'run-condition-smoke')
+    return withArtifactCacheMutationLock(() => runCondition(request.manifestUrl));
+  if (request.type === 'generate-frames')
+    return withArtifactCacheMutationLock(() => runFrameGeneration(request));
+  if (request.type === 'run-rvq-smoke')
+    return withArtifactCacheMutationLock(() => runRvq(request.manifestUrl));
   if (request.type !== 'run-global-smoke') throw new Error('Unknown worker request type');
+  return withArtifactCacheMutationLock(() => runGlobal(request.manifestUrl));
+}
+
+async function runGlobal(manifestUrl: string) {
   send({
     type: 'progress',
     stage: 'manifest',
@@ -246,7 +263,7 @@ export async function runWorkerRequest(rawRequest: unknown) {
   });
   let response: Response;
   try {
-    response = await fetch(request.manifestUrl);
+    response = await fetch(manifestUrl);
   } catch {
     throw new Error('Release manifest is unavailable');
   }
@@ -254,7 +271,7 @@ export async function runWorkerRequest(rawRequest: unknown) {
   const manifestText = await response.text();
   const manifest = parseModelManifest(JSON.parse(manifestText));
   const cache = await OpfsArtifactStore.open(await hashText(manifestText));
-  const base = new URL(request.manifestUrl, self.location.href);
+  const base = new URL(manifestUrl, self.location.href);
   const artifacts = [
     manifest.graph,
     ...manifest.graph.externalData,
@@ -497,16 +514,6 @@ async function readStorageEstimate(storage: StorageManager | undefined) {
   }
 }
 
-async function requestDownloadPersistence(storage: StorageManager | undefined) {
-  if (!storage?.persisted || !storage.persist) return 'unavailable' as const;
-  try {
-    if (await storage.persisted()) return 'persistent' as const;
-    return await storage.persist() ? 'persistent' as const : 'best-effort' as const;
-  } catch {
-    return 'unavailable' as const;
-  }
-}
-
 async function inspectVariableArtifactStatus(
   release: Awaited<ReturnType<typeof fetchManifest>>,
   artifacts: ReturnType<typeof collectVariableMusicArtifacts>,
@@ -575,6 +582,11 @@ function hasErrorName(error: unknown, name: string): boolean {
   return hasErrorName(error.cause, name);
 }
 
+function operationFailureMessage(prefix: string, error: unknown) {
+  const detail = error instanceof Error ? error.message : String(error);
+  return detail ? `${prefix}: ${detail}` : prefix;
+}
+
 async function runArtifactDownload(
   request: Extract<ArtifactCacheRequest, { type: 'download-artifacts' }>,
 ) {
@@ -602,11 +614,9 @@ async function runArtifactDownload(
           true,
         );
       }
-      const persistence = await requestDownloadPersistence(navigator.storage);
       const cache = await OpfsArtifactStore.open(release.hash, root);
       await cacheArtifacts(artifacts, release.base, cache);
-      const inspected = await inspectVariableArtifactStatus(release, artifacts, root);
-      const completed = { ...inspected, persistence };
+      const completed = await inspectVariableArtifactStatus(release, artifacts, root);
       if (completed.state !== 'ready')
         throw new Error('Artifact cache is not ready after download');
       send({ type: 'artifact-download-complete', status: completed });
@@ -615,7 +625,10 @@ async function runArtifactDownload(
     if (error instanceof ArtifactOperationError) throw error;
     if (hasErrorName(error, 'QuotaExceededError')) {
       throw new ArtifactOperationError(
-        'Storage quota was exceeded while downloading model artifacts',
+        operationFailureMessage(
+          'Storage quota was exceeded while downloading model artifacts',
+          error,
+        ),
         'quota-exceeded',
         operation,
         true,
@@ -623,7 +636,7 @@ async function runArtifactDownload(
       );
     }
     throw new ArtifactOperationError(
-      'Artifact download failed',
+      operationFailureMessage('Artifact download failed', error),
       'download-failed',
       operation,
       true,
@@ -649,7 +662,7 @@ async function runArtifactCacheDeletion(
   } catch (error) {
     if (error instanceof ArtifactOperationError) throw error;
     throw new ArtifactOperationError(
-      'Artifact cache deletion failed',
+      operationFailureMessage('Artifact cache deletion failed', error),
       'cache-delete-failed',
       operation,
       true,

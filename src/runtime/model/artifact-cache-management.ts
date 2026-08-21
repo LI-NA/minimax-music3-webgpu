@@ -93,6 +93,19 @@ export async function withArtifactCacheMutationLock<T>(
   );
 }
 
+export async function withArtifactCacheReadLock<T>(
+  action: () => Promise<T>,
+  locks: Pick<LockManager, 'request'> | undefined =
+    typeof navigator === 'undefined' ? undefined : navigator.locks,
+): Promise<T> {
+  if (!locks) throw new Error('artifact cache read lock is unavailable');
+  return locks.request(
+    'minimax-music3-artifact-cache',
+    { mode: 'shared' },
+    action,
+  );
+}
+
 export async function requestPersistentStorage(
   storage: Pick<StorageManager, 'persisted' | 'persist'> | undefined =
     typeof navigator === 'undefined' ? undefined : navigator.storage,
