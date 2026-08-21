@@ -87,6 +87,10 @@ describe('artifact cache worker protocol', () => {
     ['missing manifest URL', { type: 'inspect-artifact-cache' }],
     ['extra field', { type: 'download-artifacts', manifestUrl: '/music/manifest.json', extra: true }],
     ['empty manifest URL', { type: 'delete-artifact-caches', manifestUrl: '' }],
+    ['decorated array', Object.assign([], {
+      type: 'inspect-artifact-cache',
+      manifestUrl: '/music/manifest.json',
+    })],
   ])('rejects a request with an %s', (_label, request) => {
     expect(() => validateArtifactCacheRequest(request)).toThrow();
   });

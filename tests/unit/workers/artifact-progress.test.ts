@@ -20,6 +20,38 @@ describe('artifact progress reporting', () => {
     }));
   });
 
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'omits rate and ETA for non-finite transferred bytes (%s)',
+    (transferredBytes) => {
+      const events: unknown[] = [];
+      let now = 0;
+      const reporter = createArtifactProgressReporter({ totalBytes: 100, send: (event) => events.push(event), now: () => now });
+
+      reporter.report('a.bin', 10, 100, 0, transferredBytes);
+      now = 1_000;
+      reporter.report('a.bin', 20, 100, 0, 20);
+
+      expect(events).toHaveLength(2);
+      for (const event of events) {
+        expect(event).not.toHaveProperty('rate');
+        expect(event).not.toHaveProperty('etaMs');
+      }
+    },
+  );
+
+  it('omits rate and ETA when derived transfer metrics are non-finite', () => {
+    const events: unknown[] = [];
+    let now = 0;
+    const reporter = createArtifactProgressReporter({ totalBytes: 100, send: (event) => events.push(event), now: () => now });
+
+    reporter.report('a.bin', 10, 100, 0, 1);
+    now = 100;
+    reporter.report('a.bin', 20, 100, 0, Number.MAX_VALUE);
+
+    expect(events[1]).not.toHaveProperty('rate');
+    expect(events[1]).not.toHaveProperty('etaMs');
+  });
+
   it('reports the first callback immediately and coalesces a small-chunk download to its exact final total', () => {
     const events: unknown[] = [];
     const now = 0;
@@ -74,6 +106,22 @@ describe('artifact progress reporting', () => {
       expect.objectContaining({ loaded: 80, completedBytes: 80 }),
       expect.objectContaining({ loaded: 10, completedBytes: 80 }),
     ]);
+  });
+
+  it('keeps ETA positive when a fully transferred artifact restarts after verification fails', () => {
+    const events: unknown[] = [];
+    let now = 0;
+    const reporter = createArtifactProgressReporter({ totalBytes: 100, send: (event) => events.push(event), now: () => now });
+
+    reporter.report('a.bin', 100, 100, 0, 100);
+    now = 1_000;
+    reporter.report('a.bin', 10, 100, 0, 150);
+
+    expect(events[1]).toEqual(expect.objectContaining({
+      completedBytes: 100,
+      rate: 50,
+      etaMs: 1_800,
+    }));
   });
 
   it('emits a successful final after a callback already reached the file total', () => {

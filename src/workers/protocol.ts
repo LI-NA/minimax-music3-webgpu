@@ -124,7 +124,7 @@ function sameKeys(value: Record<string, unknown>, keys: readonly string[]) {
 }
 
 export function validateArtifactCacheRequest(raw: unknown): ArtifactCacheRequest {
-  if (typeof raw !== 'object' || raw === null)
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
     throw new Error('Artifact cache request must be an object');
   const request = raw as Record<string, unknown>;
   if (!sameKeys(request, ['manifestUrl', 'type']))

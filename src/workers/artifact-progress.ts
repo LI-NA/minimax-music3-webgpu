@@ -23,6 +23,7 @@ export function createArtifactProgressReporter({
   const emit = (
     progress: ArtifactProgress,
     timestamp: number,
+    currentCompletedBytes: number,
     transferredBytes?: number,
   ) => {
     let next = progress;
@@ -32,7 +33,7 @@ export function createArtifactProgressReporter({
         const elapsedMs = timestamp - transferredBaseline.timestamp;
         if (transferredDelta > 0 && elapsedMs > 0) {
           const rate = transferredDelta * 1_000 / elapsedMs;
-          const etaMs = Math.max(0, totalBytes - progress.completedBytes!) * 1_000 / rate;
+          const etaMs = (totalBytes - currentCompletedBytes) * 1_000 / rate;
           if (Number.isFinite(rate) && rate > 0 && Number.isFinite(etaMs))
             next = { ...progress, rate, etaMs };
         }
@@ -62,11 +63,12 @@ export function createArtifactProgressReporter({
     report(path: string, loaded: number, total: number, completedBefore: number, transferredBytes?: number) {
       const next = progress(path, loaded, total, completedBefore);
       const timestamp = now();
+      const currentCompletedBytes = Math.min(totalBytes, Math.max(0, completedBefore + loaded));
       if (
         lastReportedAt === undefined
         || lastProgress?.currentFile !== next.currentFile
         || timestamp - lastReportedAt >= REPORT_INTERVAL_MS
-      ) emit(next, timestamp, transferredBytes);
+      ) emit(next, timestamp, currentCompletedBytes, transferredBytes);
     },
     complete(path: string, total: number, completedBytes: number, cacheHit: boolean, transferredBytes?: number) {
       reportedCompletedBytes = Math.max(reportedCompletedBytes, completedBytes);
@@ -75,7 +77,8 @@ export function createArtifactProgressReporter({
         completedBytes: reportedCompletedBytes,
         cacheHit,
       };
-      emit(next, now(), transferredBytes);
+      const currentCompletedBytes = Math.min(totalBytes, Math.max(0, completedBytes));
+      emit(next, now(), currentCompletedBytes, transferredBytes);
     },
     discard() {
       lastProgress = undefined;
