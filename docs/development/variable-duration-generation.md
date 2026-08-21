@@ -13,6 +13,14 @@ The release uses the official long-song chunk contract:
 
 Condition and flow sessions are reused across chunks. Autoregressive, acoustic, and vocoder device groups are released sequentially. Intermediate Euler latents remain on the GPU, while cross-device handoffs use exact raw FP16 data.
 
+## Model download and cache
+
+Page load inspects the project cache but does not start a download. The user must select **Download Model**. The Window requests persistent storage before starting, but denial leaves storage best-effort and does not block the download when the reported capacity is sufficient. [`navigator.storage.estimate()`](https://storage.spec.whatwg.org/) is advisory: it neither reserves space nor guarantees that a later write will succeed. The worker blocks transfer when the estimate is unavailable or insufficient, and it also handles an actual `QuotaExceededError` from the file write.
+
+Downloads resume with HTTP Range requests and validate each completed file by SHA-256 before writing its receipt. **Retry Download** reuses both verified complete files and resumable partial files. **Cancel** stops the current transfer and keeps partial data for a later retry. **Remove Cached Model** deletes only caches named by the exact project manifest, preserving unrelated data in the origin private file system (OPFS). See the standard [Storage](https://storage.spec.whatwg.org/) and [File System](https://fs.spec.whatwg.org/) specifications for the underlying browser APIs.
+
+Product generation requires the active release cache to be ready. Diagnostic routes retain their legacy cache behavior. Download progress reports verified bytes, the current file, transfer rate, and ETA. This technical demo performs downloads only while its page and worker are active. It does not install a background service worker or provide an automatic retry engine.
+
 ## Active release qualification
 
 The active programmatic-input release has manifest SHA-256 `730293c66360cc9a413446311d2fd7957b547423d38bf7f81b80d2d331f96232`. A headed Chrome gate passed 6 and 10-second requests using the raw product request contract, returned 150 and 250 retained frames, produced 1,056,812-byte and 1,763,372-byte WAV files, and fetched zero completed artifacts. Total dedicated GPU memory rose from 2,987 MiB to 8,800 MiB, an increase of 5,813 MiB.
