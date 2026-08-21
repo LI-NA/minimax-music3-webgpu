@@ -1,21 +1,17 @@
 import type * as ort from 'onnxruntime-web/jspi';
+import { readGpuFp16Bits } from '../model/fp16-readback';
+import type { DurationChunkPlan, RetainedFramesPlan } from './duration-plan';
 
-const flowSteps = 30;
-const timestepBits = new Uint32Array([
-  0, 1023969424, 1032358024, 1036831952, 1040746632, 1042983596,
-  1045220556, 1047457520, 1049135240, 1050253722, 1051372202, 1052490684,
-  1053609164, 1054727646, 1055846126, 1056964608, 1057523848, 1058083089,
-  1058642330, 1059201570, 1059760810, 1060320051, 1060879292, 1061438532,
-  1061997773, 1062557013, 1063116254, 1063675494, 1064234735, 1064793975,
-]);
-const dtBits = new Uint32Array([
-  1023969424, 1023969408, 1023969424, 1023969408, 1023969424, 1023969408,
-  1023969424, 1023969408, 1023969424, 1023969408, 1023969424, 1023969408,
-  1023969424, 1023969408, 1023969424, 1023969408, 1023969424, 1023969424,
-  1023969408, 1023969408, 1023969424, 1023969424, 1023969408, 1023969424,
-  1023969408, 1023969424, 1023969408, 1023969424, 1023969408, 1023969424,
-]);
-
+const defaultFlowSteps = 30;
+const defaultFlowGuidance = 1.7;
+const maximumFrames = 200;
+const maximumLatents = 689;
+const overlapLatents = 172;
+const latentChannels = 128;
+const conditionWidth = 2048;
+const frameHiddenWidth = 32_768;
+const fp16One = 0x3c00;
+const fp16Minimum = 0xfbff;
 export interface FlowSchedule {
   timesteps: Float32Array;
   dts: Float32Array;
@@ -28,6 +24,34 @@ export interface FlowGenerationRuntime {
 
 export type FlowSmokeRuntime = FlowGenerationRuntime;
 
+export interface ChunkedFlowGenerationRuntime {
+  ort: typeof ort;
+  conditionSession: ort.InferenceSession;
+  flowSession: ort.InferenceSession;
+}
+
+export interface ChunkedFlowGenerationRequest {
+  plan: RetainedFramesPlan;
+  frameHiddens: Uint16Array;
+  initialLatents: readonly Uint16Array[];
+  flowGuidance: number;
+  flowSteps: number;
+  onConditionStart?: (chunkIndex: number) => void;
+  onConditionComplete?: (timing: FlowChunkTiming) => void;
+  onChunkStart?: (chunkIndex: number, completedSteps: number) => void;
+  onChunkComplete?: (timing: FlowChunkTiming) => void;
+  onStep?: (completedSteps: number) => void;
+}
+
+export interface FlowChunkTiming {
+  chunkIndex: number;
+  elapsedMs: number;
+}
+
+export interface FlowChunkResult extends DurationChunkPlan {
+  latentBits: Uint16Array;
+}
+
 export interface FlowSmokeMetrics {
   oneStepMs: number;
   generationMs: number;
@@ -39,11 +63,28 @@ export interface FlowSmokeMetrics {
   finalFinite: boolean;
 }
 
-export function exactFlowSchedule(): FlowSchedule {
-  return {
-    timesteps: new Float32Array(timestepBits.slice().buffer),
-    dts: new Float32Array(dtBits.slice().buffer),
-  };
+function requireFlowStepCount(numSteps: number) {
+  if (!Number.isSafeInteger(numSteps) || numSteps < 1)
+    throw new Error('flow step count must be a positive safe integer');
+}
+
+export function exactFlowSchedule(numSteps = defaultFlowSteps): FlowSchedule {
+  requireFlowStepCount(numSteps);
+  const sourceSigmas = new Float32Array(numSteps);
+  const timesteps = new Float32Array(numSteps);
+  const dts = new Float32Array(numSteps);
+  const stop = 1 / numSteps;
+  const delta = numSteps === 1 ? 0 : (stop - 1) / (numSteps - 1);
+  for (let index = 0; index < numSteps; index++) {
+    const sigma = index === numSteps - 1 ? stop : 1 + index * delta;
+    sourceSigmas[index] = sigma;
+    timesteps[index] = Math.fround(1 - sourceSigmas[index]);
+  }
+  for (let index = 0; index < numSteps; index++) {
+    const next = index + 1 === numSteps ? 1 : timesteps[index + 1];
+    dts[index] = Math.fround(next - timesteps[index]);
+  }
+  return { timesteps, dts };
 }
 
 export function float32ToFloat16Bits(value: number) {
@@ -91,21 +132,26 @@ export async function runFixedFlowStep(
   latents: ort.Tensor,
   condition: ort.Tensor,
   step: number,
+  flowGuidance = defaultFlowGuidance,
+  flowStepCount = defaultFlowSteps,
 ) {
   requireFloat16(latents, 'latents', [1, 128, 430]);
   requireFloat16(condition, 'condition', [1, 430, 2048]);
-  if (!Number.isInteger(step) || step < 0 || step >= flowSteps)
-    throw new Error('flow step must be between 0 and 29');
-  const schedule = exactFlowSchedule();
+  const schedule = exactFlowSchedule(flowStepCount);
+  if (!Number.isInteger(step) || step < 0 || step >= flowStepCount)
+    throw new Error(`flow step must be between 0 and ${flowStepCount - 1}`);
   const timestep = new runtime.ort.Tensor(
     'float16',
     new Uint16Array([float32ToFloat16Bits(schedule.timesteps[step])]),
     [1],
   );
   const dt = new runtime.ort.Tensor('float32', new Float32Array([schedule.dts[step]]), [1]);
+  const guidance = new runtime.ort.Tensor(
+    'float16', new Uint16Array([float32ToFloat16Bits(flowGuidance)]), [1],
+  );
   let next: ort.Tensor | undefined;
   try {
-    const outputs = await runtime.session.run({ latents, condition, timestep, dt });
+    const outputs = await runtime.session.run({ latents, condition, timestep, dt, guidance });
     next = outputs.next_latents;
     if (!next) throw new Error('flow session did not return next_latents');
     requireFloat16(next, 'next_latents', [1, 128, 430], true);
@@ -116,6 +162,7 @@ export async function runFixedFlowStep(
   } finally {
     timestep.dispose();
     dt.dispose();
+    guidance.dispose();
   }
 }
 
@@ -124,13 +171,18 @@ export async function runFixedFlowGeneration(
   initialLatents: ort.Tensor,
   condition: ort.Tensor,
   onStep?: (completedSteps: number) => void,
+  flowGuidance = defaultFlowGuidance,
+  flowStepCount = defaultFlowSteps,
 ) {
   requireFloat16(initialLatents, 'latents', [1, 128, 430]);
   requireFloat16(condition, 'condition', [1, 430, 2048]);
+  requireFlowStepCount(flowStepCount);
   let latents = initialLatents;
   try {
-    for (let index = 0; index < flowSteps; index++) {
-      const next = await runFixedFlowStep(runtime, latents, condition, index);
+    for (let index = 0; index < flowStepCount; index++) {
+      const next = await runFixedFlowStep(
+        runtime, latents, condition, index, flowGuidance, flowStepCount,
+      );
       latents.dispose();
       latents = next;
       onStep?.(index + 1);
@@ -140,6 +192,260 @@ export async function runFixedFlowGeneration(
     latents.dispose();
     throw error;
   }
+}
+
+function paddedChannelValues(values: Uint16Array, sourceLength: number) {
+  const padded = new Uint16Array(latentChannels * maximumLatents);
+  for (let channel = 0; channel < latentChannels; channel++)
+    padded.set(
+      values.subarray(channel * sourceLength, (channel + 1) * sourceLength),
+      channel * maximumLatents,
+    );
+  return padded;
+}
+
+function activeChannelValues(values: Uint16Array, activeLength: number) {
+  const active = new Uint16Array(latentChannels * activeLength);
+  for (let channel = 0; channel < latentChannels; channel++)
+    active.set(
+      values.subarray(channel * maximumLatents, channel * maximumLatents + activeLength),
+      channel * activeLength,
+    );
+  return active;
+}
+
+function channelInterval(values: Uint16Array, length: number, start: number, end: number) {
+  const intervalLength = end - start;
+  const selected = new Uint16Array(latentChannels * intervalLength);
+  for (let channel = 0; channel < latentChannels; channel++)
+    selected.set(
+      values.subarray(channel * length + start, channel * length + end),
+      channel * intervalLength,
+    );
+  return selected;
+}
+
+function restoreChannelPrefix(values: Uint16Array, prefix: Uint16Array) {
+  for (let channel = 0; channel < latentChannels; channel++)
+    values.set(
+      prefix.subarray(channel * overlapLatents, (channel + 1) * overlapLatents),
+      channel * (values.length / latentChannels),
+    );
+}
+
+function nearestIndices(frameLength: number, latentLength: number) {
+  const result = new BigInt64Array(maximumLatents);
+  const scale = Math.fround(frameLength / latentLength);
+  for (let index = 0; index < latentLength; index++)
+    result[index] = BigInt(Math.floor(Math.fround(index * scale)));
+  return result;
+}
+
+function activeLatentMask(latentLength: number) {
+  const mask = new Uint16Array(maximumLatents);
+  mask.fill(fp16One, 0, latentLength);
+  return mask;
+}
+
+function keyAttentionBias(latentLength: number) {
+  const bias = new Uint16Array(maximumLatents + 1);
+  bias.fill(fp16Minimum, latentLength + 1);
+  return bias;
+}
+
+function conditionInterval(values: Uint16Array, start: number, end: number) {
+  return values.slice(start * conditionWidth, end * conditionWidth);
+}
+
+async function encodeMaximumCondition(
+  runtime: ChunkedFlowGenerationRuntime,
+  frameHiddens: Uint16Array,
+  chunk: DurationChunkPlan,
+) {
+  const paddedFrames = new Uint16Array(maximumFrames * frameHiddenWidth);
+  paddedFrames.set(frameHiddens.subarray(
+    chunk.startFrame * frameHiddenWidth,
+    (chunk.startFrame + chunk.frameLength) * frameHiddenWidth,
+  ));
+  const frames = new runtime.ort.Tensor('float16', paddedFrames, [1, maximumFrames, frameHiddenWidth]);
+  const nearest = new runtime.ort.Tensor('int64', nearestIndices(chunk.frameLength, chunk.latentLength), [maximumLatents]);
+  const mask = new runtime.ort.Tensor(
+    'float16',
+    activeLatentMask(chunk.latentLength),
+    [1, maximumLatents, 1],
+  );
+  let output: ort.Tensor | undefined;
+  try {
+    const started = performance.now();
+    const outputs = await runtime.conditionSession.run({
+      frame_hiddens: frames,
+      nearest_index: nearest,
+      active_latent_mask: mask,
+    });
+    output = outputs.condition;
+    if (!output) throw new Error('condition session did not return condition');
+    const bits = await readGpuFp16Bits(
+      output,
+      [1, maximumLatents, conditionWidth],
+      'condition',
+    );
+    return { bits, elapsedMs: performance.now() - started };
+  } finally {
+    output?.dispose();
+    frames.dispose();
+    nearest.dispose();
+    mask.dispose();
+  }
+}
+
+async function generateMaximumFlowChunk(
+  runtime: ChunkedFlowGenerationRuntime,
+  chunk: DurationChunkPlan,
+  initialLatents: Uint16Array,
+  conditionBits: Uint16Array,
+  previousLatent: Uint16Array | undefined,
+  chunkIndex: number,
+  completedSteps: number,
+  flowGuidance: number,
+  flowStepCount: number,
+  onChunkStart: ChunkedFlowGenerationRequest['onChunkStart'],
+  onChunkComplete: ChunkedFlowGenerationRequest['onChunkComplete'],
+  onStep: ChunkedFlowGenerationRequest['onStep'],
+) {
+  const noisePromptBits = previousLatent
+    ? channelInterval(initialLatents, chunk.latentLength, 0, overlapLatents)
+    : new Uint16Array(latentChannels * overlapLatents);
+  const previousLatentBits = previousLatent ?? new Uint16Array(latentChannels * overlapLatents);
+  const condition = new runtime.ort.Tensor(
+    'float16', conditionBits, [1, maximumLatents, conditionWidth],
+  );
+  const activeMask = new runtime.ort.Tensor(
+    'float16', activeLatentMask(chunk.latentLength), [1, maximumLatents, 1],
+  );
+  const attentionBias = new runtime.ort.Tensor(
+    'float16', keyAttentionBias(chunk.latentLength), [1, 1, 1, maximumLatents + 1],
+  );
+  const noisePrompt = new runtime.ort.Tensor(
+    'float16', noisePromptBits, [1, latentChannels, overlapLatents],
+  );
+  const previous = new runtime.ort.Tensor(
+    'float16', previousLatentBits, [1, latentChannels, overlapLatents],
+  );
+  const overlapEnabled = new runtime.ort.Tensor(
+    'float16', new Uint16Array([previousLatent ? fp16One : 0]), [1],
+  );
+  let latents: ort.Tensor = new runtime.ort.Tensor(
+    'float16',
+    paddedChannelValues(initialLatents, chunk.latentLength),
+    [1, latentChannels, maximumLatents],
+  );
+  try {
+    const schedule = exactFlowSchedule(flowStepCount);
+    onChunkStart?.(chunkIndex, completedSteps);
+    const started = performance.now();
+    for (let index = 0; index < flowStepCount; index++) {
+      const timestep = new runtime.ort.Tensor(
+        'float16',
+        new Uint16Array([float32ToFloat16Bits(schedule.timesteps[index])]),
+        [1],
+      );
+      const dt = new runtime.ort.Tensor('float32', new Float32Array([schedule.dts[index]]), [1]);
+      const guidance = new runtime.ort.Tensor(
+        'float16', new Uint16Array([float32ToFloat16Bits(flowGuidance)]), [1],
+      );
+      let next: ort.Tensor | undefined;
+      try {
+        const outputs = await runtime.flowSession.run({
+          latents,
+          condition,
+          timestep,
+          dt,
+          guidance,
+          active_latent_mask: activeMask,
+          key_attention_bias: attentionBias,
+          noise_prompt: noisePrompt,
+          previous_latent: previous,
+          overlap_enabled: overlapEnabled,
+        });
+        next = outputs.next_latents;
+        if (!next) throw new Error('flow session did not return next_latents');
+        requireFloat16(next, 'next_latents', [1, latentChannels, maximumLatents], true);
+        latents.dispose();
+        latents = next;
+        next = undefined;
+        onStep?.(completedSteps + index + 1);
+      } finally {
+        next?.dispose();
+        timestep.dispose();
+        dt.dispose();
+        guidance.dispose();
+      }
+    }
+    const downloaded = await readGpuFp16Bits(
+      latents,
+      [1, latentChannels, maximumLatents],
+      'final latents',
+    );
+    const active = activeChannelValues(downloaded, chunk.latentLength);
+    if (previousLatent) restoreChannelPrefix(active, previousLatent);
+    onChunkComplete?.({ chunkIndex, elapsedMs: performance.now() - started });
+    return active;
+  } finally {
+    latents.dispose();
+    condition.dispose();
+    activeMask.dispose();
+    attentionBias.dispose();
+    noisePrompt.dispose();
+    previous.dispose();
+    overlapEnabled.dispose();
+  }
+}
+
+export async function runChunkedFlowGeneration(
+  runtime: ChunkedFlowGenerationRuntime,
+  request: ChunkedFlowGenerationRequest,
+): Promise<FlowChunkResult[]> {
+  if (request.frameHiddens.length !== request.plan.retainedFrames * frameHiddenWidth)
+    throw new Error('frame hiddens do not match the retained-frame plan');
+  if (request.initialLatents.length !== request.plan.chunks.length)
+    throw new Error('initial latent chunks do not match the duration plan');
+  const result: FlowChunkResult[] = [];
+  let previousLatent: Uint16Array | undefined;
+  let previousCondition: Uint16Array | undefined;
+  for (let chunkIndex = 0; chunkIndex < request.plan.chunks.length; chunkIndex++) {
+    const chunk = request.plan.chunks[chunkIndex];
+    const initialLatents = request.initialLatents[chunkIndex];
+    if (initialLatents.length !== latentChannels * chunk.latentLength)
+      throw new Error(`initial latents for chunk ${chunkIndex} have an invalid length`);
+    request.onConditionStart?.(chunkIndex);
+    const encoded = await encodeMaximumCondition(runtime, request.frameHiddens, chunk);
+    const condition = encoded.bits;
+    request.onConditionComplete?.({ chunkIndex, elapsedMs: encoded.elapsedMs });
+    condition.fill(0, chunk.latentLength * conditionWidth);
+    if (previousCondition) condition.set(previousCondition, 0);
+    const latentBits = await generateMaximumFlowChunk(
+      runtime,
+      chunk,
+      initialLatents,
+      condition,
+      previousLatent,
+      chunkIndex,
+      chunkIndex * request.flowSteps,
+      request.flowGuidance,
+      request.flowSteps,
+      request.onChunkStart,
+      request.onChunkComplete,
+      request.onStep,
+    );
+    result.push({ ...chunk, latentBits });
+    if (chunkIndex + 1 < request.plan.chunks.length) {
+      const carryStart = chunk.latentLength - 2 * overlapLatents;
+      const carryEnd = chunk.latentLength - overlapLatents;
+      previousLatent = channelInterval(latentBits, chunk.latentLength, carryStart, carryEnd);
+      previousCondition = conditionInterval(condition, carryStart, carryEnd);
+    }
+  }
+  return result;
 }
 
 function analyticFp16(length: number, positive: number, negative: number) {
@@ -185,7 +491,9 @@ export async function runFlowSmoke(runtime: FlowSmokeRuntime): Promise<FlowSmoke
   let oneStepFinite = false;
   try {
     const started = performance.now();
-    oneOutput = await runFixedFlowStep(runtime, oneLatents, oneCondition, 0);
+    oneOutput = await runFixedFlowStep(
+      runtime, oneLatents, oneCondition, 0, defaultFlowGuidance, defaultFlowSteps,
+    );
     oneStepMs = performance.now() - started;
     oneStepLocation = oneOutput.location;
     oneStepFinite = areFiniteFlowValues(await oneOutput.getData());
@@ -202,11 +510,18 @@ export async function runFlowSmoke(runtime: FlowSmokeRuntime): Promise<FlowSmoke
   const started = previous;
   let final: ort.Tensor | undefined;
   try {
-    final = await runFixedFlowGeneration(runtime, latents, condition, () => {
-      const now = performance.now();
-      stepMs.push(now - previous);
-      previous = now;
-    });
+    final = await runFixedFlowGeneration(
+      runtime,
+      latents,
+      condition,
+      () => {
+        const now = performance.now();
+        stepMs.push(now - previous);
+        previous = now;
+      },
+      defaultFlowGuidance,
+      defaultFlowSteps,
+    );
     const generationMs = performance.now() - started;
     const shape = [...final.dims];
     const finalLocation = final.location;

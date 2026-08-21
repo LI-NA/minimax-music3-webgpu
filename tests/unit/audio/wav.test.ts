@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { encodeStereoPcm16Wav } from '../../../src/runtime/audio/wav';
+import {
+  createStereoPcm16Wav,
+  encodeStereoPcm16Wav,
+  writeStereoPcm16WavChannel,
+} from '../../../src/runtime/audio/wav';
 
 describe('encodeStereoPcm16Wav', () => {
   it('writes the exact fixed five-second stereo container size and header', () => {
@@ -50,6 +54,36 @@ describe('encodeStereoPcm16Wav', () => {
     expect(() =>
       encodeStereoPcm16Wav([Float32Array.of(Number.NaN), Float32Array.of(0)]),
     ).toThrow('samples must be finite');
+  });
+});
+
+describe('direct stereo PCM16 WAV assembly', () => {
+  it.each([
+    [264_192, 1_056_812],
+    [440_832, 1_763_372],
+    [13_247_488, 52_989_996],
+  ])('allocates one exact final container for %i samples per channel', (samples, bytes) => {
+    const wav = createStereoPcm16Wav(samples);
+
+    expect(wav.byteLength).toBe(bytes);
+    expect(new DataView(wav).getUint32(40, true)).toBe(bytes - 44);
+  });
+
+  it('writes finite channel slices directly at interleaved sample offsets', () => {
+    const wav = createStereoPcm16Wav(4);
+    writeStereoPcm16WavChannel(wav, 0, 1, Float32Array.of(-1, 0.5));
+    writeStereoPcm16WavChannel(wav, 1, 1, Float32Array.of(1, -0.5));
+    const view = new DataView(wav);
+
+    expect(Array.from({ length: 8 }, (_, index) => view.getInt16(44 + index * 2, true))).toEqual([
+      0, 0, -32_768, 32_767, 16_384, -16_384, 0, 0,
+    ]);
+    expect(() => writeStereoPcm16WavChannel(
+      wav, 0, 0, Float32Array.of(Number.POSITIVE_INFINITY),
+    )).toThrow('samples must be finite');
+    expect(() => writeStereoPcm16WavChannel(
+      wav, 1, 4, Float32Array.of(0),
+    )).toThrow('channel write exceeds WAV sample capacity');
   });
 });
 

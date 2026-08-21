@@ -1,13 +1,14 @@
 import type * as ort from 'onnxruntime-web/jspi';
 import { readGpuFp16Bits } from '../model/fp16-readback';
+import { planRetainedFrames, type Termination } from './duration-plan';
 import { float32ToFloat16Bits } from './flow-generation';
-import type { GeneratedFrame } from './rvq-generation';
+import type { GeneratedFrame, GeneratedFrames } from './rvq-generation';
 import { createDeterministicDraw } from './sampler';
 import { EarlyAudioEndError } from './rvq-generation';
 
-const frameCount = 125;
 const groupsPerFrame = 8;
 const hiddenSize = 4096;
+const promptTokens = 40;
 const conditionValues = 430 * 2048;
 const latentValues = 128 * 430;
 const wavBytes = 880_684;
@@ -30,19 +31,35 @@ export interface MusicGenerationStages {
 export interface MusicGenerationResult {
   wav: ArrayBuffer;
   attemptedSeeds: readonly number[];
+  retainedFrames: number;
+  termination: Termination;
   hiddenBytes: number;
   conditionBytes: number;
   latentBytes: number;
 }
 
 export function flattenFrameHiddens(frames: readonly GeneratedFrame[]) {
-  if (frames.length !== frameCount) throw new Error('music generation requires exactly 125 retained frames');
-  const values = new Uint16Array(frameCount * groupsPerFrame * hiddenSize);
-  frames.forEach((frame, index) => {
-    if (frame.hiddenGroups.length !== groupsPerFrame * hiddenSize)
+  const generated = frames as Partial<GeneratedFrames>;
+  const termination: Termination = generated.termination === 'natural-end' ? 'natural-end' : 'max-frames';
+  planRetainedFrames({ retainedFrames: frames.length, promptTokens, termination });
+  const valuesPerFrame = groupsPerFrame * hiddenSize;
+  frames.forEach((frame) => {
+    if (frame.hiddenGroups.length !== valuesPerFrame)
       throw new Error('retained frame hidden groups have an invalid shape');
-    values.set(frame.hiddenGroups, index * groupsPerFrame * hiddenSize);
   });
+  if (generated.hiddenGroups) {
+    if (generated.hiddenGroups.length !== frames.length * valuesPerFrame)
+      throw new Error('flat retained hidden groups have an invalid shape');
+    frames.forEach((frame, index) => {
+      if (
+        frame.hiddenGroups.buffer !== generated.hiddenGroups!.buffer ||
+        frame.hiddenGroups.byteOffset !== generated.hiddenGroups!.byteOffset + index * valuesPerFrame * 2
+      ) throw new Error('retained frame hidden groups must be contiguous views of the flat buffer');
+    });
+    return generated.hiddenGroups;
+  }
+  const values = new Uint16Array(frames.length * valuesPerFrame);
+  frames.forEach((frame, index) => values.set(frame.hiddenGroups, index * valuesPerFrame));
   return values;
 }
 
@@ -79,7 +96,14 @@ export async function generateFiveSecondMusic(
     selectedSeed = seed + attempt;
     attemptedSeeds.push(selectedSeed);
     try {
-      frames = await stages.autoregressive(selectedSeed);
+      const candidate = await stages.autoregressive(selectedSeed);
+      const candidateTermination = (candidate as Partial<GeneratedFrames>).termination;
+      if (candidate.length !== 125 || candidateTermination === 'natural-end') {
+        if (attempt === 1)
+          throw new Error(`audio end sampled early for seeds ${attemptedSeeds.join(', ')}`);
+        continue;
+      }
+      frames = candidate;
       break;
     } catch (error) {
       if (!(error instanceof EarlyAudioEndError)) throw error;
@@ -88,6 +112,9 @@ export async function generateFiveSecondMusic(
     }
   }
   if (!frames) throw new Error('autoregressive generation did not return frames');
+  const termination: Termination = (frames as Partial<GeneratedFrames>).termination === 'natural-end'
+    ? 'natural-end'
+    : 'max-frames';
   onProgress?.({ stage: 'autoregressive', retainedFrames: frames.length });
   const frameBits = flattenFrameHiddens(frames);
   onProgress?.({ stage: 'condition' });
@@ -105,6 +132,8 @@ export async function generateFiveSecondMusic(
   return {
     wav,
     attemptedSeeds,
+    retainedFrames: frames.length,
+    termination,
     hiddenBytes: frameBits.byteLength,
     conditionBytes: conditionBits.byteLength,
     latentBytes: latentBits.byteLength,

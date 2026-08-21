@@ -10,13 +10,38 @@ import type {
   FlowSmokeResult,
   FrameGenerationResult,
   GlobalSmokeResult,
-  MusicGenerationWorkerResult,
+  AnyMusicGenerationWorkerResult,
   RvqSmokeResult,
   VocoderSmokeResult,
   WorkerResponse,
 } from '../workers/protocol';
+import {
+  createMusicGenerationRequest,
+} from '../workers/protocol';
+import { FIXED_COMPARISON_CASE } from '../runtime/reference/fixed-comparison';
 
 type CapabilityState = WebGpuCapability | null;
+const PRODUCT_DURATIONS = Array.from({ length: 60 }, (_, index) => (index + 1) * 5);
+const durationLabel = (durationSeconds: number) =>
+  durationSeconds === 5 ? 'five-second' : `${durationSeconds}-second`;
+
+export function createProductMusicRequest(durationSeconds: number) {
+  return createMusicGenerationRequest({
+    manifestUrl: 'http://127.0.0.1:5174/manifest.json',
+    prompt: FIXED_COMPARISON_CASE.input.prompt,
+    lyrics: FIXED_COMPARISON_CASE.input.lyrics,
+    seed: 7,
+    durationSeconds,
+    sampling: {
+      globalGuidance: 1.5,
+      semanticTopK: 50,
+      residualTopK: 50,
+      temperature: 1,
+      flowGuidance: 1.7,
+      flowSteps: 30,
+    },
+  });
+}
 
 export function App() {
   const [capability, setCapability] = useState<CapabilityState>(null);
@@ -27,8 +52,9 @@ export function App() {
   const [conditionResult, setConditionResult] = useState<ConditionSmokeResult | null>(null);
   const [flowResult, setFlowResult] = useState<FlowSmokeResult | null>(null);
   const [vocoderResult, setVocoderResult] = useState<VocoderSmokeResult | null>(null);
-  const [musicResult, setMusicResult] = useState<MusicGenerationWorkerResult | null>(null);
+  const [musicResult, setMusicResult] = useState<AnyMusicGenerationWorkerResult | null>(null);
   const [musicProgress, setMusicProgress] = useState<ProgressView | null>(null);
+  const [durationSeconds, setDurationSeconds] = useState(5);
   const [musicUrl, setMusicUrl] = useState<string | null>(null);
   const musicUrlRef = useRef<string | null>(null);
   const worker = useRef<Worker | null>(null);
@@ -52,6 +78,10 @@ export function App() {
       });
       setMusicProgress(cancelled);
       setProgress(cancelled.text);
+      if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
+      musicUrlRef.current = null;
+      setMusicUrl(null);
+      setMusicResult(null);
     } else {
       worker.current?.terminate();
       setProgress('Diagnostic cancelled');
@@ -179,10 +209,12 @@ export function App() {
     if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
     musicUrlRef.current = null;
     setMusicUrl(null);
-    setProgress('Starting five-second music generation');
+    const request = createProductMusicRequest(durationSeconds);
+    const starting = `Starting ${durationLabel(durationSeconds)} music generation`;
+    setProgress(starting);
     setMusicProgress({
       status: 'running',
-      text: 'Starting five-second music generation',
+      text: starting,
       indeterminate: true,
     });
     const next = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), { type: 'module' });
@@ -199,22 +231,18 @@ export function App() {
         musicUrlRef.current = url;
         setMusicUrl(url);
         setMusicResult(data.result);
-        setProgress('Five-second music generation complete');
         musicRunning.current = false;
         next.terminate();
         worker.current = null;
       } else if (data.type === 'error') {
         setProgress(`Error: ${data.message}`);
+        setMusicProgress(null);
         musicRunning.current = false;
         next.terminate();
         worker.current = null;
       }
     };
-    next.postMessage({
-      type: 'generate-music-5s',
-      manifestUrl: 'http://127.0.0.1:5174/manifest.json',
-      seed: 7,
-    });
+    next.postMessage(request);
   };
 
   const status =
@@ -251,8 +279,20 @@ export function App() {
           <button type="button" disabled={!capability?.supported} onClick={runVocoder}>
             Run vocoder smoke
           </button>
+          <label>
+            Duration
+            <select
+              aria-label="Music duration"
+              value={durationSeconds}
+              onChange={(event) => setDurationSeconds(Number(event.target.value))}
+            >
+              {PRODUCT_DURATIONS.map((duration) => (
+                <option key={duration} value={duration}>{duration} seconds</option>
+              ))}
+            </select>
+          </label>
           <button type="button" disabled={!capability?.supported} onClick={generateMusic}>
-            Generate five-second music
+            Generate {durationLabel(durationSeconds)} music
           </button>
           <button type="button" className="secondary" disabled={!worker.current} onClick={cancel}>
             Cancel worker
@@ -305,7 +345,11 @@ export function App() {
         {musicResult && musicUrl && (
           <section data-testid="music-generation-result" className="result">
             <audio data-testid="generated-audio" controls src={musicUrl} />
-            <a data-testid="download-music" download="minimax-music3-5s.wav" href={musicUrl}>
+            <a
+              data-testid="download-music"
+              download={`minimax-music3-${musicResult.plan?.durationSeconds ?? durationSeconds}s.wav`}
+              href={musicUrl}
+            >
               Download WAV
             </a>
             <pre>{JSON.stringify({ ...musicResult, wav: undefined }, null, 2)}</pre>

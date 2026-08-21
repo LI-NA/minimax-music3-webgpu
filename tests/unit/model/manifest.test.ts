@@ -4,6 +4,7 @@ import {
   parseFlowManifest,
   parseModelManifest,
   parseMusicManifest,
+  parseMusicVariableManifest,
   parseRvqStageManifest,
   parseVocoderManifest,
 } from '../../../src/runtime/model/manifest';
@@ -313,5 +314,133 @@ describe('parseMusicManifest', () => {
       ...combined,
       slice: { ...combined.slice, semanticFrames: 124 },
     })).toThrow('slice');
+  });
+});
+
+describe('parseMusicVariableManifest', () => {
+  const tensor = (name: string, dtype: string, shape: readonly (number | string)[], maxShape?: readonly number[]) => ({
+    name,
+    dtype,
+    shape,
+    ...(maxShape ? { maxShape } : {}),
+  });
+  const combined = {
+    ...manifest,
+    model: {
+      id: 'MiniMaxAI/MiniMax-Music3',
+      revision: 'fbdf52fbaaca799592917417eb05f1899f1255ec',
+      diffusersRevision: '3681e65996b4d2589219720101a6acbfd25073f8',
+    },
+    quantization: { bits: 4, blockSize: 128, accuracyLevel: 4, symmetric: true },
+    precision: {
+      convolution: 'float16',
+      fp32Snakes: ['blocks.0.snake1', 'blocks.1.snake1'],
+    },
+    acoustic: {
+      maxSemanticFrames: 200,
+      windowFrames: 200,
+      hopFrames: 100,
+      overlapLatents: 172,
+      leftCrop: 86,
+      rightCrop: 258,
+      samplesPerLatent: 512,
+      maxLatentLength: 689,
+      flowSteps: 30,
+      flowGuidance: 1.7,
+    },
+    rvqDepth: { ...manifest.graph, gpuOutputs: ['depth_hidden'] },
+    feedback: { ...manifest.reducedHead, gpuOutputs: ['inputs_embeds'] },
+    rvqEmbedding: manifest.embedding,
+    conditionEncoder: {
+      ...manifest.graph,
+      gpuOutputs: ['condition'],
+      inputs: [
+        tensor('frame_hiddens', 'float16', [1, 200, 32768]),
+        tensor('nearest_index', 'int64', [689]),
+        tensor('active_latent_mask', 'float16', [1, 689, 1]),
+      ],
+    },
+    flow: {
+      ...manifest.graph,
+      gpuOutputs: ['next_latents'],
+      inputs: [
+        tensor('latents', 'float16', [1, 128, 689]),
+        tensor('condition', 'float16', [1, 689, 2048]),
+        tensor('timestep', 'float16', [1]),
+        tensor('dt', 'float32', [1]),
+        tensor('active_latent_mask', 'float16', [1, 689, 1]),
+        tensor('key_attention_bias', 'float16', [1, 1, 1, 690]),
+        tensor('noise_prompt', 'float16', [1, 128, 172]),
+        tensor('previous_latent', 'float16', [1, 128, 172]),
+        tensor('overlap_enabled', 'float16', [1]),
+        tensor('guidance', 'float16', [1]),
+      ],
+    },
+    vocoder: {
+      ...manifest.graph,
+      gpuOutputs: [],
+      inputs: [tensor('latents', 'float16', [1, 64, 'L'], [1, 64, 689])],
+      outputs: [tensor('waveform', 'float32', [1, 1, '512L'], [1, 1, 352768])],
+    },
+    tokenizerFiles: [{ path: 'global/tokenizer.json', bytes: 2, sha256: sha }],
+    licenseFile: { path: 'global/LICENSE', bytes: 7, sha256: sha },
+    webgpu: {
+      requiredFeatures: ['shader-f16'],
+      requiredLimits: {
+        maxStorageBufferBindingSize: 128 * 1024 * 1024,
+        maxStorageBuffersPerShaderStage: 9,
+      },
+    },
+  };
+
+  it('parses the exact variable acoustic and symbolic mono contracts', () => {
+    const parsed = parseMusicVariableManifest(combined);
+
+    expect(parsed.acoustic).toEqual(combined.acoustic);
+    expect(parsed.conditionEncoder.inputs).toEqual(combined.conditionEncoder.inputs);
+    expect(parsed.flow.inputs).toEqual(combined.flow.inputs);
+    expect(parsed.acoustic).toMatchObject({ flowSteps: 30, flowGuidance: 1.7 });
+    expect(parsed.vocoder.outputs[0].shape).toEqual([1, 1, '512L']);
+  });
+
+  it('rejects any changed constant, input, hash, or required limit', () => {
+    expect(() => parseMusicVariableManifest({
+      ...combined,
+      acoustic: { ...combined.acoustic, hopFrames: 99 },
+    })).toThrow('acoustic');
+    expect(() => parseMusicVariableManifest({
+      ...combined,
+      flow: { ...combined.flow, inputs: combined.flow.inputs.slice(0, -1) },
+    })).toThrow('flow inputs');
+    expect(() => parseMusicVariableManifest({
+      ...combined,
+      vocoder: { ...combined.vocoder, sha256: 'bad' },
+    })).toThrow('sha256');
+    expect(() => parseMusicVariableManifest({
+      ...combined,
+      webgpu: {
+        ...combined.webgpu,
+        requiredLimits: { ...combined.webgpu.requiredLimits, maxStorageBuffersPerShaderStage: 8 },
+      },
+    })).toThrow('requiredLimits');
+  });
+
+  it('rejects one artifact path with conflicting byte or hash metadata', () => {
+    expect(() => parseMusicVariableManifest({
+      ...combined,
+      conditionEncoder: {
+        ...combined.conditionEncoder,
+        path: combined.graph.path,
+        bytes: combined.graph.bytes + 1,
+      },
+    })).toThrow('duplicate artifact path');
+    expect(() => parseMusicVariableManifest({
+      ...combined,
+      conditionEncoder: {
+        ...combined.conditionEncoder,
+        path: combined.graph.path,
+        sha256: 'b'.repeat(64),
+      },
+    })).toThrow('duplicate artifact path');
   });
 });

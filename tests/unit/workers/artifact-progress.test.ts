@@ -1,0 +1,91 @@
+import { describe, expect, it } from 'vitest';
+import { createArtifactProgressReporter } from '../../../src/workers/artifact-progress';
+
+describe('artifact progress reporting', () => {
+  it('reports the first callback immediately and coalesces a small-chunk download to its exact final total', () => {
+    const events: unknown[] = [];
+    const now = 0;
+    const reporter = createArtifactProgressReporter({
+      totalBytes: 160 * 1024 * 1000,
+      send: (event) => events.push(event),
+      now: () => now,
+    });
+
+    for (let loaded = 16 * 1024; loaded <= 160 * 1024 * 1000; loaded += 16 * 1024)
+      reporter.report('weights.bin', loaded, 160 * 1024 * 1000, 0);
+    reporter.complete('weights.bin', 160 * 1024 * 1000, 160 * 1024 * 1000, false);
+
+    expect(events).toEqual([
+      expect.objectContaining({ loaded: 16 * 1024, completedBytes: 16 * 1024, cacheHit: false }),
+      expect.objectContaining({
+        loaded: 160 * 1024 * 1000,
+        completedBytes: 160 * 1024 * 1000,
+        totalBytes: 160 * 1024 * 1000,
+        cacheHit: false,
+      }),
+    ]);
+  });
+
+  it('emits the latest snapshot when callbacks cross the reporting interval', () => {
+    const events: unknown[] = [];
+    let now = 0;
+    const reporter = createArtifactProgressReporter({ totalBytes: 100, send: (event) => events.push(event), now: () => now });
+
+    reporter.report('a.bin', 10, 100, 0);
+    now = 99;
+    reporter.report('a.bin', 30, 100, 0);
+    now = 100;
+    reporter.report('a.bin', 40, 100, 0);
+
+    expect(events).toEqual([
+      expect.objectContaining({ loaded: 10, completedBytes: 10 }),
+      expect.objectContaining({ loaded: 40, completedBytes: 40 }),
+    ]);
+  });
+
+  it('keeps aggregate progress monotonic if an artifact download retries', () => {
+    const events: unknown[] = [];
+    let now = 0;
+    const reporter = createArtifactProgressReporter({ totalBytes: 100, send: (event) => events.push(event), now: () => now });
+
+    reporter.report('a.bin', 80, 100, 0);
+    now = 100;
+    reporter.report('a.bin', 10, 100, 0);
+
+    expect(events).toEqual([
+      expect.objectContaining({ loaded: 80, completedBytes: 80 }),
+      expect.objectContaining({ loaded: 10, completedBytes: 80 }),
+    ]);
+  });
+
+  it('emits a successful final after a callback already reached the file total', () => {
+    const events: unknown[] = [];
+    const reporter = createArtifactProgressReporter({ totalBytes: 100, send: (event) => events.push(event), now: () => 0 });
+
+    reporter.report('a.bin', 100, 100, 0);
+    reporter.complete('a.bin', 100, 100, false);
+
+    expect(events).toEqual([
+      expect.objectContaining({ currentFile: 'a.bin', loaded: 100, completedBytes: 100, cacheHit: false }),
+      expect.objectContaining({ currentFile: 'a.bin', loaded: 100, completedBytes: 100, cacheHit: false }),
+    ]);
+  });
+
+  it('reports one exact cache-hit final and never schedules a stale failed-file event', () => {
+    const events: unknown[] = [];
+    let now = 0;
+    const reporter = createArtifactProgressReporter({ totalBytes: 200, send: (event) => events.push(event), now: () => now });
+
+    reporter.complete('cached.bin', 100, 100, true);
+    reporter.report('failed.bin', 10, 100, 100);
+    reporter.discard();
+    now = 200;
+    reporter.report('next.bin', 10, 100, 100);
+
+    expect(events).toEqual([
+      expect.objectContaining({ currentFile: 'cached.bin', loaded: 100, completedBytes: 100, cacheHit: true }),
+      expect.objectContaining({ currentFile: 'failed.bin', loaded: 10, completedBytes: 110, cacheHit: false }),
+      expect.objectContaining({ currentFile: 'next.bin', loaded: 10, completedBytes: 110, cacheHit: false }),
+    ]);
+  });
+});

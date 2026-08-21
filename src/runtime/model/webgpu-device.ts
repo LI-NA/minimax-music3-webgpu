@@ -15,6 +15,19 @@ export async function inspectWebGpu(gpu: GPU | undefined): Promise<WebGpuCapabil
   return { supported: true, adapter };
 }
 
+export async function inspectWebGpuForRequirements(
+  gpu: GPU | undefined,
+  requiredLimits: Record<string, number>,
+): Promise<WebGpuCapability> {
+  const capability = await inspectWebGpu(gpu);
+  if (!capability.supported) return capability;
+  const limits = capability.adapter.limits as unknown as Record<string, number>;
+  if (Object.entries(requiredLimits).some(
+    ([name, value]) => typeof limits[name] !== 'number' || limits[name] < value,
+  )) return { supported: false, reason: 'Adapter limits are insufficient' };
+  return capability;
+}
+
 export async function createWebGpuDevice(
   gpu: GPU,
   requiredLimits: Record<string, number> = {},

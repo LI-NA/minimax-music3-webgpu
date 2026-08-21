@@ -1,3 +1,10 @@
+import {
+  planDuration,
+  planRetainedFrames,
+  type DurationPlanRequest,
+  type RetainedFramesPlan,
+  type Termination,
+} from '../runtime/pipeline/duration-plan';
 import type { MusicStage, WorkerProgress } from './protocol';
 
 type SendProgress = (progress: WorkerProgress) => void;
@@ -23,11 +30,15 @@ export function formatProgress(progress: WorkerProgress) {
     const eta = progress.etaMs === undefined ? '' : `, ${seconds(progress.etaMs)} remaining`;
     return `Autoregressive frames ${progress.completed}/${progress.total}${speed}${eta}`;
   }
+  if (progress.stage === 'acoustic' && progress.completed !== undefined && progress.total !== undefined)
+    return `Acoustic chunks ${progress.completed}/${progress.total}`;
   if (progress.stage === 'flow' && progress.completed !== undefined && progress.total !== undefined) {
     const speed = progress.stepMs === undefined ? '' : `, ${progress.stepMs.toFixed(0)} ms/step`;
     const eta = progress.etaMs === undefined ? '' : `, ${seconds(progress.etaMs)} remaining`;
     return `Flow steps ${progress.completed}/${progress.total}${speed}${eta}`;
   }
+  if (progress.stage === 'vocoder' && progress.completed !== undefined && progress.total !== undefined)
+    return `Vocoder channel runs ${progress.completed}/${progress.total}`;
   if (progress.stage === 'complete' && progress.wavBytes !== undefined)
     return `Complete: ${progress.wavBytes} WAV bytes in ${seconds(progress.totalElapsedMs ?? 0)}`;
   return progress.detail;
@@ -65,7 +76,23 @@ function requireMonotonic(next: number, previous: number) {
   if (!Number.isInteger(next) || next < previous) throw new Error('progress counters must be monotonic integers');
 }
 
-export function createMusicProgressTracker(send: SendProgress, now: Now = () => performance.now()) {
+function requireProgressCounter(next: number, previous: number, total: number) {
+  requireMonotonic(next, previous);
+  if (next > total) throw new Error('progress counters must not exceed their total');
+}
+
+export function createMusicProgressTracker(
+  send: SendProgress,
+  requestOrNow: DurationPlanRequest | Now = { durationSeconds: 5, promptTokens: 0 },
+  suppliedNow: Now = () => performance.now(),
+) {
+  const request = typeof requestOrNow === 'function'
+    ? { durationSeconds: 5, promptTokens: 0 }
+    : requestOrNow;
+  const now = typeof requestOrNow === 'function' ? requestOrNow : suppliedNow;
+  const requestedPlan = planDuration(request);
+  const flowSteps = request.flowSteps ?? 30;
+  let retainedPlan: RetainedFramesPlan = requestedPlan;
   const totalStarted = now();
   let complete = false;
   let arCompleted = 0;
@@ -76,11 +103,24 @@ export function createMusicProgressTracker(send: SendProgress, now: Now = () => 
   let flowStarted: number | undefined;
   let flowPrevious: number | undefined;
   const flowDurations: number[] = [];
+  let acousticCompleted = 0;
+  let vocoderCompleted = 0;
 
   const requireActive = () => {
     if (complete) throw new Error('music progress is already complete');
   };
   return {
+    setRetainedFrames(retainedFrames: number, termination: Termination) {
+      requireActive();
+      if (retainedFrames > requestedPlan.retainedFrames)
+        throw new Error('Retained frames must not exceed requested frames');
+      retainedPlan = planRetainedFrames({
+        retainedFrames,
+        promptTokens: request.promptTokens,
+        termination,
+        flowSteps,
+      });
+    },
     session(name: MusicStage) {
       requireActive();
       send({
@@ -99,7 +139,7 @@ export function createMusicProgressTracker(send: SendProgress, now: Now = () => 
     },
     autoregressive(retainedFrames: number) {
       requireActive();
-      requireMonotonic(retainedFrames, arCompleted);
+      requireProgressCounter(retainedFrames, arCompleted, requestedPlan.retainedFrames);
       const current = now();
       arStarted ??= current;
       const elapsedMs = current - arStarted;
@@ -115,17 +155,40 @@ export function createMusicProgressTracker(send: SendProgress, now: Now = () => 
       send({
         type: 'progress',
         stage: 'autoregressive',
-        detail: `Retained frame ${retainedFrames} of 125`,
+        detail: `Retained frame ${retainedFrames} of ${requestedPlan.retainedFrames}`,
         completed: retainedFrames,
-        total: 125,
+        total: requestedPlan.retainedFrames,
         elapsedMs,
         ...(rate === undefined ? {} : { rate }),
-        ...(stable ? { etaMs: ((125 - retainedFrames) / rate) * 1_000 } : {}),
+        ...(stable ? { etaMs: ((requestedPlan.retainedFrames - retainedFrames) / rate) * 1_000 } : {}),
+      });
+    },
+    acoustic(completedChunks: number) {
+      requireActive();
+      requireProgressCounter(completedChunks, acousticCompleted, retainedPlan.chunks.length);
+      acousticCompleted = completedChunks;
+      send({
+        type: 'progress',
+        stage: 'acoustic',
+        detail: `Acoustic chunk ${completedChunks} of ${retainedPlan.chunks.length}`,
+        completed: completedChunks,
+        total: retainedPlan.chunks.length,
       });
     },
     condition() {
       requireActive();
       send({ type: 'progress', stage: 'condition', detail: 'Encoding frame condition' });
+    },
+    startFlowChunk(completedSteps: number) {
+      requireActive();
+      requireProgressCounter(completedSteps, flowCompleted, retainedPlan.flowCalls);
+      if (completedSteps !== flowCompleted)
+        throw new Error('flow chunk must start at the current completed step');
+      if (completedSteps % flowSteps !== 0)
+        throw new Error('flow chunk must start at a flow-step boundary');
+      const current = now();
+      flowStarted ??= current;
+      flowPrevious = current;
     },
     beginFlow() {
       requireActive();
@@ -135,7 +198,7 @@ export function createMusicProgressTracker(send: SendProgress, now: Now = () => 
     },
     flow(completedSteps: number) {
       requireActive();
-      requireMonotonic(completedSteps, flowCompleted);
+      requireProgressCounter(completedSteps, flowCompleted, retainedPlan.flowCalls);
       const current = now();
       flowStarted ??= current;
       if (flowPrevious !== undefined) flowDurations.push(current - flowPrevious);
@@ -148,19 +211,31 @@ export function createMusicProgressTracker(send: SendProgress, now: Now = () => 
       send({
         type: 'progress',
         stage: 'flow',
-        detail: `Flow step ${completedSteps} of 30`,
+        detail: `Flow step ${completedSteps} of ${retainedPlan.flowCalls}`,
         completed: completedSteps,
-        total: 30,
+        total: retainedPlan.flowCalls,
         elapsedMs: current - flowStarted,
         ...(stepMs === undefined ? {} : { stepMs }),
-        ...(completedSteps >= 3 && stepMs !== undefined
-          ? { etaMs: (30 - completedSteps) * stepMs }
+        ...(recent.length >= 3 && stepMs !== undefined
+          ? { etaMs: (retainedPlan.flowCalls - completedSteps) * stepMs }
           : {}),
       });
     },
-    vocoder() {
+    vocoder(completedCalls?: number) {
       requireActive();
-      send({ type: 'progress', stage: 'vocoder', detail: 'Synthesizing waveform' });
+      if (completedCalls === undefined) {
+        send({ type: 'progress', stage: 'vocoder', detail: 'Synthesizing waveform' });
+        return;
+      }
+      requireProgressCounter(completedCalls, vocoderCompleted, retainedPlan.vocoderCalls);
+      vocoderCompleted = completedCalls;
+      send({
+        type: 'progress',
+        stage: 'vocoder',
+        detail: `Vocoder channel run ${completedCalls} of ${retainedPlan.vocoderCalls}`,
+        completed: completedCalls,
+        total: retainedPlan.vocoderCalls,
+      });
     },
     wav() {
       requireActive();
@@ -172,7 +247,7 @@ export function createMusicProgressTracker(send: SendProgress, now: Now = () => 
       send({
         type: 'progress',
         stage: 'complete',
-        detail: 'Five-second music generation complete',
+        detail: 'Music generation complete',
         wavBytes,
         totalElapsedMs: now() - totalStarted,
       });

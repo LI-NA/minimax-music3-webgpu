@@ -108,6 +108,33 @@ export interface MusicManifest extends ModelManifest {
   precision: VocoderManifest['precision'];
 }
 
+export interface TensorContract {
+  name: string;
+  dtype: string;
+  shape: readonly (number | string)[];
+  maxShape?: readonly number[];
+}
+export interface ContractGraphArtifact extends OnnxGraphArtifact {
+  inputs: readonly TensorContract[];
+}
+export interface MusicVariableManifest extends Omit<MusicManifest, 'conditionEncoder' | 'flow' | 'vocoder' | 'slice'> {
+  conditionEncoder: ContractGraphArtifact;
+  flow: ContractGraphArtifact;
+  vocoder: ContractGraphArtifact & { outputs: readonly TensorContract[] };
+  acoustic: {
+    maxSemanticFrames: 200;
+    windowFrames: 200;
+    hopFrames: 100;
+    overlapLatents: 172;
+    leftCrop: 86;
+    rightCrop: 258;
+    samplesPerLatent: 512;
+    maxLatentLength: 689;
+    flowSteps: 30;
+    flowGuidance: 1.7;
+  };
+}
+
 const SHA = /^[a-f0-9]{64}$/;
 const safePath = (value: unknown, label: string): string => {
   if (
@@ -162,6 +189,33 @@ const graph = (value: unknown, label: string): OnnxGraphArtifact => {
     gpuOutputs: textList(item.gpuOutputs, `${label} gpuOutputs`),
   };
 };
+
+const tensorContract = (value: unknown, label: string): TensorContract => {
+  const item = object(value, label);
+  if (typeof item.name !== 'string' || !item.name || typeof item.dtype !== 'string' || !item.dtype)
+    throw new Error(`${label} is invalid`);
+  if (!Array.isArray(item.shape) || item.shape.some((part) =>
+    !(typeof part === 'string' && part.length > 0) && !(Number.isSafeInteger(part) && (part as number) >= 0)))
+    throw new Error(`${label} shape is invalid`);
+  if (item.maxShape !== undefined &&
+    (!Array.isArray(item.maxShape) || item.maxShape.some((part) => !Number.isSafeInteger(part) || part < 0)))
+    throw new Error(`${label} maxShape is invalid`);
+  return {
+    name: item.name,
+    dtype: item.dtype,
+    shape: item.shape as (number | string)[],
+    ...(item.maxShape === undefined ? {} : { maxShape: item.maxShape as number[] }),
+  };
+};
+
+const contractGraph = (value: unknown, label: string): ContractGraphArtifact => {
+  const item = object(value, label);
+  if (!Array.isArray(item.inputs)) throw new Error(`${label} inputs are invalid`);
+  return { ...graph(value, label), inputs: item.inputs.map((entry) => tensorContract(entry, `${label} input`)) };
+};
+
+const exactContracts = (actual: readonly TensorContract[], expected: readonly TensorContract[]) =>
+  JSON.stringify(actual) === JSON.stringify(expected);
 
 const embeddingTable = (value: unknown, label: string): Fp16EmbeddingTable => {
   const embeddingValue = object(value, label);
@@ -439,5 +493,119 @@ export function parseMusicManifest(value: unknown): MusicManifest {
       convolution: 'float16',
       fp32Snakes: ['blocks.0.snake1', 'blocks.1.snake1'],
     },
+  };
+}
+
+export function parseMusicVariableManifest(value: unknown): MusicVariableManifest {
+  const root = object(value, 'manifest');
+  const model = object(root.model, 'model');
+  if (model.id !== 'MiniMaxAI/MiniMax-Music3') throw new Error('model id is invalid');
+  if (model.revision !== 'fbdf52fbaaca799592917417eb05f1899f1255ec')
+    throw new Error('model revision is invalid');
+  if (model.diffusersRevision !== '3681e65996b4d2589219720101a6acbfd25073f8')
+    throw new Error('Diffusers revision is invalid');
+  const global = parseModelManifest(root);
+  const rvq = parseRvqStageManifest(root);
+  const webgpu = webgpuContract(root.webgpu);
+  if (
+    webgpu.requiredLimits.maxStorageBufferBindingSize !== 128 * 1024 * 1024
+    || (webgpu.requiredLimits.maxStorageBuffersPerShaderStage ?? 0) < 9
+  ) throw new Error('music variable webgpu requiredLimits are invalid');
+  const quantization = object(root.quantization, 'music variable quantization');
+  if (
+    quantization.bits !== 4
+    || quantization.blockSize !== 128
+    || quantization.accuracyLevel !== 4
+    || quantization.symmetric !== true
+  ) throw new Error('music variable quantization is invalid');
+  const precision = object(root.precision, 'music variable precision');
+  if (
+    precision.convolution !== 'float16'
+    || !Array.isArray(precision.fp32Snakes)
+    || precision.fp32Snakes.length !== 2
+    || precision.fp32Snakes[0] !== 'blocks.0.snake1'
+    || precision.fp32Snakes[1] !== 'blocks.1.snake1'
+  ) throw new Error('music variable precision is invalid');
+  const acoustic = object(root.acoustic, 'music variable acoustic');
+  const expectedAcoustic = {
+    maxSemanticFrames: 200, windowFrames: 200, hopFrames: 100, overlapLatents: 172,
+    leftCrop: 86, rightCrop: 258, samplesPerLatent: 512, maxLatentLength: 689,
+    flowSteps: 30, flowGuidance: 1.7,
+  } as const;
+  if (Object.entries(expectedAcoustic).some(([name, expected]) => acoustic[name] !== expected))
+    throw new Error('music variable acoustic contract is invalid');
+  const conditionEncoder = contractGraph(root.conditionEncoder, 'conditionEncoder');
+  const flow = contractGraph(root.flow, 'flow');
+  const vocoderValue = object(root.vocoder, 'vocoder');
+  const vocoder = contractGraph(root.vocoder, 'vocoder');
+  if (!Array.isArray(vocoderValue.outputs)) throw new Error('vocoder outputs are invalid');
+  const vocoderOutputs = vocoderValue.outputs.map((entry) => tensorContract(entry, 'vocoder output'));
+  const expectedCondition: TensorContract[] = [
+    { name: 'frame_hiddens', dtype: 'float16', shape: [1, 200, 32768] },
+    { name: 'nearest_index', dtype: 'int64', shape: [689] },
+    { name: 'active_latent_mask', dtype: 'float16', shape: [1, 689, 1] },
+  ];
+  const expectedFlow: TensorContract[] = [
+    { name: 'latents', dtype: 'float16', shape: [1, 128, 689] },
+    { name: 'condition', dtype: 'float16', shape: [1, 689, 2048] },
+    { name: 'timestep', dtype: 'float16', shape: [1] },
+    { name: 'dt', dtype: 'float32', shape: [1] },
+    { name: 'active_latent_mask', dtype: 'float16', shape: [1, 689, 1] },
+    { name: 'key_attention_bias', dtype: 'float16', shape: [1, 1, 1, 690] },
+    { name: 'noise_prompt', dtype: 'float16', shape: [1, 128, 172] },
+    { name: 'previous_latent', dtype: 'float16', shape: [1, 128, 172] },
+    { name: 'overlap_enabled', dtype: 'float16', shape: [1] },
+    { name: 'guidance', dtype: 'float16', shape: [1] },
+  ];
+  const expectedVocoderInputs: TensorContract[] = [
+    { name: 'latents', dtype: 'float16', shape: [1, 64, 'L'], maxShape: [1, 64, 689] },
+  ];
+  const expectedVocoderOutputs: TensorContract[] = [
+    { name: 'waveform', dtype: 'float32', shape: [1, 1, '512L'], maxShape: [1, 1, 352768] },
+  ];
+  if (!exactContracts(conditionEncoder.inputs, expectedCondition))
+    throw new Error('condition inputs do not match the variable contract');
+  if (!exactContracts(flow.inputs, expectedFlow)) throw new Error('flow inputs do not match the variable contract');
+  if (!exactContracts(vocoder.inputs, expectedVocoderInputs) || !exactContracts(vocoderOutputs, expectedVocoderOutputs))
+    throw new Error('vocoder symbolic mono contract is invalid');
+  if (!conditionEncoder.gpuOutputs.includes('condition'))
+    throw new Error('conditionEncoder must keep condition at gpu-buffer');
+  if (flow.gpuOutputs.length !== 1 || flow.gpuOutputs[0] !== 'next_latents')
+    throw new Error('flow must keep next_latents at gpu-buffer');
+  if (vocoder.gpuOutputs.length) throw new Error('vocoder waveform must remain a CPU output');
+  if (!Array.isArray(root.tokenizerFiles) || !root.tokenizerFiles.length)
+    throw new Error('tokenizerFiles are invalid');
+  const tokenizerFiles = root.tokenizerFiles.map((item) => artifact(item, 'tokenizer file'));
+  const licenseFile = artifact(root.licenseFile, 'license file');
+  const allArtifacts = [
+    global.graph, global.reducedHead, rvq.rvqDepth, rvq.feedback, conditionEncoder, flow, vocoder,
+    ...global.graph.externalData, ...global.reducedHead.externalData, ...rvq.rvqDepth.externalData,
+    ...rvq.feedback.externalData, ...conditionEncoder.externalData, ...flow.externalData,
+    ...vocoder.externalData, ...global.embedding.shards, ...rvq.rvqEmbedding.shards,
+    ...tokenizerFiles, licenseFile,
+  ];
+  const artifactMetadata = new Map<string, ArtifactFile>();
+  for (const item of allArtifacts) {
+    const previous = artifactMetadata.get(item.path);
+    if (previous && (previous.bytes !== item.bytes || previous.sha256 !== item.sha256))
+      throw new Error('music variable duplicate artifact path has conflicting metadata');
+    artifactMetadata.set(item.path, item);
+  }
+  if (allArtifacts.some((item) => item.bytes > 128 * 1024 * 1024))
+    throw new Error('music variable release artifact exceeds 128 MiB');
+  return {
+    ...global,
+    model: model as MusicVariableManifest['model'],
+    rvqDepth: rvq.rvqDepth,
+    rvqEmbedding: rvq.rvqEmbedding,
+    feedback: rvq.feedback,
+    conditionEncoder,
+    flow,
+    vocoder: { ...vocoder, outputs: vocoderOutputs },
+    tokenizerFiles,
+    licenseFile,
+    acoustic: expectedAcoustic,
+    quantization: { bits: 4, blockSize: 128, accuracyLevel: 4, symmetric: true },
+    precision: { convolution: 'float16', fp32Snakes: ['blocks.0.snake1', 'blocks.1.snake1'] },
   };
 }

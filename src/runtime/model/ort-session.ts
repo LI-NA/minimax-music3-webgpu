@@ -6,12 +6,11 @@ import type { OnnxGraphArtifact } from './manifest';
 export async function createOrtSession(
   graph: OnnxGraphArtifact,
   cache: ArtifactStore,
-  device: GPUDevice,
 ): Promise<ort.InferenceSession> {
   ort.env.wasm.proxy = false;
   ort.env.wasm.numThreads = 1;
   ort.env.wasm.wasmPaths = localJspiWasmPaths(self.location.origin);
-  ort.env.webgpu.device = device;
+  ort.env.webgpu.powerPreference = 'high-performance';
   const model = new Uint8Array(await (await cache.file(graph.path)).arrayBuffer());
   const externalData = await Promise.all(
     graph.externalData.map(async (item) => ({
