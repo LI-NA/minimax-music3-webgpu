@@ -1,0 +1,10 @@
+node_modules
+dist
+artifacts
+test-results
+.worktrees
+.venv
+.pytest_cache
+package-lock.json
+uv.lock
+tests/fixtures

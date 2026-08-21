@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, type Plugin } from 'vite';
 import { localJspiAssetName, localJspiFilesList } from './src/runtime/model/local-jspi-path.ts';
 import { patchOrtWebGpuConvTransposeCoordinates } from './src/runtime/model/ort-wasm-patch.ts';
@@ -43,5 +44,5 @@ function localJspiWasm(): Plugin {
 
 export default defineConfig({
   define: appBuildDefines,
-  plugins: [localJspiWasm()],
+  plugins: [tailwindcss(), localJspiWasm()],
 });

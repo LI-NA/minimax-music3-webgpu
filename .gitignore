@@ -10,3 +10,4 @@ test-fixtures/
 coverage/
 playwright-report/
 test-results/
+.claude/
