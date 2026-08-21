@@ -22,12 +22,13 @@ test('resumes an interrupted artifact download in OPFS and deletes only project 
     const extraProjectCacheName = `minimax-music3-${extraProjectHash}`;
     const unrelatedName = 'artifact-cache-browser-unrelated';
     const nearMatchName = `${artifactCacheName}-extra`;
-    const testOwnedNames = [
+    const fixtureNames = [
       artifactCacheName,
       extraProjectCacheName,
       unrelatedName,
       nearMatchName,
     ];
+    const ownedNames = new Set<string>();
     const projectCachePattern = /^minimax-music3-[a-f0-9]{64}$/;
     const listDirectories = async () => {
       const names: string[] = [];
@@ -37,13 +38,22 @@ test('resumes an interrupted artifact download in OPFS and deletes only project 
       return names.sort();
     };
     const removeTestOwnedDirectories = async () => {
-      for (const name of testOwnedNames) {
+      let cleanupFailed = false;
+      let firstCleanupError: unknown;
+      for (const name of ownedNames) {
         try {
           await root.removeEntry(name, { recursive: true });
         } catch (error) {
-          if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
+          if (
+            !(error instanceof DOMException && error.name === 'NotFoundError')
+            && !cleanupFailed
+          ) {
+            cleanupFailed = true;
+            firstCleanupError = error;
+          }
         }
       }
+      if (cleanupFailed) throw firstCleanupError;
     };
 
     try {
@@ -52,17 +62,18 @@ test('resumes an interrupted artifact download in OPFS and deletes only project 
       if (initialProjectCaches.length !== 0) {
         throw new Error(`browser context is not isolated: ${initialProjectCaches.join(', ')}`);
       }
-      if (testOwnedNames.some((name) => initialDirectories.includes(name))) {
+      if (fixtureNames.some((name) => initialDirectories.includes(name))) {
         throw new Error('browser context contains a test-owned directory before setup');
       }
 
       const manifestResponse = await fetch('http://127.0.0.1:5174/manifest.json');
       if (!manifestResponse.ok) throw new Error('active manifest is unavailable');
+      const manifestText = await manifestResponse.text();
       const activeManifestHash = Array.from(
-        new Uint8Array(await crypto.subtle.digest('SHA-256', await manifestResponse.arrayBuffer())),
+        new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(manifestText))),
         (byte) => byte.toString(16).padStart(2, '0'),
       ).join('');
-      if (artifactHash === activeManifestHash) {
+      if ([artifactHash, extraProjectHash].includes(activeManifestHash)) {
         throw new Error('test artifact hash matches the active manifest hash');
       }
 
@@ -74,6 +85,7 @@ test('resumes an interrupted artifact download in OPFS and deletes only project 
       const artifact = { path: 'tiny.bin', bytes: data.byteLength, sha256 };
       const source = new URL('https://artifact-cache.test/tiny.bin');
       const store = await OpfsArtifactStore.open(artifactHash, root);
+      ownedNames.add(artifactCacheName);
       let sentPartialChunk = false;
       const interruptedBody = new ReadableStream<Uint8Array>({
         pull(controller) {
@@ -117,8 +129,11 @@ test('resumes an interrupted artifact download in OPFS and deletes only project 
       const inspection = await inspectArtifactCache([artifact], store);
 
       await root.getDirectoryHandle(extraProjectCacheName, { create: true });
+      ownedNames.add(extraProjectCacheName);
       await root.getDirectoryHandle(unrelatedName, { create: true });
+      ownedNames.add(unrelatedName);
       await root.getDirectoryHandle(nearMatchName, { create: true });
+      ownedNames.add(nearMatchName);
       const beforeDeletion = await listDirectories();
       const expectedProjectCaches = [artifactCacheName, extraProjectCacheName].sort();
       const actualProjectCaches = beforeDeletion.filter((name) => projectCachePattern.test(name));
@@ -130,9 +145,6 @@ test('resumes an interrupted artifact download in OPFS and deletes only project 
       const afterDeletion = await listDirectories();
 
       return {
-        activeManifestHash,
-        artifactHash,
-        artifactCacheName,
         interruption,
         partialSize,
         requestedRange,
@@ -146,9 +158,6 @@ test('resumes an interrupted artifact download in OPFS and deletes only project 
     }
   });
 
-  expect(result.artifactHash).toMatch(/^[a-f0-9]{64}$/);
-  expect(result.artifactHash).not.toBe(result.activeManifestHash);
-  expect(result.artifactCacheName).toBe(`minimax-music3-${result.artifactHash}`);
   expect(result.interruption).toContain('injected stream failure');
   expect(result.partialSize).toBe(3);
   expect(result.requestedRange).toBe('bytes=3-');
