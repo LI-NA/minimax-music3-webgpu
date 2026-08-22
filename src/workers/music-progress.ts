@@ -59,14 +59,13 @@ export function initialProgressView(): ProgressView {
   return { status: 'idle', text: 'Awaiting diagnostic command', indeterminate: false };
 }
 
-export function cancelProgress(previous: ProgressView): ProgressView {
-  void previous;
+export function cancelProgress(): ProgressView {
   return { status: 'cancelled', text: 'Music generation cancelled', indeterminate: false };
 }
 
-export function cancelWorker(worker: { terminate(): void } | null, previous: ProgressView) {
+export function cancelWorker(worker: { terminate(): void } | null) {
   worker?.terminate();
-  return cancelProgress(previous);
+  return cancelProgress();
 }
 
 function requireMonotonic(next: number, previous: number) {
@@ -80,11 +79,9 @@ function requireProgressCounter(next: number, previous: number, total: number) {
 
 export function createMusicProgressTracker(
   send: SendProgress,
-  requestOrNow: DurationPlanRequest | Now = { durationSeconds: 5, promptTokens: 0 },
-  suppliedNow: Now = () => performance.now(),
+  request: DurationPlanRequest = { durationSeconds: 5, promptTokens: 0 },
+  now: Now = () => performance.now(),
 ) {
-  const request = typeof requestOrNow === 'function' ? { durationSeconds: 5, promptTokens: 0 } : requestOrNow;
-  const now = typeof requestOrNow === 'function' ? requestOrNow : suppliedNow;
   const requestedPlan = planDuration(request);
   const flowSteps = request.flowSteps ?? 30;
   let retainedPlan: RetainedFramesPlan = requestedPlan;

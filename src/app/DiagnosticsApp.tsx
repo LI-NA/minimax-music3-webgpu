@@ -1,6 +1,5 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import './diagnostics.css';
-import { requestPersistentStorage } from '../runtime/model/artifact-cache-management';
 import { inspectWebGpu, type WebGpuCapability } from '../runtime/model/webgpu-device';
 import { cancelWorker, progressView, type ProgressView } from '../workers/music-progress';
 import type {
@@ -13,9 +12,9 @@ import type {
   VocoderSmokeResult,
   WorkerResponse,
 } from '../workers/protocol';
-import type { ArtifactCacheRequest, ArtifactOperation } from '../workers/protocol';
 import { createMusicGenerationRequest } from '../workers/protocol';
 import { FIXED_COMPARISON_CASE } from '../runtime/reference/fixed-comparison';
+import { createArtifactCacheClient } from './artifact-cache-client';
 import {
   artifactCacheUiReducer,
   artifactDownloadActionLabel,
@@ -25,14 +24,18 @@ import {
   formatBytes,
   formatEta,
   formatRate,
-  type ArtifactCacheRetryTarget,
-  type ArtifactCacheUiError,
-  type ArtifactCacheUiOperation,
 } from './artifact-cache-ui';
 
 type CapabilityState = WebGpuCapability | null;
 const PRODUCT_DURATIONS = Array.from({ length: 60 }, (_, index) => (index + 1) * 5);
 const PRODUCT_MANIFEST_URL = 'http://127.0.0.1:5174/manifest.json';
+const RVQ_MANIFEST_URL = 'http://127.0.0.1:5175/manifest.json';
+const CONDITION_MANIFEST_URL = 'http://127.0.0.1:5176/manifest.json';
+const FLOW_MANIFEST_URL = 'http://127.0.0.1:5177/manifest.json';
+const VOCODER_MANIFEST_URL = 'http://127.0.0.1:5178/manifest.json';
+
+const createModuleWorker = () =>
+  new Worker(new URL('../workers/inference.worker.ts', import.meta.url), { type: 'module' });
 const durationLabel = (durationSeconds: number) =>
   durationSeconds === 5 ? 'five-second' : `${durationSeconds}-second`;
 
@@ -71,146 +74,29 @@ export function DiagnosticsApp() {
   const [cacheState, dispatchCache] = useReducer(artifactCacheUiReducer, null, createArtifactCacheUiState);
   const musicUrlRef = useRef<string | null>(null);
   const worker = useRef<Worker | null>(null);
-  const cacheWorker = useRef<Worker | null>(null);
   const musicRunning = useRef(false);
   const mounted = useRef(true);
-  const persistenceGeneration = useRef(0);
 
-  const finishCacheWorker = (activeWorker: Worker): boolean => {
-    if (cacheWorker.current !== activeWorker) return false;
-    cacheWorker.current = null;
-    activeWorker.terminate();
-    return true;
-  };
-
-  const retryTarget = (
-    operation: ArtifactCacheUiOperation,
-    protocolOperation?: ArtifactOperation,
-  ): ArtifactCacheRetryTarget => {
-    if (protocolOperation === 'download-artifacts' || operation === 'download') return 'download';
-    if (protocolOperation === 'delete-artifact-caches' || operation === 'delete') return 'delete';
-    return 'inspect';
-  };
-
-  const protocolOperation = (
-    operation: Exclude<ArtifactCacheUiOperation, null | 'request-persistence'>,
-  ): ArtifactOperation =>
-    operation === 'download'
-      ? 'download-artifacts'
-      : operation === 'delete'
-        ? 'delete-artifact-caches'
-        : 'inspect-artifact-cache';
-
-  const runtimeCacheError = (
-    operation: Exclude<ArtifactCacheUiOperation, null | 'request-persistence'>,
-    error: unknown,
-  ) => ({
-    message: error instanceof Error && error.message ? error.message : 'Model file worker failed',
-    operation: protocolOperation(operation),
-    retryable: true,
-    retryTarget: retryTarget(operation),
-  });
-
-  const failCacheOperation = (
-    operation: Exclude<ArtifactCacheUiOperation, null | 'request-persistence'>,
-    error: ArtifactCacheUiError,
-    activeWorker?: Worker,
-  ) => {
-    if (activeWorker && !finishCacheWorker(activeWorker)) return;
-    dispatchCache({ type: 'operation-failed', error });
-    if (operation === 'download' || operation === 'delete') inspectCache();
-  };
-
-  const runCacheWorker = (
-    request: ArtifactCacheRequest,
-    operation: Exclude<ArtifactCacheUiOperation, null | 'request-persistence'>,
-  ) => {
-    const previous = cacheWorker.current;
-    cacheWorker.current = null;
-    previous?.terminate();
-    let next: Worker;
-    try {
-      next = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), {
-        type: 'module',
-      });
-    } catch (error) {
-      failCacheOperation(operation, runtimeCacheError(operation, error));
-      return;
-    }
-    cacheWorker.current = next;
-    next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
-      if (cacheWorker.current !== next) return;
-      if (data.type === 'progress') {
-        if (operation === 'download' && data.stage === 'artifact') {
-          dispatchCache({ type: 'progress-received', progress: data });
-        }
-        return;
-      }
-      if (
-        data.type === 'artifact-cache-status' ||
-        data.type === 'artifact-download-complete' ||
-        data.type === 'artifact-cache-deleted'
-      ) {
-        const source =
-          data.type === 'artifact-cache-status'
-            ? 'inspect'
-            : data.type === 'artifact-download-complete'
-              ? 'download'
-              : 'delete';
-        dispatchCache({ type: 'status-received', source, status: data.status });
-        finishCacheWorker(next);
-        return;
-      }
-      if (data.type === 'error') {
-        failCacheOperation(
-          operation,
-          {
-            message: data.message,
-            code: data.code,
-            operation: data.operation,
-            retryable: data.retryable === true,
-            retryTarget: retryTarget(operation, data.operation),
-          },
-          next,
-        );
-      }
-    };
-    next.onerror = (event) => {
-      if (cacheWorker.current !== next) return;
-      event.preventDefault();
-      failCacheOperation(operation, runtimeCacheError(operation, event.error ?? new Error(event.message)), next);
-    };
-    try {
-      next.postMessage(request);
-    } catch (error) {
-      failCacheOperation(operation, runtimeCacheError(operation, error), next);
-    }
-  };
-
-  const inspectCache = () => {
-    persistenceGeneration.current++;
-    dispatchCache({ type: 'operation-started', operation: 'inspect' });
-    runCacheWorker(
-      {
-        type: 'inspect-artifact-cache',
+  const cache = useMemo(
+    () =>
+      createArtifactCacheClient({
         manifestUrl: PRODUCT_MANIFEST_URL,
-      },
-      'inspect',
-    );
-  };
+        dispatch: dispatchCache,
+        isMounted: () => mounted.current,
+        createWorker: createModuleWorker,
+      }),
+    [],
+  );
 
   useEffect(() => {
     mounted.current = true;
     void inspectWebGpu(navigator.gpu).then((nextCapability) => {
       if (mounted.current) setCapability(nextCapability);
     });
-    inspectCache();
+    cache.inspect();
     return () => {
       mounted.current = false;
-      persistenceGeneration.current++;
-      const activeCacheWorker = cacheWorker.current;
-      cacheWorker.current = null;
-      activeCacheWorker?.terminate();
+      cache.terminate();
       const activeInferenceWorker = worker.current;
       worker.current = null;
       activeInferenceWorker?.terminate();
@@ -232,9 +118,7 @@ export function DiagnosticsApp() {
   const createInferenceWorker = (onFailure?: () => void): Worker | null => {
     let next: Worker;
     try {
-      next = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), {
-        type: 'module',
-      });
+      next = createModuleWorker();
     } catch (error) {
       setProgress(`Error: ${workerFailureMessage(error)}`);
       onFailure?.();
@@ -256,14 +140,7 @@ export function DiagnosticsApp() {
     musicRunning.current = false;
     setMusicIsRunning(false);
     if (wasMusicRunning) {
-      const cancelled = cancelWorker(
-        worker.current,
-        musicProgress ?? {
-          status: 'running',
-          text: 'Music generation running',
-          indeterminate: true,
-        },
-      );
+      const cancelled = cancelWorker(worker.current);
       setMusicProgress(cancelled);
       setProgress(cancelled.text);
       if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
@@ -292,7 +169,7 @@ export function DiagnosticsApp() {
     };
     next.postMessage({
       type: 'run-global-smoke',
-      manifestUrl: 'http://127.0.0.1:5174/manifest.json',
+      manifestUrl: PRODUCT_MANIFEST_URL,
     });
   };
   const runRvq = () => {
@@ -311,7 +188,7 @@ export function DiagnosticsApp() {
     };
     next.postMessage({
       type: 'run-rvq-smoke',
-      manifestUrl: 'http://127.0.0.1:5174/manifest.json',
+      manifestUrl: PRODUCT_MANIFEST_URL,
     });
   };
   const generateFrames = () => {
@@ -332,8 +209,8 @@ export function DiagnosticsApp() {
     };
     next.postMessage({
       type: 'generate-frames',
-      globalManifestUrl: 'http://127.0.0.1:5174/manifest.json',
-      rvqManifestUrl: 'http://127.0.0.1:5175/manifest.json',
+      globalManifestUrl: PRODUCT_MANIFEST_URL,
+      rvqManifestUrl: RVQ_MANIFEST_URL,
       maxFrames,
       seed: 7,
     });
@@ -354,7 +231,7 @@ export function DiagnosticsApp() {
     };
     next.postMessage({
       type: 'run-condition-smoke',
-      manifestUrl: 'http://127.0.0.1:5176/manifest.json',
+      manifestUrl: CONDITION_MANIFEST_URL,
     });
   };
   const runFlow = () => {
@@ -373,7 +250,7 @@ export function DiagnosticsApp() {
     };
     next.postMessage({
       type: 'run-flow-smoke',
-      manifestUrl: 'http://127.0.0.1:5177/manifest.json',
+      manifestUrl: FLOW_MANIFEST_URL,
     });
   };
   const runVocoder = () => {
@@ -392,7 +269,7 @@ export function DiagnosticsApp() {
     };
     next.postMessage({
       type: 'run-vocoder-smoke',
-      manifestUrl: 'http://127.0.0.1:5178/manifest.json',
+      manifestUrl: VOCODER_MANIFEST_URL,
     });
   };
   const generateMusic = () => {
@@ -441,41 +318,8 @@ export function DiagnosticsApp() {
     next.postMessage(request);
   };
 
-  const downloadArtifacts = async () => {
-    const requestGeneration = ++persistenceGeneration.current;
-    dispatchCache({ type: 'operation-started', operation: 'request-persistence' });
-    const persistence = await requestPersistentStorage(navigator.storage);
-    if (!mounted.current || persistenceGeneration.current !== requestGeneration) return;
-    dispatchCache({ type: 'persistence-resolved', warning: persistence.warning });
-    dispatchCache({ type: 'download-started' });
-    runCacheWorker(
-      {
-        type: 'download-artifacts',
-        manifestUrl: PRODUCT_MANIFEST_URL,
-      },
-      'download',
-    );
-  };
-
-  const cancelArtifactDownload = () => {
-    const activeWorker = cacheWorker.current;
-    cacheWorker.current = null;
-    activeWorker?.terminate();
-    dispatchCache({ type: 'download-cancelled' });
-    inspectCache();
-  };
-
   const deleteArtifactCaches = () => {
-    if (!window.confirm('Delete all downloaded MiniMax Music 3 model files?')) return;
-    persistenceGeneration.current++;
-    dispatchCache({ type: 'operation-started', operation: 'delete' });
-    runCacheWorker(
-      {
-        type: 'delete-artifact-caches',
-        manifestUrl: PRODUCT_MANIFEST_URL,
-      },
-      'delete',
-    );
+    if (window.confirm('Delete all downloaded MiniMax Music 3 model files?')) cache.remove();
   };
 
   const cacheControls = deriveArtifactCacheControls(cacheState, musicIsRunning);
@@ -516,11 +360,11 @@ export function DiagnosticsApp() {
             <button
               type="button"
               disabled={!cacheControls.canDownload && !cacheControls.canRetry}
-              onClick={() => void downloadArtifacts()}
+              onClick={() => void cache.download()}
             >
               {downloadLabel}
             </button>
-            <button type="button" className="secondary" disabled={!cacheControls.canRefresh} onClick={inspectCache}>
+            <button type="button" className="secondary" disabled={!cacheControls.canRefresh} onClick={cache.inspect}>
               Refresh Status
             </button>
             <button
@@ -535,7 +379,7 @@ export function DiagnosticsApp() {
               type="button"
               className="secondary"
               disabled={!cacheControls.canCancel}
-              onClick={cancelArtifactDownload}
+              onClick={cache.cancelDownload}
             >
               Cancel Download
             </button>

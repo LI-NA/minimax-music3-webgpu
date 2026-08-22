@@ -281,18 +281,16 @@ async function encodeMaximumCondition(
 
 async function generateMaximumFlowChunk(
   runtime: ChunkedFlowGenerationRuntime,
-  chunk: DurationChunkPlan,
-  initialLatents: Uint16Array,
+  request: ChunkedFlowGenerationRequest,
+  chunkIndex: number,
   conditionBits: Uint16Array,
   previousLatent: Uint16Array | undefined,
-  chunkIndex: number,
-  completedSteps: number,
-  flowGuidance: number,
-  flowStepCount: number,
-  onChunkStart: ChunkedFlowGenerationRequest['onChunkStart'],
-  onChunkComplete: ChunkedFlowGenerationRequest['onChunkComplete'],
-  onStep: ChunkedFlowGenerationRequest['onStep'],
 ) {
+  const chunk = request.plan.chunks[chunkIndex];
+  const initialLatents = request.initialLatents[chunkIndex];
+  const flowGuidance = request.flowGuidance;
+  const flowStepCount = request.flowSteps;
+  const completedSteps = chunkIndex * flowStepCount;
   const noisePromptBits = previousLatent
     ? channelInterval(initialLatents, chunk.latentLength, 0, overlapLatents)
     : new Uint16Array(latentChannels * overlapLatents);
@@ -315,7 +313,7 @@ async function generateMaximumFlowChunk(
   ]);
   try {
     const schedule = exactFlowSchedule(flowStepCount);
-    onChunkStart?.(chunkIndex, completedSteps);
+    request.onChunkStart?.(chunkIndex, completedSteps);
     const started = performance.now();
     for (let index = 0; index < flowStepCount; index++) {
       const timestep = new runtime.ort.Tensor(
@@ -345,7 +343,7 @@ async function generateMaximumFlowChunk(
         latents.dispose();
         latents = next;
         next = undefined;
-        onStep?.(completedSteps + index + 1);
+        request.onStep?.(completedSteps + index + 1);
       } finally {
         next?.dispose();
         timestep.dispose();
@@ -356,7 +354,7 @@ async function generateMaximumFlowChunk(
     const downloaded = await readGpuFp16Bits(latents, [1, latentChannels, maximumLatents], 'final latents');
     const active = activeChannelValues(downloaded, chunk.latentLength);
     if (previousLatent) restoreChannelPrefix(active, previousLatent);
-    onChunkComplete?.({ chunkIndex, elapsedMs: performance.now() - started });
+    request.onChunkComplete?.({ chunkIndex, elapsedMs: performance.now() - started });
     return active;
   } finally {
     latents.dispose();
@@ -391,20 +389,7 @@ export async function runChunkedFlowGeneration(
     request.onConditionComplete?.({ chunkIndex, elapsedMs: encoded.elapsedMs });
     condition.fill(0, chunk.latentLength * conditionWidth);
     if (previousCondition) condition.set(previousCondition, 0);
-    const latentBits = await generateMaximumFlowChunk(
-      runtime,
-      chunk,
-      initialLatents,
-      condition,
-      previousLatent,
-      chunkIndex,
-      chunkIndex * request.flowSteps,
-      request.flowGuidance,
-      request.flowSteps,
-      request.onChunkStart,
-      request.onChunkComplete,
-      request.onStep,
-    );
+    const latentBits = await generateMaximumFlowChunk(runtime, request, chunkIndex, condition, previousLatent);
     result.push({ ...chunk, latentBits });
     if (chunkIndex + 1 < request.plan.chunks.length) {
       const carryStart = chunk.latentLength - 2 * overlapLatents;

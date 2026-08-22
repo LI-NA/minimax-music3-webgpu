@@ -20,8 +20,7 @@ import {
 } from '../runtime/model/manifest';
 import { inspectWebGpuForRequirements } from '../runtime/model/webgpu-device';
 import { runConditionSmoke } from '../runtime/pipeline/condition-smoke';
-import { runFlowSmoke } from '../runtime/pipeline/flow-generation';
-import { runChunkedFlowGeneration, runFixedFlowGeneration } from '../runtime/pipeline/flow-generation';
+import { runChunkedFlowGeneration, runFixedFlowGeneration, runFlowSmoke } from '../runtime/pipeline/flow-generation';
 import { runGlobalSmoke } from '../runtime/pipeline/global-smoke';
 import { runRvqSmoke } from '../runtime/pipeline/rvq-smoke';
 import {
@@ -212,25 +211,16 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
 };
 export async function runWorkerRequest(rawRequest: unknown) {
   if (typeof rawRequest !== 'object' || rawRequest === null) throw new Error('Worker request must be an object');
-  if (rawRequest && typeof rawRequest === 'object' && (rawRequest as { type?: unknown }).type === 'generate-music') {
+  const requestType = String((rawRequest as { type?: unknown }).type);
+  if (requestType === 'generate-music') {
     const request = validateMusicGenerationRequest(rawRequest);
     return withArtifactCacheReadLock(() => runVariableMusicGeneration(request));
   }
-  if (
-    rawRequest &&
-    typeof rawRequest === 'object' &&
-    (rawRequest as { type?: unknown }).type === 'diagnose-music-capacity'
-  ) {
+  if (requestType === 'diagnose-music-capacity') {
     const request = validateMusicCapacityDiagnosticRequest(rawRequest);
     return withArtifactCacheMutationLock(() => runVariableMusicGeneration(request));
   }
-  if (
-    rawRequest &&
-    typeof rawRequest === 'object' &&
-    ['inspect-artifact-cache', 'download-artifacts', 'delete-artifact-caches'].includes(
-      String((rawRequest as { type?: unknown }).type),
-    )
-  ) {
+  if (['inspect-artifact-cache', 'download-artifacts', 'delete-artifact-caches'].includes(requestType)) {
     const request = validateArtifactCacheRequest(rawRequest);
     if (request.type === 'inspect-artifact-cache') return runArtifactCacheInspection(request);
     if (request.type === 'download-artifacts') return runArtifactDownload(request);
@@ -905,47 +895,16 @@ async function runVariableMusicGeneration(
   const inferenceMs = { autoregressive: 0, condition: 0, flow: 0, vocoder: 0 };
   const flowStepMs: number[] = [];
   const adapterName = (adapter: GPUAdapter) => adapter.info.description || adapter.info.vendor || 'WebGPU adapter';
-  const webgpu = ort.env.webgpu as unknown as { device?: GPUDevice | Promise<GPUDevice> };
-  type OrtDevice = { binding: GPUDevice | Promise<GPUDevice>; device: GPUDevice };
+  const webgpu = ort.env.webgpu as unknown as OrtWebGpu;
   const captureOrtDevice = async (): Promise<OrtDevice> => {
-    const binding = webgpu.device;
-    if (!binding) throw new Error('ORT WebGPU session did not expose its device');
-    return { binding, device: await binding };
+    const captured = await capturePublishedOrtDevice(webgpu);
+    if (!captured) throw new Error('ORT WebGPU session did not expose its device');
+    return captured;
   };
-  const captureNewOrtDevice = async (
-    previous: GPUDevice | Promise<GPUDevice> | undefined,
-  ): Promise<OrtDevice | undefined> => {
-    const binding = webgpu.device;
-    if (!binding || binding === previous) return undefined;
-    return { binding, device: await binding };
-  };
-  const verifyOrtDevice = (handle: OrtDevice) => {
-    if (!handle.device.features.has('shader-f16')) throw new Error('ORT WebGPU device does not support shader-f16');
-    const limits = handle.device.limits as unknown as Record<string, number>;
-    if (
-      Object.entries(manifest.webgpu.requiredLimits).some(
-        ([name, value]) => typeof limits[name] !== 'number' || limits[name] < value,
-      )
-    )
-      throw new Error('ORT WebGPU device limits are insufficient');
-  };
-  const settleOrtDevice = async (handle: OrtDevice | undefined): Promise<Failure | undefined> => {
-    if (!handle) return undefined;
-    let destroyFailure: Failure | undefined;
-    try {
-      handle.device.destroy();
-    } catch (error) {
-      destroyFailure = failure(error);
-    }
-    let clearFailure: Failure | undefined;
-    try {
-      const current = webgpu.device;
-      if (current && (await current) === handle.device) delete webgpu.device;
-    } catch (error) {
-      clearFailure = failure(error);
-    }
-    return destroyFailure ?? clearFailure;
-  };
+  const captureNewOrtDevice = (previous: GPUDevice | Promise<GPUDevice> | undefined) =>
+    capturePublishedOrtDevice(webgpu, previous);
+  const verifyStageDevice = (handle: OrtDevice) => verifyOrtDevice(handle.device, manifest.webgpu.requiredLimits);
+  const settleOrtDevice = (handle: OrtDevice | undefined) => settlePublishedOrtDevice(webgpu, handle);
   send({ type: 'progress', stage: 'adapter', detail: 'Checking shader-f16 WebGPU requirements' });
   const capability = await inspectWebGpuForRequirements(navigator.gpu, manifest.webgpu.requiredLimits);
   if (!capability.supported) throw new Error(capability.reason);
@@ -966,7 +925,7 @@ async function runVariableMusicGeneration(
       const sessionStarted = performance.now();
       decoder = await createOrtSession(manifest.graph, release.cache);
       arDevice = await captureOrtDevice();
-      verifyOrtDevice(arDevice);
+      verifyStageDevice(arDevice);
       adapters.push(adapterName(adapter));
       head = await createOrtSession(manifest.reducedHead, release.cache);
       rvqDepth = await createOrtSession(manifest.rvqDepth, release.cache);
@@ -1020,8 +979,9 @@ async function runVariableMusicGeneration(
     throwFirstFailure(primaryFailure, releaseFailure, deviceFailure);
   }
   if (!generated) throw new Error('autoregressive generation did not return frames');
-  if (capacityDiagnostic && !generated.capacityDiagnostic) throw new Error('capacity diagnostic metadata is missing');
-  if (!capacityDiagnostic && generated.capacityDiagnostic)
+  const diagnosticMetadata = generated.capacityDiagnostic;
+  if (capacityDiagnostic && !diagnosticMetadata) throw new Error('capacity diagnostic metadata is missing');
+  if (!capacityDiagnostic && diagnosticMetadata)
     throw new Error('product generation returned capacity diagnostic metadata');
 
   tracker.setRetainedFrames(generated.plan.retainedFrames, generated.plan.termination);
@@ -1046,7 +1006,7 @@ async function runVariableMusicGeneration(
       let sessionStarted = performance.now();
       condition = await createOrtSession(manifest.conditionEncoder, release.cache);
       flowDevice = await captureOrtDevice();
-      verifyOrtDevice(flowDevice);
+      verifyStageDevice(flowDevice);
       adapters.push(adapterName(adapter));
       sessionCreateMs.condition = performance.now() - sessionStarted;
       tracker.session('flow');
@@ -1119,7 +1079,7 @@ async function runVariableMusicGeneration(
     try {
       vocoder = await createOrtSession(manifest.vocoder, release.cache);
       vocoderDevice = await captureOrtDevice();
-      verifyOrtDevice(vocoderDevice);
+      verifyStageDevice(vocoderDevice);
       adapters.push(adapterName(adapter));
       sessionCreateMs.vocoder = performance.now() - sessionStarted;
       wav = await generateVariableVocoderWav(
@@ -1198,15 +1158,15 @@ async function runVariableMusicGeneration(
     ortVersion: PINNED_COMPARISON_ORT_VERSION,
     status: 'passed' as const,
   };
-  if (inputRequest.type === 'diagnose-music-capacity') {
-    if (!generated.capacityDiagnostic) throw new Error('capacity diagnostic metadata is missing');
+  if (capacityDiagnostic) {
+    if (!diagnosticMetadata) throw new Error('capacity diagnostic metadata is missing');
     send(
       {
         type: 'music-result',
         result: {
           ...metrics,
           plan: resultPlan,
-          capacityDiagnostic: generated.capacityDiagnostic,
+          capacityDiagnostic: diagnosticMetadata,
         },
       },
       [wav],
@@ -1244,7 +1204,7 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
     detail: 'Reading five-second music release manifest',
   });
   const release = await readManifest(request.manifestUrl, 'Music release manifest is unavailable');
-  const manifestHash = await hashText(release.text);
+  const manifestHash = release.hash;
   const manifest = parseMusicManifest(JSON.parse(release.text));
   const allArtifacts = [
     manifest.graph,

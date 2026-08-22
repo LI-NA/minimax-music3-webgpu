@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const origin = 'http://127.0.0.1:5173';
+const origin = process.env.MINIMAX_APP_ORIGIN ?? 'http://127.0.0.1:5173';
 const port = Number(process.env.MINIMAX_ARTIFACT_PORT ?? 5174);
 const requestedRelease = process.env.MINIMAX_RELEASE;
 const releaseName = ['global-one-layer', 'rvq', 'condition', 'flow', 'vocoder', 'music-5s', 'music-variable'].includes(

@@ -193,7 +193,8 @@ describe('music generation progress', () => {
         totalElapsedMs: 2_000,
       }),
     ).toBe('Complete: 1417260 WAV bytes in 2.0s');
-    expect(cancelProgress(initialProgressView())).toEqual({
+    expect(initialProgressView().status).toBe('idle');
+    expect(cancelProgress()).toEqual({
       status: 'cancelled',
       text: 'Music generation cancelled',
       indeterminate: false,
@@ -203,14 +204,11 @@ describe('music generation progress', () => {
   it('terminates the inference worker when music generation is cancelled', () => {
     let terminated = false;
 
-    const cancelled = cancelWorker(
-      {
-        terminate: () => {
-          terminated = true;
-        },
+    const cancelled = cancelWorker({
+      terminate: () => {
+        terminated = true;
       },
-      { status: 'running', text: 'Flow steps 3/30', indeterminate: false, value: 3, max: 30 },
-    );
+    });
 
     expect(terminated).toBe(true);
     expect(cancelled.status).toBe('cancelled');

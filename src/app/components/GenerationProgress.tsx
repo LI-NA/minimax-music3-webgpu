@@ -49,8 +49,9 @@ export function GenerationProgress({ tr, track, view, elapsedMs, onCancel }: Gen
     ...stageStats(tr, view),
     { key: tr.statRemaining, value: remaining },
   ];
-  const flowCellCount = view.flow ? Math.min(60, view.flow.total) : 0;
-  const flowFraction = view.flow && view.flow.total > 0 ? view.flow.completed / view.flow.total : 0;
+  const flow = view.flow;
+  const flowCellCount = flow ? Math.min(60, flow.total) : 0;
+  const flowFraction = flow && flow.total > 0 ? flow.completed / flow.total : 0;
 
   return (
     <div className="mx-auto flex max-w-[600px] flex-col gap-4">
@@ -147,13 +148,13 @@ export function GenerationProgress({ tr, track, view, elapsedMs, onCancel }: Gen
         })}
       </div>
 
-      {flowCellCount > 0 && (
+      {flow && flowCellCount > 0 && (
         <div className="rounded-xl border border-line bg-panel px-4 py-3.5">
           <div className="mb-2.5 flex items-baseline">
             <div className="font-mono text-[9px] tracking-[.12em] text-muted2">{tr.flowStepsLabel}</div>
             <div className="flex-1" />
             <div className="font-mono text-[10px] text-muted">
-              {view.flow!.completed} / {view.flow!.total}
+              {flow.completed} / {flow.total}
             </div>
           </div>
           <div className="flex flex-wrap gap-[3px]">

@@ -15,7 +15,7 @@ from .acoustic_manifest import build_music_5s_release, build_music_variable_rele
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Convert MiniMax Music 3 models for WebGPU.")
-    subparsers = parser.add_subparsers(dest="command")
+    subparsers = parser.add_subparsers(dest="command", required=True)
     download_parser = subparsers.add_parser("download-global")
     download_parser.add_argument("--artifacts-dir", type=Path, default=Path("artifacts"))
     acoustic_parser = subparsers.add_parser("download-acoustic")

@@ -205,7 +205,6 @@ vi.mock('../../../src/runtime/model/manifest', () => ({
   parseVocoderManifest: vi.fn(() => variableManifest),
 }));
 vi.mock('../../../src/runtime/model/webgpu-device', () => ({
-  createWebGpuDevice: vi.fn(),
   inspectWebGpuForRequirements: vi.fn(async () => {
     state.lockAtPreflight.push(state.activeCacheLock);
     state.events.push('adapter:preflight');
@@ -807,11 +806,8 @@ describe('variable inference worker lifecycle', () => {
   });
 
   it('uses and clears the actual ORT-owned device for a legacy smoke route', async () => {
-    const { createWebGpuDevice } = await import('../../../src/runtime/model/webgpu-device');
-
     await runWorkerRequest({ type: 'run-global-smoke', manifestUrl: '/global/manifest.json' });
 
-    expect(createWebGpuDevice).not.toHaveBeenCalled();
     expect(state.events.filter((event) => event === 'adapter:preflight')).toHaveLength(1);
     expect(state.events).toContain('device:create:ar');
     expect(state.events.indexOf('session:release:head')).toBeLessThan(state.events.indexOf('device:destroy:ar'));

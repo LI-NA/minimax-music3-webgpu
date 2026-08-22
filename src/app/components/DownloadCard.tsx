@@ -1,5 +1,5 @@
 import type { ArtifactCacheControls, ArtifactCacheUiState } from '../artifact-cache-ui';
-import { deriveArtifactCacheControls, formatBytes, formatEta, formatRate } from '../artifact-cache-ui';
+import { formatBytes, formatEta, formatRate } from '../artifact-cache-ui';
 import type { Messages } from '../i18n';
 
 export type DownloadCardProps = {
@@ -33,8 +33,7 @@ export function DownloadCard({
   const completedBytes = progress?.completedBytes ?? status?.completeArtifactBytes ?? 0;
   const totalBytes = progress?.totalBytes ?? status?.totalArtifactBytes ?? 0;
   const percent = totalBytes > 0 ? Math.floor((completedBytes / totalBytes) * 100) : 0;
-  const retryable = deriveArtifactCacheControls(cacheState).canRetry;
-  const actionLabel = retryable ? tr.dlRetry : status?.state === 'partial' ? tr.dlResume : tr.dlAction;
+  const actionLabel = controls.canRetry ? tr.dlRetry : status?.state === 'partial' ? tr.dlResume : tr.dlAction;
   const details = downloading
     ? [
         progress ? detailLine(tr.dlFile, progress.currentFile) : null,
@@ -50,7 +49,7 @@ export function DownloadCard({
         <div className="font-mono text-[10px] tracking-[.12em] text-muted">{tr.firstRun}</div>
         <div className="mt-1 text-[19px] font-bold">{tr.dlTitle}</div>
       </div>
-      {!status && <div className="text-xs text-muted">{tr.dlChecking}</div>}
+      {!status && !cacheState.lastError && <div className="text-xs text-muted">{tr.dlChecking}</div>}
       {status && (
         <>
           <div className="flex items-baseline gap-3">

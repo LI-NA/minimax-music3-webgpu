@@ -1,23 +1,14 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
-import { requestPersistentStorage } from '../runtime/model/artifact-cache-management';
 import { inspectWebGpu, type WebGpuCapability } from '../runtime/model/webgpu-device';
 import {
   createMusicGenerationRequest,
   type AnyMusicGenerationWorkerResult,
-  type ArtifactCacheRequest,
-  type ArtifactOperation,
   type MusicGenerationRequest,
   type WorkerResponse,
 } from '../workers/protocol';
-import {
-  artifactCacheUiReducer,
-  createArtifactCacheUiState,
-  deriveArtifactCacheControls,
-  type ArtifactCacheRetryTarget,
-  type ArtifactCacheUiError,
-  type ArtifactCacheUiOperation,
-} from './artifact-cache-ui';
+import { createArtifactCacheClient } from './artifact-cache-client';
+import { artifactCacheUiReducer, createArtifactCacheUiState, deriveArtifactCacheControls } from './artifact-cache-ui';
 import { Composer, createComposerState, type ComposerState } from './components/Composer';
 import { DownloadCard } from './components/DownloadCard';
 import { EmptyView } from './components/EmptyView';
@@ -57,7 +48,9 @@ type Generation = {
   view: GenerationView;
 };
 
-type CacheOperation = Exclude<ArtifactCacheUiOperation, null | 'request-persistence'>;
+function createInferenceWorker() {
+  return new Worker(new URL('../workers/inference.worker.ts', import.meta.url), { type: 'module' });
+}
 
 function readStorage(key: string): string | null {
   try {
@@ -106,9 +99,7 @@ export function App() {
   const [bars, setBars] = useState<number[]>([]);
 
   const mounted = useRef(true);
-  const cacheWorker = useRef<Worker | null>(null);
   const musicWorker = useRef<Worker | null>(null);
-  const persistenceGeneration = useRef(0);
   const audioRef = useRef<HTMLAudioElement>(null);
   const pendingSeek = useRef<number | null>(null);
 
@@ -128,127 +119,16 @@ export function App() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const cache = useMemo(() => {
-    const finish = (active: Worker): boolean => {
-      if (cacheWorker.current !== active) return false;
-      cacheWorker.current = null;
-      active.terminate();
-      return true;
-    };
-    const retryTarget = (
-      operation: CacheOperation,
-      protocolOperation?: ArtifactOperation,
-    ): ArtifactCacheRetryTarget => {
-      if (protocolOperation === 'download-artifacts' || operation === 'download') return 'download';
-      if (protocolOperation === 'delete-artifact-caches' || operation === 'delete') return 'delete';
-      return 'inspect';
-    };
-    const toProtocol = (operation: CacheOperation): ArtifactOperation =>
-      operation === 'download'
-        ? 'download-artifacts'
-        : operation === 'delete'
-          ? 'delete-artifact-caches'
-          : 'inspect-artifact-cache';
-    const runtimeError = (operation: CacheOperation, error: unknown): ArtifactCacheUiError => ({
-      message: errorMessage(error, 'Model file worker failed'),
-      operation: toProtocol(operation),
-      retryable: true,
-      retryTarget: retryTarget(operation),
-    });
-    const fail = (operation: CacheOperation, error: ArtifactCacheUiError, active?: Worker) => {
-      if (active && !finish(active)) return;
-      dispatchCache({ type: 'operation-failed', error });
-      if (operation === 'download' || operation === 'delete') inspect();
-    };
-    const run = (request: ArtifactCacheRequest, operation: CacheOperation) => {
-      const previous = cacheWorker.current;
-      cacheWorker.current = null;
-      previous?.terminate();
-      let next: Worker;
-      try {
-        next = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), {
-          type: 'module',
-        });
-      } catch (error) {
-        fail(operation, runtimeError(operation, error));
-        return;
-      }
-      cacheWorker.current = next;
-      next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
-        if (cacheWorker.current !== next) return;
-        if (data.type === 'progress') {
-          if (operation === 'download' && data.stage === 'artifact')
-            dispatchCache({ type: 'progress-received', progress: data });
-          return;
-        }
-        if (
-          data.type === 'artifact-cache-status' ||
-          data.type === 'artifact-download-complete' ||
-          data.type === 'artifact-cache-deleted'
-        ) {
-          const source =
-            data.type === 'artifact-cache-status'
-              ? 'inspect'
-              : data.type === 'artifact-download-complete'
-                ? 'download'
-                : 'delete';
-          dispatchCache({ type: 'status-received', source, status: data.status });
-          finish(next);
-          return;
-        }
-        if (data.type === 'error') {
-          fail(
-            operation,
-            {
-              message: data.message,
-              code: data.code,
-              operation: data.operation,
-              retryable: data.retryable === true,
-              retryTarget: retryTarget(operation, data.operation),
-            },
-            next,
-          );
-        }
-      };
-      next.onerror = (event) => {
-        if (cacheWorker.current !== next) return;
-        event.preventDefault();
-        fail(operation, runtimeError(operation, event.error ?? new Error(event.message)), next);
-      };
-      try {
-        next.postMessage(request);
-      } catch (error) {
-        fail(operation, runtimeError(operation, error), next);
-      }
-    };
-    const inspect = () => {
-      persistenceGeneration.current++;
-      dispatchCache({ type: 'operation-started', operation: 'inspect' });
-      run({ type: 'inspect-artifact-cache', manifestUrl: MANIFEST_URL }, 'inspect');
-    };
-    const download = async () => {
-      const requestGeneration = ++persistenceGeneration.current;
-      dispatchCache({ type: 'operation-started', operation: 'request-persistence' });
-      const persistence = await requestPersistentStorage(navigator.storage);
-      if (!mounted.current || persistenceGeneration.current !== requestGeneration) return;
-      dispatchCache({ type: 'persistence-resolved', warning: persistence.warning });
-      dispatchCache({ type: 'download-started' });
-      run({ type: 'download-artifacts', manifestUrl: MANIFEST_URL }, 'download');
-    };
-    const cancelDownload = () => {
-      const active = cacheWorker.current;
-      cacheWorker.current = null;
-      active?.terminate();
-      dispatchCache({ type: 'download-cancelled' });
-      inspect();
-    };
-    const remove = () => {
-      persistenceGeneration.current++;
-      dispatchCache({ type: 'operation-started', operation: 'delete' });
-      run({ type: 'delete-artifact-caches', manifestUrl: MANIFEST_URL }, 'delete');
-    };
-    return { inspect, download, cancelDownload, remove };
-  }, []);
+  const cache = useMemo(
+    () =>
+      createArtifactCacheClient({
+        manifestUrl: MANIFEST_URL,
+        dispatch: dispatchCache,
+        isMounted: () => mounted.current,
+        createWorker: createInferenceWorker,
+      }),
+    [],
+  );
 
   useEffect(() => {
     mounted.current = true;
@@ -266,8 +146,7 @@ export function App() {
       .catch(() => {});
     return () => {
       mounted.current = false;
-      cacheWorker.current?.terminate();
-      cacheWorker.current = null;
+      cache.terminate();
       musicWorker.current?.terminate();
       musicWorker.current = null;
     };
@@ -424,9 +303,7 @@ export function App() {
     musicWorker.current = null;
     let worker: Worker;
     try {
-      worker = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), {
-        type: 'module',
-      });
+      worker = createInferenceWorker();
     } catch (error) {
       setNotice(errorMessage(error, 'Inference worker failed'));
       return;
