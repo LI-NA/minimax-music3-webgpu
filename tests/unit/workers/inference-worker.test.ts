@@ -531,6 +531,10 @@ describe('variable inference worker lifecycle', () => {
       code: 'manifest-unavailable',
       operation: 'inspect-artifact-cache',
       retryable: true,
+      // A CORS block and a refused connection are indistinguishable to `fetch`, so the message
+      // has to name the URL it tried and repeat what the browser said.
+      message:
+        'Music release manifest is unavailable: GET http://worker.test/music-variable/manifest.json failed (network unavailable)',
     });
 
     vi.mocked(fetch).mockResolvedValueOnce(new Response('{}', { status: 404 }));
@@ -539,7 +543,12 @@ describe('variable inference worker lifecycle', () => {
         type: 'inspect-artifact-cache',
         manifestUrl: 'http://worker.test/music-variable/manifest.json',
       }),
-    ).rejects.toMatchObject({ code: 'manifest-unavailable', retryable: true });
+    ).rejects.toMatchObject({
+      code: 'manifest-unavailable',
+      retryable: true,
+      message:
+        'Music release manifest is unavailable: GET http://worker.test/music-variable/manifest.json returned 404',
+    });
 
     const { parseMusicVariableManifest } = await import('../../../src/runtime/model/manifest');
     vi.mocked(parseMusicVariableManifest).mockImplementationOnce(() => {

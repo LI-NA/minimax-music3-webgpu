@@ -244,17 +244,10 @@ async function runGlobal(manifestUrl: string) {
     stage: 'manifest',
     detail: 'Reading release manifest',
   });
-  let response: Response;
-  try {
-    response = await fetch(manifestUrl);
-  } catch {
-    throw new Error('Release manifest is unavailable');
-  }
-  if (!response.ok) throw new Error('Release manifest is unavailable');
-  const manifestText = await response.text();
-  const manifest = parseModelManifest(JSON.parse(manifestText));
-  const cache = await OpfsArtifactStore.open(await hashText(manifestText));
-  const base = new URL(manifestUrl, self.location.href);
+  const release = await fetchManifest(manifestUrl, 'Release manifest is unavailable');
+  const manifest = parseModelManifest(JSON.parse(release.text));
+  const cache = await OpfsArtifactStore.open(release.hash);
+  const base = release.base;
   const artifacts = [
     manifest.graph,
     ...manifest.graph.externalData,
@@ -429,10 +422,13 @@ async function fetchManifest(url: string, unavailable: string) {
   let response: Response;
   try {
     response = await fetch(url);
-  } catch {
-    throw new Error(unavailable);
+  } catch (error) {
+    // `fetch` reports a CORS block, a refused connection and a bad host identically, so the
+    // requested URL and the browser's own wording are the only clues an operator gets.
+    const reason = error instanceof Error && error.message ? error.message : String(error);
+    throw new Error(`${unavailable}: GET ${url} failed (${reason})`, { cause: error });
   }
-  if (!response.ok) throw new Error(unavailable);
+  if (!response.ok) throw new Error(`${unavailable}: GET ${url} returned ${response.status}`);
   const text = await response.text();
   return {
     text,
@@ -521,9 +517,8 @@ async function fetchVariableMusicRelease(manifestUrl: string, operation: Artifac
   try {
     return await fetchManifest(manifestUrl, 'Music release manifest is unavailable');
   } catch (error) {
-    throw new ArtifactOperationError('Music release manifest is unavailable', 'manifest-unavailable', operation, true, {
-      cause: error,
-    });
+    const detail = error instanceof Error && error.message ? error.message : 'Music release manifest is unavailable';
+    throw new ArtifactOperationError(detail, 'manifest-unavailable', operation, true, { cause: error });
   }
 }
 
@@ -1403,17 +1398,10 @@ async function runMusicGeneration(request: Extract<WorkerRequest, { type: 'gener
 
 async function runRvq(manifestUrl: string) {
   send({ type: 'progress', stage: 'manifest', detail: 'Reading RVQ release manifest' });
-  let response: Response;
-  try {
-    response = await fetch(manifestUrl);
-  } catch {
-    throw new Error('RVQ release manifest is unavailable');
-  }
-  if (!response.ok) throw new Error('RVQ release manifest is unavailable');
-  const manifestText = await response.text();
-  const manifest = parseRvqStageManifest(JSON.parse(manifestText));
-  const cache = await OpfsArtifactStore.open(await hashText(manifestText));
-  const base = new URL(manifestUrl, self.location.href);
+  const release = await fetchManifest(manifestUrl, 'RVQ release manifest is unavailable');
+  const manifest = parseRvqStageManifest(JSON.parse(release.text));
+  const cache = await OpfsArtifactStore.open(release.hash);
+  const base = release.base;
   const artifacts = [
     manifest.rvqDepth,
     ...manifest.rvqDepth.externalData,
