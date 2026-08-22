@@ -24,16 +24,14 @@ export function parseNvidiaSample(line: string, monotonicMs: number): GpuSample 
   const usedMiB = Number(match[2]);
   const totalMiB = Number(match[3]);
   const utilizationPercent = Number(match[4]);
-  if (
-    !Number.isSafeInteger(usedMiB)
-    || !Number.isSafeInteger(totalMiB)
-    || !Number.isSafeInteger(utilizationPercent)
-  ) return undefined;
+  if (!Number.isSafeInteger(usedMiB) || !Number.isSafeInteger(totalMiB) || !Number.isSafeInteger(utilizationPercent))
+    return undefined;
   return { at: match[1].trim(), monotonicMs, usedMiB, totalMiB, utilizationPercent };
 }
 
 const vmConflictPattern = /^(?:qemu.*|vmmem(?:wsl)?|vmware-vmx(?:\.exe)?|emulator(?:\.exe)?|.*android.*)$/i;
-const namedGpuProcessPattern = /^(?:chrome(?:\.exe)?|qemu.*|vmmem(?:wsl)?|vmware-vmx(?:\.exe)?|emulator(?:\.exe)?|.*android.*)$/i;
+const namedGpuProcessPattern =
+  /^(?:chrome(?:\.exe)?|qemu.*|vmmem(?:wsl)?|vmware-vmx(?:\.exe)?|emulator(?:\.exe)?|.*android.*)$/i;
 
 export function inspectNamedGpuProcesses(processListing: string) {
   return processListing
@@ -50,8 +48,7 @@ export function inspectNamedGpuProcesses(processListing: string) {
 
 export function findGpuConflicts(processListing: string) {
   return inspectNamedGpuProcesses(processListing)
-    .filter(({ name, usedMiB }) =>
-      vmConflictPattern.test(name) && usedMiB !== null && usedMiB >= 512)
+    .filter(({ name, usedMiB }) => vmConflictPattern.test(name) && usedMiB !== null && usedMiB >= 512)
     .map(({ name }) => name);
 }
 
@@ -66,10 +63,9 @@ export async function raceWithCancellableTimeout<T>(
   operation: Promise<T>,
   timeoutMs: number,
   timeoutError: () => Error,
-  schedule: (callback: () => void, milliseconds: number) => unknown =
-    (callback, milliseconds) => setTimeout(callback, milliseconds),
-  cancel: (handle: unknown) => void =
-    (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+  schedule: (callback: () => void, milliseconds: number) => unknown = (callback, milliseconds) =>
+    setTimeout(callback, milliseconds),
+  cancel: (handle: unknown) => void = (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 ) {
   let timeoutHandle: unknown;
   const timeout = new Promise<never>((_resolve, reject) => {
@@ -98,21 +94,18 @@ export function summarizeTelemetry(
   const measured = samples.slice(baselineIndex);
   const physicalTotalMiB = baseline.totalMiB;
   const capacityGuardMiB = physicalTotalMiB - capacityReserveMiB;
-  const intervals = samples.slice(1).map((sample, index) =>
-    sample.monotonicMs - samples[index].monotonicMs);
+  const intervals = samples.slice(1).map((sample, index) => sample.monotonicMs - samples[index].monotonicMs);
   const sorted = [...intervals].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
-  const median = sorted.length === 0
-    ? null
-    : sorted.length % 2 === 1
-      ? sorted[middle]
-      : (sorted[middle - 1] + sorted[middle]) / 2;
+  const median =
+    sorted.length === 0 ? null : sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
   return {
     requestedCadenceMs,
     effectiveCadenceMs: {
-      mean: intervals.length === 0
-        ? null
-        : rounded(intervals.reduce((total, value) => total + value, 0) / intervals.length),
+      mean:
+        intervals.length === 0
+          ? null
+          : rounded(intervals.reduce((total, value) => total + value, 0) / intervals.length),
       median: median === null ? null : rounded(median),
       maximum: intervals.length === 0 ? null : rounded(Math.max(...intervals)),
     },
@@ -122,14 +115,12 @@ export function summarizeTelemetry(
     rawFinalMiB: samples.at(-1)!.usedMiB,
     maximumDeltaMiB: Math.max(...measured.map(({ usedMiB }) => usedMiB - baseline.usedMiB)),
     incrementalLimitMiB,
-    incrementalExceeded: measured.some(({ usedMiB }) =>
-      usedMiB - baseline.usedMiB > incrementalLimitMiB),
+    incrementalExceeded: measured.some(({ usedMiB }) => usedMiB - baseline.usedMiB > incrementalLimitMiB),
     capacityReserveMiB,
     capacityGuardMiB,
     capacityGuardExceeded: measured.some(({ usedMiB }) => usedMiB >= capacityGuardMiB),
     baselineUtilizationPercent: baseline.utilizationPercent,
-    maximumUtilizationPercent: Math.max(...measured.map(({ utilizationPercent }) =>
-      utilizationPercent)),
+    maximumUtilizationPercent: Math.max(...measured.map(({ utilizationPercent }) => utilizationPercent)),
     finalUtilizationPercent: samples.at(-1)!.utilizationPercent,
     sampleCount: samples.length,
   };
@@ -153,8 +144,7 @@ function stopOwnedGate(gate: ChildProcess | undefined) {
 }
 
 export function selectBrowserGate(value: string | undefined) {
-  if (value === undefined || value === 'variable-duration')
-    return { spec: 'tests/browser/variable-duration.spec.ts' };
+  if (value === undefined || value === 'variable-duration') return { spec: 'tests/browser/variable-duration.spec.ts' };
   if (value === 'long-duration') return { spec: 'tests/browser/long-duration.spec.ts' };
   throw new Error('MINIMAX_VARIABLE_GATE must use the browser gate allowlist');
 }
@@ -168,20 +158,17 @@ function spawnGate(captureDirectory: string, chromeProfile: string) {
     MINIMAX_VARIABLE_CHROME_PROFILE: chromeProfile,
   };
   if (process.platform === 'win32') {
-    return spawn(process.env.ComSpec ?? 'cmd.exe', [
-      '/d',
-      '/s',
-      '/c',
-      `npx playwright test ${spec} --project=chrome --workers=1`,
-    ], { env: environment, stdio: 'inherit', windowsHide: true });
+    return spawn(
+      process.env.ComSpec ?? 'cmd.exe',
+      ['/d', '/s', '/c', `npx playwright test ${spec} --project=chrome --workers=1`],
+      { env: environment, stdio: 'inherit', windowsHide: true },
+    );
   }
-  return spawn('npx', [
-    'playwright',
-    'test',
-    spec,
-    '--project=chrome',
-    '--workers=1',
-  ], { env: environment, stdio: 'inherit', detached: true });
+  return spawn('npx', ['playwright', 'test', spec, '--project=chrome', '--workers=1'], {
+    env: environment,
+    stdio: 'inherit',
+    detached: true,
+  });
 }
 
 export function writeEvidence(
@@ -192,19 +179,19 @@ export function writeEvidence(
   mkdirSync(captureDirectory, { recursive: true });
   const csv = [
     'nvidia_timestamp,host_monotonic_ms,memory_used_mib,memory_total_mib,gpu_utilization_percent',
-    ...samples.map((sample) =>
-      `${sample.at},${sample.monotonicMs.toFixed(3)},${sample.usedMiB},${sample.totalMiB},${sample.utilizationPercent}`),
+    ...samples.map(
+      (sample) =>
+        `${sample.at},${sample.monotonicMs.toFixed(3)},${sample.usedMiB},${sample.totalMiB},${sample.utilizationPercent}`,
+    ),
   ];
-  writeFileSync(
-    path.join(captureDirectory, 'gpu-samples.csv'),
-    `${csv.join('\n')}\n`,
-    { encoding: 'utf8', flag: 'wx' },
-  );
-  writeFileSync(
-    path.join(captureDirectory, 'telemetry.json'),
-    `${JSON.stringify(result, null, 2)}\n`,
-    { encoding: 'utf8', flag: 'wx' },
-  );
+  writeFileSync(path.join(captureDirectory, 'gpu-samples.csv'), `${csv.join('\n')}\n`, {
+    encoding: 'utf8',
+    flag: 'wx',
+  });
+  writeFileSync(path.join(captureDirectory, 'telemetry.json'), `${JSON.stringify(result, null, 2)}\n`, {
+    encoding: 'utf8',
+    flag: 'wx',
+  });
 }
 
 function positiveEnvironmentNumber(name: string, fallback: number) {
@@ -214,13 +201,14 @@ function positiveEnvironmentNumber(name: string, fallback: number) {
 }
 
 function materialGpuProcessListing() {
-  const result = spawnSync('nvidia-smi', [
-    '--query-compute-apps=process_name,used_memory',
-    '--format=csv,noheader,nounits',
-  ], {
-    encoding: 'utf8',
-    windowsHide: true,
-  });
+  const result = spawnSync(
+    'nvidia-smi',
+    ['--query-compute-apps=process_name,used_memory', '--format=csv,noheader,nounits'],
+    {
+      encoding: 'utf8',
+      windowsHide: true,
+    },
+  );
   if (result.error || result.status !== 0)
     throw new Error(`process preflight failed: ${result.error?.message ?? result.stderr}`);
   return result.stdout;
@@ -229,10 +217,7 @@ function materialGpuProcessListing() {
 export async function runTelemetryGate() {
   const checkoutRoot = path.resolve('.');
   const linkedWorktree = statSync(path.join(checkoutRoot, '.git')).isFile();
-  const captureDirectory = resolveQualificationCapture(
-    checkoutRoot,
-    process.env.MINIMAX_VARIABLE_CAPTURE_DIR,
-  );
+  const captureDirectory = resolveQualificationCapture(checkoutRoot, process.env.MINIMAX_VARIABLE_CAPTURE_DIR);
   assertFreshQualificationCapture(captureDirectory, existsSync);
   const chromeProfile = resolveQualificationProfile(
     checkoutRoot,
@@ -254,21 +239,16 @@ export async function runTelemetryGate() {
   let monitorFailure: string | undefined;
   let lineBuffer = '';
   let cleanStreak = 0;
-  const profileIsLocked = () => [
-    'SingletonLock',
-    'SingletonCookie',
-    'SingletonSocket',
-    'lockfile',
-  ].some((name) => existsSync(path.join(chromeProfile, name)));
+  const profileIsLocked = () =>
+    ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'lockfile'].some((name) =>
+      existsSync(path.join(chromeProfile, name)),
+    );
   const observedNamedGpuProcesses = new Map<string, number | null>();
   const readBlockingConflicts = () => {
     const listing = materialGpuProcessListing();
     for (const process of inspectNamedGpuProcesses(listing))
       observedNamedGpuProcesses.set(process.name, process.usedMiB);
-    return [
-      ...findGpuConflicts(listing),
-      ...(profileIsLocked() ? [`Chrome profile lock: ${chromeProfile}`] : []),
-    ];
+    return [...findGpuConflicts(listing), ...(profileIsLocked() ? [`Chrome profile lock: ${chromeProfile}`] : [])];
   };
   let currentConflicts = readBlockingConflicts();
   const observedConflicts = new Set(currentConflicts);
@@ -279,12 +259,16 @@ export async function runTelemetryGate() {
     resolveClean = resolve;
     rejectClean = reject;
   });
-  const monitor = spawn('nvidia-smi', [
-    `--id=${gpuIndex}`,
-    '--query-gpu=timestamp,memory.used,memory.total,utilization.gpu',
-    '--format=csv,noheader,nounits',
-    '--loop-ms=100',
-  ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  const monitor = spawn(
+    'nvidia-smi',
+    [
+      `--id=${gpuIndex}`,
+      '--query-gpu=timestamp,memory.used,memory.total,utilization.gpu',
+      '--format=csv,noheader,nounits',
+      '--loop-ms=100',
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true },
+  );
   monitor.stdout.setEncoding('utf8');
   monitor.stderr.setEncoding('utf8');
   monitor.stdout.on('data', (chunk: string) => {
@@ -302,9 +286,9 @@ export async function runTelemetryGate() {
         resolveClean = undefined;
       }
       if (
-        baselineIndex !== undefined
-        && !incrementalExceeded
-        && sample.usedMiB - samples[baselineIndex].usedMiB > incrementalLimitMiB
+        baselineIndex !== undefined &&
+        !incrementalExceeded &&
+        sample.usedMiB - samples[baselineIndex].usedMiB > incrementalLimitMiB
       ) {
         incrementalExceeded = true;
         stopOwnedGate(gate);
@@ -339,10 +323,8 @@ export async function runTelemetryGate() {
     stopOwnedGate(gate);
   });
   monitor.on('exit', (code) => {
-    if (code !== null && code !== 0 && !monitorFailure)
-      monitorFailure = `nvidia-smi exited with code ${code}`;
-    if (samples.length === 0)
-      rejectClean?.(new Error(monitorFailure ?? 'nvidia-smi exited before its first sample'));
+    if (code !== null && code !== 0 && !monitorFailure) monitorFailure = `nvidia-smi exited with code ${code}`;
+    if (samples.length === 0) rejectClean?.(new Error(monitorFailure ?? 'nvidia-smi exited before its first sample'));
     if (gate && gate.exitCode === null) stopOwnedGate(gate);
   });
 
@@ -350,16 +332,10 @@ export async function runTelemetryGate() {
   let preflightFailure: string | undefined;
   try {
     try {
-      await raceWithCancellableTimeout(
-        cleanPreflight,
-        preflightTimeoutMs,
-        () => {
-          const conflicts = currentConflicts.length
-            ? `; conflicts: ${currentConflicts.join(', ')}`
-            : '';
-          return new Error(`clean GPU preflight timed out${conflicts}`);
-        },
-      );
+      await raceWithCancellableTimeout(cleanPreflight, preflightTimeoutMs, () => {
+        const conflicts = currentConflicts.length ? `; conflicts: ${currentConflicts.join(', ')}` : '';
+        return new Error(`clean GPU preflight timed out${conflicts}`);
+      });
     } catch (error) {
       preflightFailure = error instanceof Error ? error.message : String(error);
     }
@@ -399,16 +375,10 @@ export async function runTelemetryGate() {
     gateExitCode,
     preflightFailure: preflightFailure || null,
     monitorFailure: monitorFailure || null,
-    stoppedOwnedGate: Boolean(gate) && (
-      incrementalExceeded || capacityGuardExceeded || Boolean(monitorFailure)
-    ),
+    stoppedOwnedGate: Boolean(gate) && (incrementalExceeded || capacityGuardExceeded || Boolean(monitorFailure)),
   };
   writeEvidence(captureDirectory, samples, result);
-  return incrementalExceeded
-    || capacityGuardExceeded
-    || monitorFailure
-    || preflightFailure
-    || gateExitCode !== 0
+  return incrementalExceeded || capacityGuardExceeded || monitorFailure || preflightFailure || gateExitCode !== 0
     ? 1
     : 0;
 }

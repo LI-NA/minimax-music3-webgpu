@@ -1,11 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, expect, test, type Page } from '@playwright/test';
-import type {
-  MusicGenerationRequest,
-  MusicGenerationWorkerResult,
-  WorkerProgress,
-} from '../../src/workers/protocol';
+import type { MusicGenerationRequest, MusicGenerationWorkerResult, WorkerProgress } from '../../src/workers/protocol';
 import {
   assertAudioHealth,
   assertCancellationBoundary,
@@ -22,9 +18,10 @@ import {
   resolveQualificationProfile,
 } from './qualification-paths';
 
-const fixedInput = JSON.parse(
-  readFileSync(path.resolve('tools/reference/fixed_case.json'), 'utf8'),
-) as { prompt: string; lyrics: string };
+const fixedInput = JSON.parse(readFileSync(path.resolve('tools/reference/fixed_case.json'), 'utf8')) as {
+  prompt: string;
+  lyrics: string;
+};
 
 type CapturedProgress = { atMs: number; message: WorkerProgress };
 type CompletedRun = {
@@ -41,10 +38,7 @@ test.setTimeout(timeoutMs);
 
 const checkoutRoot = path.resolve('.');
 const linkedWorktree = statSync(path.join(checkoutRoot, '.git')).isFile();
-const captureDirectory = resolveQualificationCapture(
-  checkoutRoot,
-  process.env.MINIMAX_VARIABLE_CAPTURE_DIR,
-);
+const captureDirectory = resolveQualificationCapture(checkoutRoot, process.env.MINIMAX_VARIABLE_CAPTURE_DIR);
 
 function request(durationSeconds: GateDuration): MusicGenerationRequest {
   return {
@@ -66,11 +60,10 @@ function request(durationSeconds: GateDuration): MusicGenerationRequest {
 }
 
 function persistJson(name: string, value: unknown) {
-  writeFileSync(
-    path.join(captureDirectory, `${name}.json`),
-    `${JSON.stringify(value, null, 2)}\n`,
-    { encoding: 'utf8', flag: 'wx' },
-  );
+  writeFileSync(path.join(captureDirectory, `${name}.json`), `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: 'utf8',
+    flag: 'wx',
+  });
 }
 
 async function startCancelableRun(page: Page, generationRequest: MusicGenerationRequest) {
@@ -82,10 +75,9 @@ async function startCancelableRun(page: Page, generationRequest: MusicGeneration
     };
     const scope = globalThis as typeof globalThis & { __variableDurationGate?: GateState };
     scope.__variableDurationGate?.worker?.terminate();
-    const worker = new Worker(
-      new URL('/src/workers/inference.worker.ts', location.origin),
-      { type: 'module' },
-    );
+    const worker = new Worker(new URL('/src/workers/inference.worker.ts', location.origin), {
+      type: 'module',
+    });
     const state: GateState = { worker, events: [] };
     scope.__variableDurationGate = state;
     worker.addEventListener('message', ({ data }: MessageEvent<Record<string, unknown>>) => {
@@ -103,31 +95,37 @@ async function startCancelableRun(page: Page, generationRequest: MusicGeneration
 async function cancelAfter(page: Page, stage: string, completed: number) {
   await page.waitForFunction(
     ({ expectedStage, expectedCompleted }) => {
-      const state = (globalThis as typeof globalThis & {
-        __variableDurationGate?: {
-          events: { message: { stage?: unknown; completed?: unknown } }[];
-          error?: string;
-        };
-      }).__variableDurationGate;
+      const state = (
+        globalThis as typeof globalThis & {
+          __variableDurationGate?: {
+            events: { message: { stage?: unknown; completed?: unknown } }[];
+            error?: string;
+          };
+        }
+      ).__variableDurationGate;
       return Boolean(
-        state?.error
-        || state?.events.some(({ message }) =>
-          message.stage === expectedStage
-          && typeof message.completed === 'number'
-          && message.completed >= expectedCompleted),
+        state?.error ||
+        state?.events.some(
+          ({ message }) =>
+            message.stage === expectedStage &&
+            typeof message.completed === 'number' &&
+            message.completed >= expectedCompleted,
+        ),
       );
     },
     { expectedStage: stage, expectedCompleted: completed },
     { timeout: timeoutMs },
   );
   const before = await page.evaluate(() => {
-    const state = (globalThis as typeof globalThis & {
-      __variableDurationGate?: {
-        worker: Worker | null;
-        events: { atMs: number; message: Record<string, unknown> }[];
-        error?: string;
-      };
-    }).__variableDurationGate;
+    const state = (
+      globalThis as typeof globalThis & {
+        __variableDurationGate?: {
+          worker: Worker | null;
+          events: { atMs: number; message: Record<string, unknown> }[];
+          error?: string;
+        };
+      }
+    ).__variableDurationGate;
     if (!state) throw new Error('cancellation state is unavailable');
     if (state.error) throw new Error(state.error);
     state.worker?.terminate();
@@ -136,9 +134,11 @@ async function cancelAfter(page: Page, stage: string, completed: number) {
   });
   await page.waitForTimeout(1_000);
   const after = await page.evaluate(() => {
-    const state = (globalThis as typeof globalThis & {
-      __variableDurationGate?: { events: unknown[]; error?: string };
-    }).__variableDurationGate;
+    const state = (
+      globalThis as typeof globalThis & {
+        __variableDurationGate?: { events: unknown[]; error?: string };
+      }
+    ).__variableDurationGate;
     return { count: state?.events.length ?? -1, error: state?.error };
   });
   expect(after.error).toBeUndefined();
@@ -148,10 +148,9 @@ async function cancelAfter(page: Page, stage: string, completed: number) {
 
 async function runToCompletion(page: Page, generationRequest: MusicGenerationRequest) {
   return page.evaluate(async (input): Promise<CompletedRun> => {
-    const worker = new Worker(
-      new URL('/src/workers/inference.worker.ts', location.origin),
-      { type: 'module' },
-    );
+    const worker = new Worker(new URL('/src/workers/inference.worker.ts', location.origin), {
+      type: 'module',
+    });
     const progress: CapturedProgress[] = [];
     try {
       return await new Promise<CompletedRun>((resolve, reject) => {
@@ -267,14 +266,19 @@ function assertProgress(run: CompletedRun, durationSeconds: GateDuration) {
     vocoder: expected.vocoderCalls,
   } as const;
   for (const [stage, total] of Object.entries(countedStages)) {
-    const events = run.progress.filter(({ message }) =>
-      message.stage === stage && message.completed !== undefined);
+    const events = run.progress.filter(({ message }) => message.stage === stage && message.completed !== undefined);
     expect(events.every(({ message }) => message.total === total)).toBe(true);
   }
   const autoregressive = run.progress.filter(({ message }) => message.stage === 'autoregressive');
   const flow = run.progress.filter(({ message }) => message.stage === 'flow');
-  assertStableProgressMetrics(autoregressive.map(({ message }) => message), 'autoregressive');
-  assertStableProgressMetrics(flow.map(({ message }) => message), 'flow');
+  assertStableProgressMetrics(
+    autoregressive.map(({ message }) => message),
+    'autoregressive',
+  );
+  assertStableProgressMetrics(
+    flow.map(({ message }) => message),
+    'flow',
+  );
   expect(progressValues(run.progress, 'autoregressive')).toEqual(
     Array.from({ length: expected.retainedFrames }, (_, index) => index + 1),
   );
@@ -287,16 +291,16 @@ function assertProgress(run: CompletedRun, durationSeconds: GateDuration) {
   expect(progressValues(run.progress, 'vocoder')).toEqual(
     Array.from({ length: expected.vocoderCalls }, (_, index) => index + 1),
   );
-  expect(run.progress.filter(({ message }) => message.stage === 'condition')).toHaveLength(
-    expected.chunkCount,
-  );
+  expect(run.progress.filter(({ message }) => message.stage === 'condition')).toHaveLength(expected.chunkCount);
   const sessionNames = run.progress
     .filter(({ message }) => message.stage === 'session')
     .map(({ message }) => message.name);
   expect(sessionNames).toEqual(['autoregressive', 'condition', 'flow', 'vocoder']);
-  expect(run.progress
-    .filter(({ message }) => message.stage === 'session')
-    .every(({ message }) => message.activity === 'indeterminate')).toBe(true);
+  expect(
+    run.progress
+      .filter(({ message }) => message.stage === 'session')
+      .every(({ message }) => message.activity === 'indeterminate'),
+  ).toBe(true);
   const completedArtifactBytes = run.progress
     .filter(({ message }) => message.stage === 'artifact' && message.completedBytes !== undefined)
     .map(({ message }) => message.completedBytes as number);
@@ -306,19 +310,14 @@ function assertProgress(run: CompletedRun, durationSeconds: GateDuration) {
   expect(stages.lastIndexOf('wav')).toBeLessThan(stages.lastIndexOf('complete'));
 
   if (durationSeconds === 10) {
-    const flow30 = run.progress.findIndex(({ message }) =>
-      message.stage === 'flow' && message.completed === 30);
-    const acoustic1 = run.progress.findIndex(({ message }) =>
-      message.stage === 'acoustic' && message.completed === 1);
+    const flow30 = run.progress.findIndex(({ message }) => message.stage === 'flow' && message.completed === 30);
+    const acoustic1 = run.progress.findIndex(({ message }) => message.stage === 'acoustic' && message.completed === 1);
     const conditionEvents = run.progress
       .map(({ message }, index) => ({ index, message }))
       .filter(({ message }) => message.stage === 'condition');
-    const flow31 = run.progress.findIndex(({ message }) =>
-      message.stage === 'flow' && message.completed === 31);
-    const flow60 = run.progress.findIndex(({ message }) =>
-      message.stage === 'flow' && message.completed === 60);
-    const acoustic2 = run.progress.findIndex(({ message }) =>
-      message.stage === 'acoustic' && message.completed === 2);
+    const flow31 = run.progress.findIndex(({ message }) => message.stage === 'flow' && message.completed === 31);
+    const flow60 = run.progress.findIndex(({ message }) => message.stage === 'flow' && message.completed === 60);
+    const acoustic2 = run.progress.findIndex(({ message }) => message.stage === 'acoustic' && message.completed === 2);
     expect(flow30).toBeLessThan(acoustic1);
     expect(acoustic1).toBeLessThan(conditionEvents[1].index);
     expect(conditionEvents[1].index).toBeLessThan(flow31);
@@ -327,11 +326,17 @@ function assertProgress(run: CompletedRun, durationSeconds: GateDuration) {
 }
 
 function assertLateArCancellation(progress: CapturedProgress[]) {
-  assertCancellationBoundary(progress.map(({ message }) => message), 'late-ar');
+  assertCancellationBoundary(
+    progress.map(({ message }) => message),
+    'late-ar',
+  );
 }
 
 function assertSecondFlowCancellation(progress: CapturedProgress[]) {
-  assertCancellationBoundary(progress.map(({ message }) => message), 'second-flow');
+  assertCancellationBoundary(
+    progress.map(({ message }) => message),
+    'second-flow',
+  );
 }
 
 test('qualifies fallback-disabled six and ten second generation with practical cancellation', async () => {
@@ -355,10 +360,9 @@ test('qualifies fallback-disabled six and ten second generation with practical c
   });
   const wasmRequests: string[] = [];
   context.on('request', (networkRequest) => {
-    if (networkRequest.url().includes('ort-wasm-simd-threaded.jspi.wasm'))
-      wasmRequests.push(networkRequest.url());
+    if (networkRequest.url().includes('ort-wasm-simd-threaded.jspi.wasm')) wasmRequests.push(networkRequest.url());
   });
-  const page = context.pages()[0] ?? await context.newPage();
+  const page = context.pages()[0] ?? (await context.newPage());
   try {
     await page.goto('http://127.0.0.1:5173/');
 

@@ -72,9 +72,9 @@ describe('parseModelManifest', () => {
   });
 
   it('requires the schema WebGPU feature contract', () => {
-    expect(() =>
-      parseModelManifest({ ...manifest, webgpu: { requiredFeatures: [], requiredLimits: {} } }),
-    ).toThrow('requiredFeatures');
+    expect(() => parseModelManifest({ ...manifest, webgpu: { requiredFeatures: [], requiredLimits: {} } })).toThrow(
+      'requiredFeatures',
+    );
   });
 
   it('rejects a traversal artifact path', () => {
@@ -120,8 +120,9 @@ describe('parseRvqStageManifest', () => {
   });
 
   it('requires the GPU-resident hidden and feedback outputs', () => {
-    expect(() => parseRvqStageManifest({ ...rvq, feedback: { ...rvq.feedback, gpuOutputs: [] } }))
-      .toThrow('inputs_embeds');
+    expect(() => parseRvqStageManifest({ ...rvq, feedback: { ...rvq.feedback, gpuOutputs: [] } })).toThrow(
+      'inputs_embeds',
+    );
   });
 });
 
@@ -183,23 +184,28 @@ describe('parseFlowManifest', () => {
   });
 
   it('rejects a changed slice, q4 contract, GPU output, or insufficient buffer limits', () => {
-    expect(() => parseFlowManifest({ ...flow, slice: { ...flow.slice, latentLength: 431 } }))
-      .toThrow('slice');
-    expect(() => parseFlowManifest({
-      ...flow,
-      quantization: { ...flow.quantization, blockSize: 64 },
-    })).toThrow('quantization');
-    expect(() => parseFlowManifest({
-      ...flow,
-      flow: { ...flow.flow, gpuOutputs: [] },
-    })).toThrow('next_latents');
-    expect(() => parseFlowManifest({
-      ...flow,
-      webgpu: {
-        ...flow.webgpu,
-        requiredLimits: { ...flow.webgpu.requiredLimits, maxStorageBuffersPerShaderStage: 8 },
-      },
-    })).toThrow('requiredLimits');
+    expect(() => parseFlowManifest({ ...flow, slice: { ...flow.slice, latentLength: 431 } })).toThrow('slice');
+    expect(() =>
+      parseFlowManifest({
+        ...flow,
+        quantization: { ...flow.quantization, blockSize: 64 },
+      }),
+    ).toThrow('quantization');
+    expect(() =>
+      parseFlowManifest({
+        ...flow,
+        flow: { ...flow.flow, gpuOutputs: [] },
+      }),
+    ).toThrow('next_latents');
+    expect(() =>
+      parseFlowManifest({
+        ...flow,
+        webgpu: {
+          ...flow.webgpu,
+          requiredLimits: { ...flow.webgpu.requiredLimits, maxStorageBuffersPerShaderStage: 8 },
+        },
+      }),
+    ).toThrow('requiredLimits');
   });
 });
 
@@ -234,25 +240,33 @@ describe('parseVocoderManifest', () => {
   });
 
   it('rejects changed audio, precision, output location, or buffer contracts', () => {
-    expect(() => parseVocoderManifest({
-      ...vocoder,
-      slice: { ...vocoder.slice, outputSamples: 220_161 },
-    })).toThrow('slice');
-    expect(() => parseVocoderManifest({
-      ...vocoder,
-      precision: { ...vocoder.precision, fp32Snakes: ['blocks.0.snake1'] },
-    })).toThrow('precision');
-    expect(() => parseVocoderManifest({
-      ...vocoder,
-      vocoder: { ...vocoder.vocoder, gpuOutputs: ['waveform'] },
-    })).toThrow('CPU output');
-    expect(() => parseVocoderManifest({
-      ...vocoder,
-      webgpu: {
-        ...vocoder.webgpu,
-        requiredLimits: { maxStorageBufferBindingSize: 64 * 1024 * 1024 },
-      },
-    })).toThrow('requiredLimits');
+    expect(() =>
+      parseVocoderManifest({
+        ...vocoder,
+        slice: { ...vocoder.slice, outputSamples: 220_161 },
+      }),
+    ).toThrow('slice');
+    expect(() =>
+      parseVocoderManifest({
+        ...vocoder,
+        precision: { ...vocoder.precision, fp32Snakes: ['blocks.0.snake1'] },
+      }),
+    ).toThrow('precision');
+    expect(() =>
+      parseVocoderManifest({
+        ...vocoder,
+        vocoder: { ...vocoder.vocoder, gpuOutputs: ['waveform'] },
+      }),
+    ).toThrow('CPU output');
+    expect(() =>
+      parseVocoderManifest({
+        ...vocoder,
+        webgpu: {
+          ...vocoder.webgpu,
+          requiredLimits: { maxStorageBufferBindingSize: 64 * 1024 * 1024 },
+        },
+      }),
+    ).toThrow('requiredLimits');
   });
 });
 
@@ -308,12 +322,15 @@ describe('parseMusicManifest', () => {
   });
 
   it('rejects a substitute checkpoint or changed fixed five-second shape', () => {
-    expect(() => parseMusicManifest({ ...combined, model: { ...combined.model, revision: 'other' } }))
-      .toThrow('revision');
-    expect(() => parseMusicManifest({
-      ...combined,
-      slice: { ...combined.slice, semanticFrames: 124 },
-    })).toThrow('slice');
+    expect(() => parseMusicManifest({ ...combined, model: { ...combined.model, revision: 'other' } })).toThrow(
+      'revision',
+    );
+    expect(() =>
+      parseMusicManifest({
+        ...combined,
+        slice: { ...combined.slice, semanticFrames: 124 },
+      }),
+    ).toThrow('slice');
   });
 });
 
@@ -404,43 +421,55 @@ describe('parseMusicVariableManifest', () => {
   });
 
   it('rejects any changed constant, input, hash, or required limit', () => {
-    expect(() => parseMusicVariableManifest({
-      ...combined,
-      acoustic: { ...combined.acoustic, hopFrames: 99 },
-    })).toThrow('acoustic');
-    expect(() => parseMusicVariableManifest({
-      ...combined,
-      flow: { ...combined.flow, inputs: combined.flow.inputs.slice(0, -1) },
-    })).toThrow('flow inputs');
-    expect(() => parseMusicVariableManifest({
-      ...combined,
-      vocoder: { ...combined.vocoder, sha256: 'bad' },
-    })).toThrow('sha256');
-    expect(() => parseMusicVariableManifest({
-      ...combined,
-      webgpu: {
-        ...combined.webgpu,
-        requiredLimits: { ...combined.webgpu.requiredLimits, maxStorageBuffersPerShaderStage: 8 },
-      },
-    })).toThrow('requiredLimits');
+    expect(() =>
+      parseMusicVariableManifest({
+        ...combined,
+        acoustic: { ...combined.acoustic, hopFrames: 99 },
+      }),
+    ).toThrow('acoustic');
+    expect(() =>
+      parseMusicVariableManifest({
+        ...combined,
+        flow: { ...combined.flow, inputs: combined.flow.inputs.slice(0, -1) },
+      }),
+    ).toThrow('flow inputs');
+    expect(() =>
+      parseMusicVariableManifest({
+        ...combined,
+        vocoder: { ...combined.vocoder, sha256: 'bad' },
+      }),
+    ).toThrow('sha256');
+    expect(() =>
+      parseMusicVariableManifest({
+        ...combined,
+        webgpu: {
+          ...combined.webgpu,
+          requiredLimits: { ...combined.webgpu.requiredLimits, maxStorageBuffersPerShaderStage: 8 },
+        },
+      }),
+    ).toThrow('requiredLimits');
   });
 
   it('rejects one artifact path with conflicting byte or hash metadata', () => {
-    expect(() => parseMusicVariableManifest({
-      ...combined,
-      conditionEncoder: {
-        ...combined.conditionEncoder,
-        path: combined.graph.path,
-        bytes: combined.graph.bytes + 1,
-      },
-    })).toThrow('duplicate artifact path');
-    expect(() => parseMusicVariableManifest({
-      ...combined,
-      conditionEncoder: {
-        ...combined.conditionEncoder,
-        path: combined.graph.path,
-        sha256: 'b'.repeat(64),
-      },
-    })).toThrow('duplicate artifact path');
+    expect(() =>
+      parseMusicVariableManifest({
+        ...combined,
+        conditionEncoder: {
+          ...combined.conditionEncoder,
+          path: combined.graph.path,
+          bytes: combined.graph.bytes + 1,
+        },
+      }),
+    ).toThrow('duplicate artifact path');
+    expect(() =>
+      parseMusicVariableManifest({
+        ...combined,
+        conditionEncoder: {
+          ...combined.conditionEncoder,
+          path: combined.graph.path,
+          sha256: 'b'.repeat(64),
+        },
+      }),
+    ).toThrow('duplicate artifact path');
   });
 });

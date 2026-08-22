@@ -17,8 +17,7 @@ export interface RvqSmokeMetrics {
   feedbackLocation: string;
 }
 
-const finiteFloat32 = (data: ort.Tensor['data']) =>
-  Array.from(data as Float32Array).every(Number.isFinite);
+const finiteFloat32 = (data: ort.Tensor['data']) => Array.from(data as Float32Array).every(Number.isFinite);
 
 export async function runRvqSmoke(runtime: RvqSmokeRuntime): Promise<RvqSmokeMetrics> {
   const columns = runtime.embeddingTable.columns;
@@ -60,12 +59,14 @@ export async function runRvqSmoke(runtime: RvqSmokeRuntime): Promise<RvqSmokeMet
       lengths.push(depthIndex + 2);
     }
     const feedbackRows = runtime.embedding.lookup([
-      0, 1024, 2048, 3072, 4096, 5120, 6144,
-      0, 1024, 2048, 3072, 4096, 5120, 6144,
+      0, 1024, 2048, 3072, 4096, 5120, 6144, 0, 1024, 2048, 3072, 4096, 5120, 6144,
     ]);
     const semanticRows = new runtime.ort.Tensor('float16', new Uint16Array(2 * columns), [2, 1, columns]);
     const residualRows = new runtime.ort.Tensor('float16', feedbackRows, [2, 7, columns]);
-    const feedbackOutputs = await runtime.feedback.run({ semantic_rows: semanticRows, residual_rows: residualRows });
+    const feedbackOutputs = await runtime.feedback.run({
+      semantic_rows: semanticRows,
+      residual_rows: residualRows,
+    });
     semanticRows.dispose();
     residualRows.dispose();
     const feedback = feedbackOutputs.inputs_embeds;

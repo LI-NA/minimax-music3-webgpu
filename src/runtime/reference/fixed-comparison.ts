@@ -1,10 +1,6 @@
 import promptContract from '../../../tests/fixtures/prompt-contract.json';
 import flowContract from '../../../tools/reference/fixed_case.json';
-import {
-  planRetainedFrames,
-  type DurationChunkPlan,
-  type Termination,
-} from '../pipeline/duration-plan';
+import { planRetainedFrames, type DurationChunkPlan, type Termination } from '../pipeline/duration-plan';
 
 export const PINNED_COMPARISON_ORT_VERSION = '1.30.0-dev.20260813-72e1c9c9b8';
 
@@ -96,20 +92,17 @@ const copyRows = (): [number[], number[]] => [
   [...FIXED_COMPARISON_CASE.input.tokenRows[1]],
 ];
 
-export function createFixedComparisonMetadata(
-  runtime: FixedComparisonRuntime,
-): FixedComparisonMetadata | undefined {
+export function createFixedComparisonMetadata(runtime: FixedComparisonRuntime): FixedComparisonMetadata | undefined {
   if (
-    runtime.seed !== FIXED_COMPARISON_CASE.generation.seed
-    || runtime.durationSeconds !== FIXED_COMPARISON_CASE.generation.durationSeconds
-    || !sameJson(runtime.input, FIXED_COMPARISON_CASE.input)
-    || !Object.entries(runtime.sampling).every(
-      ([key, value]) => FIXED_COMPARISON_CASE.sampler[
-        key as keyof typeof FIXED_COMPARISON_CASE.sampler
-      ] === value,
-    )
-    || Object.keys(runtime.sampling).length !== 6
-  ) return undefined;
+    runtime.seed !== FIXED_COMPARISON_CASE.generation.seed ||
+    runtime.durationSeconds !== FIXED_COMPARISON_CASE.generation.durationSeconds ||
+    !sameJson(runtime.input, FIXED_COMPARISON_CASE.input) ||
+    !Object.entries(runtime.sampling).every(
+      ([key, value]) => FIXED_COMPARISON_CASE.sampler[key as keyof typeof FIXED_COMPARISON_CASE.sampler] === value,
+    ) ||
+    Object.keys(runtime.sampling).length !== 6
+  )
+    return undefined;
   validatePlan(runtime.plan);
   const metadata: FixedComparisonMetadata = {
     prompt: FIXED_COMPARISON_CASE.input.prompt,
@@ -163,21 +156,22 @@ function validatePlan(plan: FixedComparisonPlan) {
 }
 
 export function validateFixedComparisonMetadata(value: unknown): FixedComparisonMetadata {
-  if (typeof value !== 'object' || value === null)
-    throw new Error('fixed comparison metadata must be an object');
+  if (typeof value !== 'object' || value === null) throw new Error('fixed comparison metadata must be an object');
   const metadata = value as FixedComparisonMetadata;
   const keys = Object.keys(metadata).sort();
   if (
-    !sameJson(keys, [...flowContract.comparisonMetricKeys].sort())
-    || metadata.prompt !== FIXED_COMPARISON_CASE.input.prompt
-    || metadata.lyrics !== FIXED_COMPARISON_CASE.input.lyrics
-    || metadata.assembledPrompt !== FIXED_COMPARISON_CASE.input.assembledPrompt
-    || !sameJson(metadata.tokenIds, FIXED_COMPARISON_CASE.input.tokenRows)
-    || metadata.seed !== FIXED_COMPARISON_CASE.generation.seed
-    || metadata.durationSeconds !== FIXED_COMPARISON_CASE.generation.durationSeconds
-    || !Object.entries(FIXED_COMPARISON_CASE.sampler)
-      .every(([key, expected]) => metadata[key as keyof FixedComparisonMetadata] === expected)
-  ) throw new Error('fixed comparison contract does not match');
+    !sameJson(keys, [...flowContract.comparisonMetricKeys].sort()) ||
+    metadata.prompt !== FIXED_COMPARISON_CASE.input.prompt ||
+    metadata.lyrics !== FIXED_COMPARISON_CASE.input.lyrics ||
+    metadata.assembledPrompt !== FIXED_COMPARISON_CASE.input.assembledPrompt ||
+    !sameJson(metadata.tokenIds, FIXED_COMPARISON_CASE.input.tokenRows) ||
+    metadata.seed !== FIXED_COMPARISON_CASE.generation.seed ||
+    metadata.durationSeconds !== FIXED_COMPARISON_CASE.generation.durationSeconds ||
+    !Object.entries(FIXED_COMPARISON_CASE.sampler).every(
+      ([key, expected]) => metadata[key as keyof FixedComparisonMetadata] === expected,
+    )
+  )
+    throw new Error('fixed comparison contract does not match');
 
   const retained = metadata.retainedFrames;
   const termination = metadata.termination;
@@ -185,7 +179,11 @@ export function validateFixedComparisonMetadata(value: unknown): FixedComparison
     throw new Error('fixed comparison result plan is invalid');
   let expectedRetained;
   try {
-    expectedRetained = planRetainedFrames({ retainedFrames: retained, promptTokens: 40, termination });
+    expectedRetained = planRetainedFrames({
+      retainedFrames: retained,
+      promptTokens: 40,
+      termination,
+    });
   } catch {
     throw new Error('fixed comparison result plan is invalid');
   }
@@ -195,11 +193,12 @@ export function validateFixedComparisonMetadata(value: unknown): FixedComparison
   if (typeof metadata.browser !== 'string' || !chromeUserAgent.test(metadata.browser))
     throw new Error('fixed comparison requires a four-part Chrome user agent');
   if (
-    metadata.ortVersion !== PINNED_COMPARISON_ORT_VERSION
-    || metadata.appVersion !== __MINIMAX_APP_VERSION__
-    || metadata.appRevision !== __MINIMAX_APP_REVISION__
-    || !/^[0-9a-f]{64}$/.test(metadata.manifestHash)
-    || !/^[0-9a-f]{64}$/.test(metadata.appRevision)
-  ) throw new Error('fixed comparison provenance does not match');
+    metadata.ortVersion !== PINNED_COMPARISON_ORT_VERSION ||
+    metadata.appVersion !== __MINIMAX_APP_VERSION__ ||
+    metadata.appRevision !== __MINIMAX_APP_REVISION__ ||
+    !/^[0-9a-f]{64}$/.test(metadata.manifestHash) ||
+    !/^[0-9a-f]{64}$/.test(metadata.appRevision)
+  )
+    throw new Error('fixed comparison provenance does not match');
   return metadata;
 }

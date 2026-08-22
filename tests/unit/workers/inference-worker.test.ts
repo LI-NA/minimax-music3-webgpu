@@ -15,11 +15,13 @@ const state = vi.hoisted(() => ({
   retainedPlan: undefined as ReturnType<typeof planRetainedFrames> | undefined,
   generateFrameOptions: undefined as Record<string, unknown> | undefined,
   flowRequest: undefined as Record<string, unknown> | undefined,
-  preparedPrompt: undefined as {
-    assembledPrompt: string;
-    promptTokens: number;
-    tokenRows: [number[], number[]];
-  } | undefined,
+  preparedPrompt: undefined as
+    | {
+        assembledPrompt: string;
+        promptTokens: number;
+        tokenRows: [number[], number[]];
+      }
+    | undefined,
   invalidShippedTokenizer: false,
   promptPrepareCalls: 0,
   preflightGate: undefined as Promise<void> | undefined,
@@ -38,7 +40,7 @@ const state = vi.hoisted(() => ({
   cacheOpenExistingCalls: [] as { hash: string; root?: FileSystemDirectoryHandle }[],
   inspectedArtifactPaths: [] as string[][],
 }));
-const opfsRoot = vi.hoisted(() => ({} as FileSystemDirectoryHandle));
+const opfsRoot = vi.hoisted(() => ({}) as FileSystemDirectoryHandle);
 
 type TestArtifact = { path: string; bytes: number; sha256: string };
 const sharedArtifact = { path: 'shared.bin', bytes: 1, sha256: 'a'.repeat(64) };
@@ -103,13 +105,13 @@ vi.mock('../../../src/runtime/model/artifact-cache', () => ({
       state.events.push('cache:open-existing');
       if (state.cacheState === 'missing') return undefined;
       return {
-    openSyncFile: vi.fn(),
-    file: vi.fn(async (path: string) => ({
-      text: vi.fn(async () => {
-        state.events.push(`file:text:${path}`);
-        return path.endsWith('tokenizer_config.json') ? '{"config":true}' : '{"tokenizer":true}';
-      }),
-    })),
+        openSyncFile: vi.fn(),
+        file: vi.fn(async (path: string) => ({
+          text: vi.fn(async () => {
+            state.events.push(`file:text:${path}`);
+            return path.endsWith('tokenizer_config.json') ? '{"config":true}' : '{"tokenizer":true}';
+          }),
+        })),
       };
     }),
   },
@@ -140,57 +142,54 @@ vi.mock('../../../src/runtime/model/artifact-cache-management', () => {
     }
   };
   return {
-  inspectArtifactCache: vi.fn(async (
-    artifacts: readonly { path: string; bytes: number }[],
-    store: unknown,
-  ) => {
-    if (state.inspectionError) throw state.inspectionError;
-    state.inspectedArtifactPaths.push(artifacts.map((artifact) => artifact.path));
-    state.events.push(`cache:inspect:${artifacts.length}`);
-    const cacheState = store === undefined ? 'missing' : state.cacheState;
-    const ready = cacheState === 'ready';
-    const totalArtifactBytes = artifacts.reduce((sum, artifact) => sum + artifact.bytes, 0);
-    return {
-      state: cacheState,
-      artifactCount: artifacts.length,
-      totalArtifactBytes,
-      completeArtifactCount: ready ? artifacts.length : 0,
-      completeArtifactBytes: ready ? totalArtifactBytes : 0,
-      storedReferencedBytes: ready ? totalArtifactBytes : 0,
-      additionalBytesNeeded: ready ? 0 : totalArtifactBytes,
-      largestPendingArtifactBytes: ready ? 0 : Math.max(...artifacts.map(({ bytes }) => bytes)),
-    };
-  }),
-  assessArtifactCapacity: vi.fn((inspection: { additionalBytesNeeded: number; largestPendingArtifactBytes: number }, estimate?: { usage?: number; quota?: number }) => {
-    const requiredHeadroomBytes = inspection.additionalBytesNeeded + inspection.largestPendingArtifactBytes;
-    if (estimate?.usage === undefined || estimate.quota === undefined)
-      return { requiredHeadroomBytes };
-    const availableBytes = estimate.quota - estimate.usage;
-    return {
-      usageBytes: estimate.usage,
-      quotaBytes: estimate.quota,
-      availableBytes,
-      sufficient: availableBytes >= requiredHeadroomBytes,
-      requiredHeadroomBytes,
-    };
-  }),
-  inspectProjectArtifactCaches: vi.fn(async () => ({
-    cacheCount: state.projectCacheCount,
-    storedBytes: state.projectCacheBytes,
-  })),
-  deleteProjectArtifactCaches: vi.fn(async () => {
-    state.events.push('cache:delete');
-    if (state.deleteError) throw state.deleteError;
-    state.cacheState = 'missing';
-    state.projectCacheCount = 0;
-    state.projectCacheBytes = 0;
-  }),
-    withArtifactCacheMutationLock: vi.fn(
-      (action: () => Promise<unknown>) => lock('exclusive', action),
+    inspectArtifactCache: vi.fn(async (artifacts: readonly { path: string; bytes: number }[], store: unknown) => {
+      if (state.inspectionError) throw state.inspectionError;
+      state.inspectedArtifactPaths.push(artifacts.map((artifact) => artifact.path));
+      state.events.push(`cache:inspect:${artifacts.length}`);
+      const cacheState = store === undefined ? 'missing' : state.cacheState;
+      const ready = cacheState === 'ready';
+      const totalArtifactBytes = artifacts.reduce((sum, artifact) => sum + artifact.bytes, 0);
+      return {
+        state: cacheState,
+        artifactCount: artifacts.length,
+        totalArtifactBytes,
+        completeArtifactCount: ready ? artifacts.length : 0,
+        completeArtifactBytes: ready ? totalArtifactBytes : 0,
+        storedReferencedBytes: ready ? totalArtifactBytes : 0,
+        additionalBytesNeeded: ready ? 0 : totalArtifactBytes,
+        largestPendingArtifactBytes: ready ? 0 : Math.max(...artifacts.map(({ bytes }) => bytes)),
+      };
+    }),
+    assessArtifactCapacity: vi.fn(
+      (
+        inspection: { additionalBytesNeeded: number; largestPendingArtifactBytes: number },
+        estimate?: { usage?: number; quota?: number },
+      ) => {
+        const requiredHeadroomBytes = inspection.additionalBytesNeeded + inspection.largestPendingArtifactBytes;
+        if (estimate?.usage === undefined || estimate.quota === undefined) return { requiredHeadroomBytes };
+        const availableBytes = estimate.quota - estimate.usage;
+        return {
+          usageBytes: estimate.usage,
+          quotaBytes: estimate.quota,
+          availableBytes,
+          sufficient: availableBytes >= requiredHeadroomBytes,
+          requiredHeadroomBytes,
+        };
+      },
     ),
-    withArtifactCacheReadLock: vi.fn(
-      (action: () => Promise<unknown>) => lock('shared', action),
-    ),
+    inspectProjectArtifactCaches: vi.fn(async () => ({
+      cacheCount: state.projectCacheCount,
+      storedBytes: state.projectCacheBytes,
+    })),
+    deleteProjectArtifactCaches: vi.fn(async () => {
+      state.events.push('cache:delete');
+      if (state.deleteError) throw state.deleteError;
+      state.cacheState = 'missing';
+      state.projectCacheCount = 0;
+      state.projectCacheBytes = 0;
+    }),
+    withArtifactCacheMutationLock: vi.fn((action: () => Promise<unknown>) => lock('exclusive', action)),
+    withArtifactCacheReadLock: vi.fn((action: () => Promise<unknown>) => lock('shared', action)),
   };
 });
 vi.mock('../../../src/runtime/model/embedding-table', () => ({
@@ -217,8 +216,7 @@ vi.mock('../../../src/runtime/model/webgpu-device', () => ({
 vi.mock('../../../src/runtime/model/ort-session', () => ({
   createOrtSession: vi.fn(async (artifact: { path: string }) => {
     state.events.push(`session:create:${artifact.path}`);
-    if (state.createFailure === artifact.path)
-      throw new Error(`synthetic ${artifact.path} creation failure`);
+    if (state.createFailure === artifact.path) throw new Error(`synthetic ${artifact.path} creation failure`);
     if (state.ortWebgpu.device === undefined) {
       const name = ['ar', 'flow', 'vocoder', 'vocoder-2'][state.actualDeviceCount++];
       const device = {
@@ -293,17 +291,18 @@ vi.mock('../../../src/runtime/pipeline/flow-generation', () => ({
     for (let index = 0; index < request.plan.chunks.length; index++) {
       state.events.push(`flow:chunk:${index}`);
       request.onConditionStart?.(index);
-      state.events.push(`condition-progress-before-encode:${state.messages.some(
-        ({ message }) => message.stage === 'condition',
-      )}`);
+      state.events.push(
+        `condition-progress-before-encode:${state.messages.some(({ message }) => message.stage === 'condition')}`,
+      );
       request.onConditionComplete?.({ chunkIndex: index, elapsedMs: 10 + index });
       request.onChunkStart?.(index, index * request.flowSteps);
       if (state.failFlow) throw new Error('synthetic flow failure');
-      for (let step = 1; step <= request.flowSteps; step++)
-        request.onStep?.(index * request.flowSteps + step);
-      state.events.push(`acoustic-before-complete:${state.messages.some(
-        ({ message }) => message.stage === 'acoustic' && message.completed === index + 1,
-      )}`);
+      for (let step = 1; step <= request.flowSteps; step++) request.onStep?.(index * request.flowSteps + step);
+      state.events.push(
+        `acoustic-before-complete:${state.messages.some(
+          ({ message }) => message.stage === 'acoustic' && message.completed === index + 1,
+        )}`,
+      );
       request.onChunkComplete?.({ chunkIndex: index, elapsedMs: 100 + index });
     }
     return request.plan.chunks.map((chunk: { latentLength: number }) => ({
@@ -321,7 +320,14 @@ vi.mock('../../../src/runtime/pipeline/prompt-preparation', () => ({
     state.promptPrepareCalls++;
     state.events.push(`prompt:prepare:${prompt}:${lyrics}:${requestedFrames}`);
     if (state.invalidShippedTokenizer && state.promptPrepareCalls === 1)
-      return { assembledPrompt: 'mismatch', promptTokens: 3, tokenRows: [[1, 2, 3], [1, 2, 3]] };
+      return {
+        assembledPrompt: 'mismatch',
+        promptTokens: 3,
+        tokenRows: [
+          [1, 2, 3],
+          [1, 2, 3],
+        ],
+      };
     return state.preparedPrompt!;
   }),
 }));
@@ -342,9 +348,9 @@ vi.mock('../../../src/runtime/pipeline/vocoder-generation', () => ({
   }),
   generateVariableVocoderWav: vi.fn(async (_runtime, plan, _chunks, observer, onWavStart) => {
     onWavStart?.();
-    state.events.push(`wav-progress-before-allocation:${state.messages.some(
-      ({ message }) => message.stage === 'wav',
-    )}`);
+    state.events.push(
+      `wav-progress-before-allocation:${state.messages.some(({ message }) => message.stage === 'wav')}`,
+    );
     let completedCalls = 0;
     for (let chunkIndex = 0; chunkIndex < plan.chunks.length; chunkIndex++) {
       for (const channel of ['left', 'right'] as const) {
@@ -379,16 +385,20 @@ vi.mock('../../../src/runtime/pipeline/music-generation', () => ({
     onProgress({ stage: 'complete' });
     return { wav, attemptedSeeds: [seed] };
   }),
-  readExactGpuFp16: vi.fn(async (_tensor, shape: number[]) => (
-    new Uint16Array(shape.reduce((total, value) => total * value, 1))
-  )),
+  readExactGpuFp16: vi.fn(
+    async (_tensor, shape: number[]) => new Uint16Array(shape.reduce((total, value) => total * value, 1)),
+  ),
 }));
 vi.mock('../../../src/runtime/pipeline/condition-smoke', () => ({ runConditionSmoke: vi.fn() }));
-vi.mock('../../../src/runtime/pipeline/global-smoke', () => ({ runGlobalSmoke: vi.fn(async () => ({})) }));
+vi.mock('../../../src/runtime/pipeline/global-smoke', () => ({
+  runGlobalSmoke: vi.fn(async () => ({})),
+}));
 vi.mock('../../../src/runtime/pipeline/rvq-smoke', () => ({ runRvqSmoke: vi.fn() }));
 vi.mock('onnxruntime-web/jspi', () => ({
   env: { webgpu: state.ortWebgpu },
-  Tensor: class { dispose = vi.fn() },
+  Tensor: class {
+    dispose = vi.fn();
+  },
 }));
 
 Object.defineProperty(globalThis, 'self', {
@@ -419,7 +429,10 @@ Object.defineProperty(globalThis, 'navigator', {
     locks: { request: vi.fn() },
   },
 });
-vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({}), { status: 200 })));
+vi.stubGlobal(
+  'fetch',
+  vi.fn(async () => new Response(JSON.stringify({}), { status: 200 })),
+);
 
 const { runWorkerRequest } = await import('../../../src/workers/inference.worker');
 
@@ -443,9 +456,7 @@ const musicRequest = (overrides: Record<string, unknown> = {}) => ({
 
 describe('variable inference worker lifecycle', () => {
   beforeEach(() => {
-    vi.mocked(fetch).mockImplementation(async () => (
-      new Response(JSON.stringify({}), { status: 200 })
-    ));
+    vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify({}), { status: 200 }));
     state.events.length = 0;
     state.messages.length = 0;
     state.failFlow = false;
@@ -460,10 +471,7 @@ describe('variable inference worker lifecycle', () => {
     state.preparedPrompt = {
       assembledPrompt: FIXED_COMPARISON_CASE.input.assembledPrompt,
       promptTokens: 40,
-      tokenRows: [
-        [...FIXED_COMPARISON_CASE.input.tokenRows[0]],
-        [...FIXED_COMPARISON_CASE.input.tokenRows[1]],
-      ],
+      tokenRows: [[...FIXED_COMPARISON_CASE.input.tokenRows[0]], [...FIXED_COMPARISON_CASE.input.tokenRows[1]]],
     };
     state.invalidShippedTokenizer = false;
     state.promptPrepareCalls = 0;
@@ -498,9 +506,7 @@ describe('variable inference worker lifecycle', () => {
     expect(state.events).toContain('cache:open-existing');
     expect(state.events).not.toContain('cache:open');
     expect(state.events.some((event) => event.startsWith('artifact:'))).toBe(false);
-    expect(state.cacheOpenExistingCalls).toEqual([
-      { hash: emptyObjectManifestHash, root: opfsRoot },
-    ]);
+    expect(state.cacheOpenExistingCalls).toEqual([{ hash: emptyObjectManifestHash, root: opfsRoot }]);
     expect(state.inspectedArtifactPaths).toEqual([expectedVariableArtifactPaths]);
     expect(state.messages.at(-1)?.message).toMatchObject({
       type: 'artifact-cache-status',
@@ -517,29 +523,35 @@ describe('variable inference worker lifecycle', () => {
 
   it('classifies unavailable and invalid manifests for artifact operations', async () => {
     vi.mocked(fetch).mockRejectedValueOnce(new TypeError('network unavailable'));
-    await expect(runWorkerRequest({
-      type: 'inspect-artifact-cache',
-      manifestUrl: 'http://worker.test/music-variable/manifest.json',
-    })).rejects.toMatchObject({
+    await expect(
+      runWorkerRequest({
+        type: 'inspect-artifact-cache',
+        manifestUrl: 'http://worker.test/music-variable/manifest.json',
+      }),
+    ).rejects.toMatchObject({
       code: 'manifest-unavailable',
       operation: 'inspect-artifact-cache',
       retryable: true,
     });
 
     vi.mocked(fetch).mockResolvedValueOnce(new Response('{}', { status: 404 }));
-    await expect(runWorkerRequest({
-      type: 'inspect-artifact-cache',
-      manifestUrl: 'http://worker.test/music-variable/manifest.json',
-    })).rejects.toMatchObject({ code: 'manifest-unavailable', retryable: true });
+    await expect(
+      runWorkerRequest({
+        type: 'inspect-artifact-cache',
+        manifestUrl: 'http://worker.test/music-variable/manifest.json',
+      }),
+    ).rejects.toMatchObject({ code: 'manifest-unavailable', retryable: true });
 
     const { parseMusicVariableManifest } = await import('../../../src/runtime/model/manifest');
     vi.mocked(parseMusicVariableManifest).mockImplementationOnce(() => {
       throw new Error('invalid manifest');
     });
-    await expect(runWorkerRequest({
-      type: 'inspect-artifact-cache',
-      manifestUrl: 'http://worker.test/music-variable/manifest.json',
-    })).rejects.toMatchObject({
+    await expect(
+      runWorkerRequest({
+        type: 'inspect-artifact-cache',
+        manifestUrl: 'http://worker.test/music-variable/manifest.json',
+      }),
+    ).rejects.toMatchObject({
       code: 'manifest-invalid',
       operation: 'inspect-artifact-cache',
       retryable: false,
@@ -548,18 +560,22 @@ describe('variable inference worker lifecycle', () => {
 
   it('maps generic inspection, download, and partial delete failures', async () => {
     state.inspectionError = new Error('inspection failed');
-    await expect(runWorkerRequest({
-      type: 'inspect-artifact-cache',
-      manifestUrl: 'http://worker.test/music-variable/manifest.json',
-    })).rejects.toMatchObject({ code: 'cache-inspection-failed' });
+    await expect(
+      runWorkerRequest({
+        type: 'inspect-artifact-cache',
+        manifestUrl: 'http://worker.test/music-variable/manifest.json',
+      }),
+    ).rejects.toMatchObject({ code: 'cache-inspection-failed' });
 
     state.inspectionError = undefined;
     state.cacheState = 'missing';
     state.ensureError = new Error('artifact request failed: shared.bin');
-    await expect(runWorkerRequest({
-      type: 'download-artifacts',
-      manifestUrl: 'http://worker.test/music-variable/manifest.json',
-    })).rejects.toMatchObject({
+    await expect(
+      runWorkerRequest({
+        type: 'download-artifacts',
+        manifestUrl: 'http://worker.test/music-variable/manifest.json',
+      }),
+    ).rejects.toMatchObject({
       code: 'download-failed',
       message: expect.stringContaining('artifact request failed: shared.bin'),
     });
@@ -568,10 +584,12 @@ describe('variable inference worker lifecycle', () => {
     state.cacheState = 'ready';
     const failedCache = `minimax-music3-${'b'.repeat(64)}`;
     state.deleteError = new Error(`failed to delete artifact cache: ${failedCache}`);
-    await expect(runWorkerRequest({
-      type: 'delete-artifact-caches',
-      manifestUrl: 'http://worker.test/music-variable/manifest.json',
-    })).rejects.toMatchObject({
+    await expect(
+      runWorkerRequest({
+        type: 'delete-artifact-caches',
+        manifestUrl: 'http://worker.test/music-variable/manifest.json',
+      }),
+    ).rejects.toMatchObject({
       code: 'cache-delete-failed',
       message: expect.stringContaining(failedCache),
     });
@@ -581,10 +599,12 @@ describe('variable inference worker lifecycle', () => {
     state.cacheState = 'missing';
     state.storageEstimate = undefined;
 
-    await expect(runWorkerRequest({
-      type: 'download-artifacts',
-      manifestUrl: 'http://worker.test/music-variable/manifest.json',
-    })).rejects.toMatchObject({
+    await expect(
+      runWorkerRequest({
+        type: 'download-artifacts',
+        manifestUrl: 'http://worker.test/music-variable/manifest.json',
+      }),
+    ).rejects.toMatchObject({
       code: 'storage-estimate-unavailable',
       operation: 'download-artifacts',
       retryable: true,
@@ -598,10 +618,12 @@ describe('variable inference worker lifecycle', () => {
     state.cacheState = 'missing';
     state.storageEstimate = { usage: 90, quota: 100 };
 
-    await expect(runWorkerRequest({
-      type: 'download-artifacts',
-      manifestUrl: 'http://worker.test/music-variable/manifest.json',
-    })).rejects.toMatchObject({
+    await expect(
+      runWorkerRequest({
+        type: 'download-artifacts',
+        manifestUrl: 'http://worker.test/music-variable/manifest.json',
+      }),
+    ).rejects.toMatchObject({
       code: 'quota-insufficient',
       operation: 'download-artifacts',
       retryable: true,
@@ -622,25 +644,16 @@ describe('variable inference worker lifecycle', () => {
 
     const downloads = state.events.filter((event) => event.startsWith('artifact:'));
     expect(downloads).toEqual(expectedVariableArtifactPaths.map((path) => `artifact:${path}`));
-    expect(state.cacheOpenCalls).toEqual([
-      { hash: emptyObjectManifestHash, root: opfsRoot },
-    ]);
+    expect(state.cacheOpenCalls).toEqual([{ hash: emptyObjectManifestHash, root: opfsRoot }]);
     expect(state.cacheOpenExistingCalls).toEqual([
       { hash: emptyObjectManifestHash, root: opfsRoot },
       { hash: emptyObjectManifestHash, root: opfsRoot },
     ]);
-    expect(state.inspectedArtifactPaths).toEqual([
-      expectedVariableArtifactPaths,
-      expectedVariableArtifactPaths,
-    ]);
+    expect(state.inspectedArtifactPaths).toEqual([expectedVariableArtifactPaths, expectedVariableArtifactPaths]);
     expect(state.events).not.toContain('storage:persist');
     expect(state.events.filter((event) => event === 'cache:lock:exclusive:start')).toHaveLength(1);
-    expect(state.events.indexOf('cache:lock:exclusive:start')).toBeLessThan(
-      state.events.indexOf('cache:open'),
-    );
-    expect(state.events.indexOf('cache:open')).toBeLessThan(
-      state.events.indexOf('cache:lock:exclusive:end'),
-    );
+    expect(state.events.indexOf('cache:lock:exclusive:start')).toBeLessThan(state.events.indexOf('cache:open'));
+    expect(state.events.indexOf('cache:open')).toBeLessThan(state.events.indexOf('cache:lock:exclusive:end'));
     expect(state.messages.at(-1)?.message).toMatchObject({
       type: 'artifact-download-complete',
       status: { state: 'ready', persistence: 'best-effort' },
@@ -668,10 +681,12 @@ describe('variable inference worker lifecycle', () => {
       cause: new DOMException('quota', 'QuotaExceededError'),
     });
 
-    await expect(runWorkerRequest({
-      type: 'download-artifacts',
-      manifestUrl: 'http://worker.test/music-variable/manifest.json',
-    })).rejects.toMatchObject({
+    await expect(
+      runWorkerRequest({
+        type: 'download-artifacts',
+        manifestUrl: 'http://worker.test/music-variable/manifest.json',
+      }),
+    ).rejects.toMatchObject({
       code: 'quota-exceeded',
       operation: 'download-artifacts',
       retryable: true,
@@ -686,12 +701,8 @@ describe('variable inference worker lifecycle', () => {
     });
 
     expect(state.events.filter((event) => event === 'cache:lock:exclusive:start')).toHaveLength(1);
-    expect(state.events.indexOf('cache:lock:exclusive:start')).toBeLessThan(
-      state.events.indexOf('cache:delete'),
-    );
-    expect(state.events.indexOf('cache:delete')).toBeLessThan(
-      state.events.indexOf('cache:lock:exclusive:end'),
-    );
+    expect(state.events.indexOf('cache:lock:exclusive:start')).toBeLessThan(state.events.indexOf('cache:delete'));
+    expect(state.events.indexOf('cache:delete')).toBeLessThan(state.events.indexOf('cache:lock:exclusive:end'));
     expect(state.events).not.toContain('cache:open');
     expect(state.events.some((event) => event.startsWith('artifact:'))).toBe(false);
     expect(state.messages.at(-1)?.message).toMatchObject({
@@ -705,10 +716,14 @@ describe('variable inference worker lifecycle', () => {
   });
 
   it('rejects a forged raw duration plan before reading the manifest', async () => {
-    await expect(runWorkerRequest(musicRequest({
-      promptTokens: 40,
-      requestedFrames: 249,
-    }))).rejects.toThrow('Music generation request fields are invalid');
+    await expect(
+      runWorkerRequest(
+        musicRequest({
+          promptTokens: 40,
+          requestedFrames: 249,
+        }),
+      ),
+    ).rejects.toThrow('Music generation request fields are invalid');
 
     expect(state.events).toEqual([]);
   });
@@ -736,13 +751,15 @@ describe('variable inference worker lifecycle', () => {
 
     onmessage({ data: musicRequest() } as MessageEvent);
 
-    await vi.waitFor(() => expect(state.messages.at(-1)?.message).toMatchObject({
-      type: 'error',
-      message: 'Model artifact cache is not ready',
-      code: 'cache-not-ready',
-      operation: 'generate-music',
-      retryable: true,
-    }));
+    await vi.waitFor(() =>
+      expect(state.messages.at(-1)?.message).toMatchObject({
+        type: 'error',
+        message: 'Model artifact cache is not ready',
+        code: 'cache-not-ready',
+        operation: 'generate-music',
+        retryable: true,
+      }),
+    );
   });
 
   it('preserves actionable download context in serialized worker errors', async () => {
@@ -757,21 +774,25 @@ describe('variable inference worker lifecycle', () => {
       },
     } as MessageEvent);
 
-    await vi.waitFor(() => expect(state.messages.at(-1)?.message).toMatchObject({
-      type: 'error',
-      code: 'download-failed',
-      message: expect.stringContaining('shared.bin at 9 bytes'),
-    }));
+    await vi.waitFor(() =>
+      expect(state.messages.at(-1)?.message).toMatchObject({
+        type: 'error',
+        code: 'download-failed',
+        message: expect.stringContaining('shared.bin at 9 bytes'),
+      }),
+    );
   });
 
   it('rejects unknown and malformed worker requests', async () => {
     await expect(runWorkerRequest(null)).rejects.toThrow('Worker request must be an object');
     await expect(runWorkerRequest({ type: 'unknown' })).rejects.toThrow('Unknown worker request type');
-    await expect(runWorkerRequest({
-      type: 'inspect-artifact-cache',
-      manifestUrl: '/manifest.json',
-      extra: true,
-    })).rejects.toThrow('Artifact cache request fields are invalid');
+    await expect(
+      runWorkerRequest({
+        type: 'inspect-artifact-cache',
+        manifestUrl: '/manifest.json',
+        extra: true,
+      }),
+    ).rejects.toThrow('Artifact cache request fields are invalid');
   });
 
   it('rejects a shipped tokenizer that does not reproduce the fixed prompt contract', async () => {
@@ -793,22 +814,20 @@ describe('variable inference worker lifecycle', () => {
     expect(createWebGpuDevice).not.toHaveBeenCalled();
     expect(state.events.filter((event) => event === 'adapter:preflight')).toHaveLength(1);
     expect(state.events).toContain('device:create:ar');
-    expect(state.events.indexOf('session:release:head')).toBeLessThan(
-      state.events.indexOf('device:destroy:ar'),
-    );
-    expect(state.events.indexOf('session:release:decoder')).toBeLessThan(
-      state.events.indexOf('device:destroy:ar'),
-    );
+    expect(state.events.indexOf('session:release:head')).toBeLessThan(state.events.indexOf('device:destroy:ar'));
+    expect(state.events.indexOf('session:release:decoder')).toBeLessThan(state.events.indexOf('device:destroy:ar'));
     expect(state.ortWebgpu.device).toBeUndefined();
   });
 
   it('cleans a legacy device published before its first session rejects', async () => {
     state.publishedCreateFailure = 'decoder';
 
-    await expect(runWorkerRequest({
-      type: 'run-global-smoke',
-      manifestUrl: '/global/manifest.json',
-    })).rejects.toThrow('synthetic published decoder creation failure');
+    await expect(
+      runWorkerRequest({
+        type: 'run-global-smoke',
+        manifestUrl: '/global/manifest.json',
+      }),
+    ).rejects.toThrow('synthetic published decoder creation failure');
 
     expect(state.events.filter((event) => event === 'device:destroy:ar')).toHaveLength(1);
     expect(state.ortWebgpu.device).toBeUndefined();
@@ -833,9 +852,7 @@ describe('variable inference worker lifecycle', () => {
     expect(creates).toHaveLength(4);
     expect(destroys).toHaveLength(4);
     for (let index = 0; index < 3; index++) {
-      expect(state.events.indexOf(destroys[index])).toBeLessThan(
-        state.events.indexOf(creates[index + 1]),
-      );
+      expect(state.events.indexOf(destroys[index])).toBeLessThan(state.events.indexOf(creates[index + 1]));
     }
     expect(state.ortWebgpu.device).toBeUndefined();
     expect(state.messages.filter(({ message }) => message.type === 'music-result')).toHaveLength(1);
@@ -848,19 +865,25 @@ describe('variable inference worker lifecycle', () => {
       releasePreflight = resolve;
     });
     const onmessage = (self as unknown as { onmessage(event: MessageEvent<unknown>): void }).onmessage;
-    onmessage({ data: { type: 'run-global-smoke', manifestUrl: '/global/manifest.json' } } as MessageEvent);
+    onmessage({
+      data: { type: 'run-global-smoke', manifestUrl: '/global/manifest.json' },
+    } as MessageEvent);
     await vi.waitFor(() => expect(state.events).toContain('adapter:preflight'));
 
-    onmessage({ data: { type: 'run-global-smoke', manifestUrl: '/global/manifest.json' } } as MessageEvent);
-    await vi.waitFor(() => expect(state.messages.some(
-      ({ message }) => message.type === 'error' && message.message === 'Worker request already in progress',
-    )).toBe(true));
+    onmessage({
+      data: { type: 'run-global-smoke', manifestUrl: '/global/manifest.json' },
+    } as MessageEvent);
+    await vi.waitFor(() =>
+      expect(
+        state.messages.some(
+          ({ message }) => message.type === 'error' && message.message === 'Worker request already in progress',
+        ),
+      ).toBe(true),
+    );
     expect(state.events.filter((event) => event === 'adapter:preflight')).toHaveLength(1);
 
     releasePreflight();
-    await vi.waitFor(() => expect(state.messages.some(
-      ({ message }) => message.type === 'result',
-    )).toBe(true));
+    await vi.waitFor(() => expect(state.messages.some(({ message }) => message.type === 'result')).toBe(true));
     expect(state.ortWebgpu.device).toBeUndefined();
   });
 
@@ -928,23 +951,23 @@ describe('variable inference worker lifecycle', () => {
     expect(state.events.filter((event) => event.startsWith('noise:'))).toEqual([
       `noise:${state.retainedPlan!.chunks.reduce((total, chunk) => total + 128 * chunk.latentLength, 0)}`,
     ]);
-    expect(state.events.filter((event) => event.startsWith('flow:chunk:'))).toEqual([
-      'flow:chunk:0',
-      'flow:chunk:1',
+    expect(state.events.filter((event) => event.startsWith('flow:chunk:'))).toEqual(['flow:chunk:0', 'flow:chunk:1']);
+    expect(state.events.filter((event) => event.startsWith('condition-progress-before-encode:'))).toEqual([
+      'condition-progress-before-encode:true',
+      'condition-progress-before-encode:true',
     ]);
-    expect(state.events.filter((event) => event.startsWith('condition-progress-before-encode:')))
-      .toEqual(['condition-progress-before-encode:true', 'condition-progress-before-encode:true']);
     expect(state.events.filter((event) => event.startsWith('acoustic-before-complete:'))).toEqual([
       'acoustic-before-complete:false',
       'acoustic-before-complete:false',
     ]);
     expect(state.events.filter((event) => event.startsWith('vocoder:'))).toEqual([
-      'vocoder:0:left', 'vocoder:0:right', 'vocoder:1:left', 'vocoder:1:right',
+      'vocoder:0:left',
+      'vocoder:0:right',
+      'vocoder:1:left',
+      'vocoder:1:right',
     ]);
     expect(state.events).toContain('wav-progress-before-allocation:true');
-    const flowProgress = state.messages
-      .map(({ message }) => message)
-      .filter((message) => message.stage === 'flow');
+    const flowProgress = state.messages.map(({ message }) => message).filter((message) => message.stage === 'flow');
     expect(flowProgress.at(-1)).toMatchObject({ completed: 60, total: 60 });
     const arProgress = state.messages
       .map(({ message }) => message)
@@ -962,9 +985,7 @@ describe('variable inference worker lifecycle', () => {
     expect(results).toHaveLength(1);
     expect(results[0].transfer).toHaveLength(1);
     expect(state.events.some((event) => event.startsWith('artifact:'))).toBe(false);
-    expect(state.cacheOpenExistingCalls).toEqual([
-      { hash: emptyObjectManifestHash, root: opfsRoot },
-    ]);
+    expect(state.cacheOpenExistingCalls).toEqual([{ hash: emptyObjectManifestHash, root: opfsRoot }]);
     expect(results[0].message.result).toMatchObject({
       artifactFetches: 0,
       effectiveInput: {
@@ -989,8 +1010,20 @@ describe('variable inference worker lifecycle', () => {
         termination: 'natural-end',
         chunkCount: 2,
         chunks: [
-          { startFrame: 0, frameLength: 200, latentLength: 689, cropLeftLatents: 0, cropRightLatents: 258 },
-          { startFrame: 100, frameLength: 101, latentLength: 347, cropLeftLatents: 86, cropRightLatents: 0 },
+          {
+            startFrame: 0,
+            frameLength: 200,
+            latentLength: 689,
+            cropLeftLatents: 0,
+            cropRightLatents: 258,
+          },
+          {
+            startFrame: 100,
+            frameLength: 101,
+            latentLength: 347,
+            cropLeftLatents: 86,
+            cropRightLatents: 0,
+          },
         ],
       },
     });
@@ -1021,12 +1054,8 @@ describe('variable inference worker lifecycle', () => {
     expect(timings.inferenceMs.condition).toBe(21);
     expect(timings.inferenceMs.flow).toBe(201);
     expect(timings.inferenceMs.vocoder).toBe(10);
-    expect(timings.stageMs.condition).toBe(
-      timings.sessionCreateMs.condition + timings.inferenceMs.condition,
-    );
-    expect(timings.stageMs.flow).toBe(
-      timings.sessionCreateMs.flow + timings.inferenceMs.flow,
-    );
+    expect(timings.stageMs.condition).toBe(timings.sessionCreateMs.condition + timings.inferenceMs.condition);
+    expect(timings.stageMs.flow).toBe(timings.sessionCreateMs.flow + timings.inferenceMs.flow);
     expect(timings.stageMs.vocoder).toBeGreaterThanOrEqual(timings.sessionCreateMs.vocoder);
     expect(state.events.slice(-3)).toEqual([
       'session:release:vocoder',
@@ -1052,8 +1081,20 @@ describe('variable inference worker lifecycle', () => {
         termination: 'max-frames',
         chunkCount: 2,
         chunks: [
-          { startFrame: 0, frameLength: 200, latentLength: 689, cropLeftLatents: 0, cropRightLatents: 258 },
-          { startFrame: 100, frameLength: 150, latentLength: 516, cropLeftLatents: 86, cropRightLatents: 0 },
+          {
+            startFrame: 0,
+            frameLength: 200,
+            latentLength: 689,
+            cropLeftLatents: 0,
+            cropRightLatents: 258,
+          },
+          {
+            startFrame: 100,
+            frameLength: 150,
+            latentLength: 516,
+            cropLeftLatents: 86,
+            cropRightLatents: 0,
+          },
         ],
       },
       comparison: {
@@ -1069,10 +1110,14 @@ describe('variable inference worker lifecycle', () => {
       },
     });
     expect(state.events.filter((event) => event.startsWith('device:create:'))).toEqual([
-      'device:create:ar', 'device:create:flow', 'device:create:vocoder',
+      'device:create:ar',
+      'device:create:flow',
+      'device:create:vocoder',
     ]);
     expect(state.events.filter((event) => event.startsWith('device:destroy:'))).toEqual([
-      'device:destroy:ar', 'device:destroy:flow', 'device:destroy:vocoder',
+      'device:destroy:ar',
+      'device:destroy:flow',
+      'device:destroy:vocoder',
     ]);
   });
 

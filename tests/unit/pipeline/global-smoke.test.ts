@@ -18,7 +18,7 @@ function tensor(dims: number[], location: 'gpu-buffer' | 'cpu' = 'gpu-buffer') {
 describe('runGlobalSmoke', () => {
   it('prefills the exact two-lane contract then advances GPU KV cache from 40 to 50', async () => {
     let calls = 0;
-    const feeds: Record<string, { dims: readonly number[]; data: unknown }> [] = [];
+    const feeds: Record<string, { dims: readonly number[]; data: unknown }>[] = [];
     const decoder = {
       inputNames: [],
       outputNames: [],
@@ -61,12 +61,32 @@ describe('runGlobalSmoke', () => {
       expect(result.finiteLogits).toBe(true);
       expect(tensors.every((item) => item.disposed > 0)).toBe(true);
       expect(feeds.every((entry) => !('attention_mask' in entry))).toBe(true);
-      expect(feeds.map((entry) => Array.from(entry.seqlens_k.data as Int32Array))).toEqual(
-        [[39, 39], [40, 40], [41, 41], [42, 42], [43, 43], [44, 44], [45, 45], [46, 46], [47, 47], [48, 48], [49, 49]],
-      );
-      expect(feeds.map((entry) => Array.from(entry.total_seq_len.data as Int32Array))).toEqual(
-        [[40], [41], [42], [43], [44], [45], [46], [47], [48], [49], [50]],
-      );
+      expect(feeds.map((entry) => Array.from(entry.seqlens_k.data as Int32Array))).toEqual([
+        [39, 39],
+        [40, 40],
+        [41, 41],
+        [42, 42],
+        [43, 43],
+        [44, 44],
+        [45, 45],
+        [46, 46],
+        [47, 47],
+        [48, 48],
+        [49, 49],
+      ]);
+      expect(feeds.map((entry) => Array.from(entry.total_seq_len.data as Int32Array))).toEqual([
+        [40],
+        [41],
+        [42],
+        [43],
+        [44],
+        [45],
+        [46],
+        [47],
+        [48],
+        [49],
+        [50],
+      ]);
     } finally {
       tensors.length = 0;
     }

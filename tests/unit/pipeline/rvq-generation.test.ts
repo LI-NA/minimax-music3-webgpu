@@ -39,7 +39,9 @@ class FakeTensor {
   ) {
     this.location = location;
   }
-  async getData() { return this.data; }
+  async getData() {
+    return this.data;
+  }
   dispose() {
     this.disposed = true;
     this.disposeCalls++;
@@ -109,7 +111,9 @@ function failureRuntime(boundary: FailureBoundary) {
       run: async (input: Record<string, FakeTensor>) => {
         feeds.feedback = input;
         if (boundary === 'feedback') throw new Error('feedback failure');
-        return { inputs_embeds: new FakeTensor('float16', new Uint16Array(), [2, 1, 4096], 'gpu-buffer') };
+        return {
+          inputs_embeds: new FakeTensor('float16', new Uint16Array(), [2, 1, 4096], 'gpu-buffer'),
+        };
       },
     } as never,
     globalEmbedding: {
@@ -158,8 +162,7 @@ function runtime(decisions: number, onFrameRetained?: (count: number) => void, e
       const decision = headCalls++;
       const semantic = new Float16Array(2 * 16_384).fill(-100);
       if (decision === endDecision) {
-        for (let code = 100 + decision; code < 104 + decision; code++)
-          semantic[code] = semantic[16_384 + code] = 90;
+        for (let code = 100 + decision; code < 104 + decision; code++) semantic[code] = semantic[16_384 + code] = 90;
       } else {
         semantic[100 + decision] = semantic[16_384 + 100 + decision] = 10;
       }
@@ -191,7 +194,9 @@ function runtime(decisions: number, onFrameRetained?: (count: number) => void, e
   const feedback = {
     run: async () => {
       feedbackCalls++;
-      return { inputs_embeds: new FakeTensor('float16', new Uint16Array(), [2, 1, 4096], 'gpu-buffer') };
+      return {
+        inputs_embeds: new FakeTensor('float16', new Uint16Array(), [2, 1, 4096], 'gpu-buffer'),
+      };
     },
   };
   const generator = createFrameGenerator({
@@ -204,7 +209,10 @@ function runtime(decisions: number, onFrameRetained?: (count: number) => void, e
       lookup: (ids: readonly number[]) => Uint16Array.from(ids.flatMap((id) => Array(4096).fill(id))),
       dispose() {},
     },
-    rvqEmbedding: { lookup: (ids: readonly number[]) => Uint16Array.from(ids.flatMap((id) => Array(4096).fill(id))), dispose() {} },
+    rvqEmbedding: {
+      lookup: (ids: readonly number[]) => Uint16Array.from(ids.flatMap((id) => Array(4096).fill(id))),
+      dispose() {},
+    },
     embeddingColumns: 4096,
     kvPairs: [{ pastInput: 'past', presentOutput: 'present' }],
     readConditionalHidden: async (tensor) =>
@@ -247,7 +255,9 @@ describe('RVQ frame generation', () => {
   it('disposes each partially returned head output once when output validation fails', async () => {
     const fixture = failureRuntime('head-partial');
 
-    await expect(fixture.generator.generateFrames(frameOptions(1))).rejects.toThrow('reduced head outputs are incomplete');
+    await expect(fixture.generator.generateFrames(frameOptions(1))).rejects.toThrow(
+      'reduced head outputs are incomplete',
+    );
 
     expect(fixture.feeds.head!.hidden_states.disposeCalls).toBe(1);
     expect(fixture.headOutputs().map((tensor) => tensor.disposeCalls)).toEqual([1, 1]);
@@ -297,7 +307,12 @@ describe('RVQ frame generation', () => {
       [101, 0, 1, 2, 3, 4, 5, 6],
       [102, 0, 1, 2, 3, 4, 5, 6],
     ]);
-    expect(fixture.counts()).toEqual({ decoderCalls: 3, headCalls: 3, depthCalls: 21, feedbackCalls: 2 });
+    expect(fixture.counts()).toEqual({
+      decoderCalls: 3,
+      headCalls: 3,
+      depthCalls: 21,
+      feedbackCalls: 2,
+    });
     expect(fixture.cacheLengths).toEqual([40, 41, 42]);
     expect(frames[0].hiddenGroups).toHaveLength(8 * 4096);
     expect(frames[0].hiddenGroups).toBeInstanceOf(Uint16Array);
@@ -329,7 +344,12 @@ describe('RVQ frame generation', () => {
     const frames = await fixture.generator.generateFrames(frameOptions(125, 11));
 
     expect(frames).toHaveLength(125);
-    expect(fixture.counts()).toEqual({ decoderCalls: 126, headCalls: 126, depthCalls: 882, feedbackCalls: 125 });
+    expect(fixture.counts()).toEqual({
+      decoderCalls: 126,
+      headCalls: 126,
+      depthCalls: 882,
+      feedbackCalls: 125,
+    });
     expect(frames.reduce((bytes, frame) => bytes + frame.hiddenGroups.byteLength, 0)).toBe(8_192_000);
   });
 
@@ -353,8 +373,12 @@ describe('RVQ frame generation', () => {
 
     const prefill = fixture.decoderFeeds[0];
     expect(prefill.inputs_embeds.dims).toEqual([2, 3, 4096]);
-    expect(Array.from(prefill.inputs_embeds.data.slice(0, 3 * 4096).filter((_, index) => index % 4096 === 0))).toEqual([11, 12, 13]);
-    expect(Array.from(prefill.inputs_embeds.data.slice(3 * 4096).filter((_, index) => index % 4096 === 0))).toEqual([21, 22, 23]);
+    expect(Array.from(prefill.inputs_embeds.data.slice(0, 3 * 4096).filter((_, index) => index % 4096 === 0))).toEqual([
+      11, 12, 13,
+    ]);
+    expect(Array.from(prefill.inputs_embeds.data.slice(3 * 4096).filter((_, index) => index % 4096 === 0))).toEqual([
+      21, 22, 23,
+    ]);
     expect(prefill.seqlens_k.data).toEqual(new Int32Array([2, 2]));
     expect(prefill.total_seq_len.data).toEqual(new Int32Array([3]));
     expect(fixture.cacheLengths).toEqual([3, 4]);
@@ -373,8 +397,9 @@ describe('RVQ frame generation', () => {
     ],
   ])('rejects invalid %s before inference', async (_name, overrides, message) => {
     const fixture = runtime(1);
-    await expect(fixture.generator.generateFrames(frameOptions(1, 7, overrides as Partial<GenerateFrameOptions>)))
-      .rejects.toThrow(message as string);
+    await expect(
+      fixture.generator.generateFrames(frameOptions(1, 7, overrides as Partial<GenerateFrameOptions>)),
+    ).rejects.toThrow(message as string);
     expect(fixture.counts().decoderCalls).toBe(0);
   });
 
@@ -395,16 +420,23 @@ describe('RVQ frame generation', () => {
       rvqCalls: 21,
       feedbackCalls: 3,
     });
-    expect(fixture.counts()).toEqual({ decoderCalls: 4, headCalls: 4, depthCalls: 21, feedbackCalls: 3 });
+    expect(fixture.counts()).toEqual({
+      decoderCalls: 4,
+      headCalls: 4,
+      depthCalls: 21,
+      feedbackCalls: 3,
+    });
     expect(fixture.cacheLengths).toEqual([40, 41, 42, 43]);
   });
 
   it('uses one extra draw to continue only in capacity diagnostics and records the suppressed end', async () => {
     const fixture = runtime(4, undefined, 3);
 
-    const frames = await fixture.generator.generateFrames(frameOptions(4, 7, {
-      audioEndPolicy: 'continue-for-capacity-diagnostic',
-    }));
+    const frames = await fixture.generator.generateFrames(
+      frameOptions(4, 7, {
+        audioEndPolicy: 'continue-for-capacity-diagnostic',
+      }),
+    );
 
     expect(frames).toHaveLength(4);
     expect(frames.slice(0, 2).map((frame) => frame.semantic)).toEqual([101, 102]);
@@ -442,9 +474,12 @@ describe('FP16 hidden readback', () => {
     mapped.fill(0x3c00, 4096);
     const getData = vi.fn(async () => new Float16Array(mapped.buffer.slice(0)));
 
-    const result = await readConditionalGpuFp16(
-      { type: 'float16', location: 'gpu-buffer', dims: [2, 4096], getData } as never,
-    );
+    const result = await readConditionalGpuFp16({
+      type: 'float16',
+      location: 'gpu-buffer',
+      dims: [2, 4096],
+      getData,
+    } as never);
 
     expect(result).toBeInstanceOf(Uint16Array);
     expect(result).toHaveLength(4096);

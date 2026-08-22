@@ -10,27 +10,16 @@ const f32 = Math.fround;
 const finiteLogit = (value: number) =>
   Number.isNaN(value) ? -1e9 : value === Infinity ? 1e9 : value === -Infinity ? -1e9 : value;
 
-function kthThreshold(
-  values: ArrayLike<number>,
-  topK: number,
-  allowed?: ReadonlySet<number>,
-  excludedIndex?: number,
-) {
+function kthThreshold(values: ArrayLike<number>, topK: number, allowed?: ReadonlySet<number>, excludedIndex?: number) {
   const candidates: number[] = [];
   for (let index = 0; index < values.length; index++)
-    if (index !== excludedIndex && (!allowed || allowed.has(index)))
-      candidates.push(finiteLogit(values[index]));
+    if (index !== excludedIndex && (!allowed || allowed.has(index))) candidates.push(finiteLogit(values[index]));
   if (!candidates.length) throw new Error('sampling distribution is empty');
   candidates.sort((left, right) => right - left);
   return candidates[Math.min(topK, candidates.length) - 1];
 }
 
-function categorical(
-  values: ArrayLike<number>,
-  threshold: number,
-  draw: () => number,
-  allowed?: ReadonlySet<number>,
-) {
+function categorical(values: ArrayLike<number>, threshold: number, draw: () => number, allowed?: ReadonlySet<number>) {
   const random = draw();
   if (!(random >= 0 && random < 1)) throw new Error('random draw must be in [0, 1)');
   let maximum = -Infinity;
@@ -78,9 +67,7 @@ function guidedTopK(
     ? kthThreshold(conditional, options.topK, undefined, excludedIndex)
     : -Infinity;
   const guided = new Float32Array(conditional.length);
-  const allowed = restrictToConditionalTopK || excludedIndex !== undefined
-    ? new Set<number>()
-    : undefined;
+  const allowed = restrictToConditionalTopK || excludedIndex !== undefined ? new Set<number>() : undefined;
   for (let index = 0; index < conditional.length; index++) {
     if (index === excludedIndex) continue;
     const cond = f32(finiteLogit(conditional[index]));
@@ -93,12 +80,7 @@ function guidedTopK(
     guided[index] = f32(guidedLogit / f32(options.temperature));
     allowed?.add(index);
   }
-  return categorical(
-    guided,
-    kthThreshold(guided, options.topK, allowed),
-    options.draw,
-    allowed,
-  );
+  return categorical(guided, kthThreshold(guided, options.topK, allowed), options.draw, allowed);
 }
 
 export function sampleSemantic(conditional: Float32Array, unconditional: Float32Array, options: SamplingOptions) {

@@ -14,23 +14,26 @@ import * as telemetryRunner from '../../browser/variable-duration-telemetry-runn
 
 describe('variable-duration NVIDIA telemetry runner', () => {
   it('writes telemetry evidence exclusively and preserves the first capture', () => {
-    const writeEvidence = (telemetryRunner as unknown as {
-      writeEvidence?: (
-        directory: string,
-        samples: GpuSample[],
-        result: Record<string, unknown>,
-      ) => void;
-    }).writeEvidence;
+    const writeEvidence = (
+      telemetryRunner as unknown as {
+        writeEvidence?: (directory: string, samples: GpuSample[], result: Record<string, unknown>) => void;
+      }
+    ).writeEvidence;
     expect(typeof writeEvidence).toBe('function');
     const directory = mkdtempSync(path.join(tmpdir(), 'minimax-telemetry-'));
     try {
       const sample: GpuSample = {
-        at: 'first', monotonicMs: 1, usedMiB: 2, totalMiB: 3, utilizationPercent: 4,
+        at: 'first',
+        monotonicMs: 1,
+        usedMiB: 2,
+        totalMiB: 3,
+        utilizationPercent: 4,
       };
       writeEvidence?.(directory, [sample], { marker: 'first' });
       expect(() => writeEvidence?.(directory, [sample], { marker: 'second' })).toThrow();
-      expect(JSON.parse(readFileSync(path.join(directory, 'telemetry.json'), 'utf8')))
-        .toEqual({ marker: 'first' });
+      expect(JSON.parse(readFileSync(path.join(directory, 'telemetry.json'), 'utf8'))).toEqual({
+        marker: 'first',
+      });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -44,9 +47,11 @@ describe('variable-duration NVIDIA telemetry runner', () => {
       schedule: (callback: () => void, milliseconds: number) => unknown,
       cancel: (handle: unknown) => void,
     ) => Promise<T>;
-    const raceWithCancellableTimeout = (telemetryRunner as unknown as {
-      raceWithCancellableTimeout?: RaceWithCancellableTimeout;
-    }).raceWithCancellableTimeout;
+    const raceWithCancellableTimeout = (
+      telemetryRunner as unknown as {
+        raceWithCancellableTimeout?: RaceWithCancellableTimeout;
+      }
+    ).raceWithCancellableTimeout;
     expect(typeof raceWithCancellableTimeout).toBe('function');
 
     const handles: unknown[] = [];
@@ -58,27 +63,27 @@ describe('variable-duration NVIDIA telemetry runner', () => {
     };
     const cancel = (handle: unknown) => cancelled.push(handle);
 
-    await expect(raceWithCancellableTimeout?.(
-      Promise.resolve('clean'),
-      600_000,
-      () => new Error('timed out'),
-      schedule,
-      cancel,
-    )).resolves.toBe('clean');
-    await expect(raceWithCancellableTimeout?.(
-      Promise.reject(new Error('monitor failed')),
-      600_000,
-      () => new Error('timed out'),
-      schedule,
-      cancel,
-    )).rejects.toThrow('monitor failed');
+    await expect(
+      raceWithCancellableTimeout?.(Promise.resolve('clean'), 600_000, () => new Error('timed out'), schedule, cancel),
+    ).resolves.toBe('clean');
+    await expect(
+      raceWithCancellableTimeout?.(
+        Promise.reject(new Error('monitor failed')),
+        600_000,
+        () => new Error('timed out'),
+        schedule,
+        cancel,
+      ),
+    ).rejects.toThrow('monitor failed');
     expect(cancelled).toEqual(handles);
   });
 
   it('selects only the short or long browser qualification spec', () => {
-    const selectBrowserGate = (telemetryRunner as unknown as {
-      selectBrowserGate?: (value: string | undefined) => { spec: string };
-    }).selectBrowserGate;
+    const selectBrowserGate = (
+      telemetryRunner as unknown as {
+        selectBrowserGate?: (value: string | undefined) => { spec: string };
+      }
+    ).selectBrowserGate;
     expect(typeof selectBrowserGate).toBe('function');
     expect(selectBrowserGate?.(undefined)).toEqual({
       spec: 'tests/browser/variable-duration.spec.ts',
@@ -151,7 +156,13 @@ describe('variable-duration NVIDIA telemetry runner', () => {
   it('uses the spawn-adjacent sample rather than an earlier preflight sample as baseline', () => {
     const samples: GpuSample[] = [
       { at: 'preflight', monotonicMs: 0, usedMiB: 6_000, totalMiB: 20_000, utilizationPercent: 80 },
-      { at: 'baseline', monotonicMs: 100, usedMiB: 3_000, totalMiB: 20_000, utilizationPercent: 30 },
+      {
+        at: 'baseline',
+        monotonicMs: 100,
+        usedMiB: 3_000,
+        totalMiB: 20_000,
+        utilizationPercent: 30,
+      },
       { at: 'peak', monotonicMs: 200, usedMiB: 8_000, totalMiB: 20_000, utilizationPercent: 95 },
     ];
     const summary = summarizeTelemetry(samples, 100, 1, 12_288, 512);
@@ -169,10 +180,7 @@ describe('variable-duration NVIDIA telemetry runner', () => {
       'vmware-vmx.exe, 512',
       'emulator.exe, 300',
     ].join('\n');
-    expect(findGpuConflicts(listing)).toEqual([
-      'qemu-system-x86_64.exe',
-      'vmware-vmx.exe',
-    ]);
+    expect(findGpuConflicts(listing)).toEqual(['qemu-system-x86_64.exe', 'vmware-vmx.exe']);
     expect(inspectNamedGpuProcesses(listing)).toEqual([
       { name: 'chrome.exe', usedMiB: 900 },
       { name: 'qemu-system-x86_64.exe', usedMiB: 700 },

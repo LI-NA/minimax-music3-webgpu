@@ -3,10 +3,7 @@ import type { ArtifactStore } from './artifact-cache';
 import { localJspiWasmPaths } from './local-jspi-path';
 import type { OnnxGraphArtifact } from './manifest';
 
-export async function createOrtSession(
-  graph: OnnxGraphArtifact,
-  cache: ArtifactStore,
-): Promise<ort.InferenceSession> {
+export async function createOrtSession(graph: OnnxGraphArtifact, cache: ArtifactStore): Promise<ort.InferenceSession> {
   ort.env.wasm.proxy = false;
   ort.env.wasm.numThreads = 1;
   ort.env.wasm.wasmPaths = localJspiWasmPaths(self.location.origin);
@@ -25,9 +22,7 @@ export async function createOrtSession(
     graphOptimizationLevel: 'all',
     enableMemPattern: false,
     enableGraphCapture: false,
-    preferredOutputLocation: Object.fromEntries(
-      graph.gpuOutputs.map((name) => [name, 'gpu-buffer']),
-    ),
+    preferredOutputLocation: Object.fromEntries(graph.gpuOutputs.map((name) => [name, 'gpu-buffer'])),
     extra: {
       session: { disable_cpu_ep_fallback: '1', disable_prepacking: '1' },
     },

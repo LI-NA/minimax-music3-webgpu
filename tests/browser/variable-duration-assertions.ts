@@ -80,14 +80,16 @@ const expectations: Record<GateDuration, GatePlan> = {
     semanticDecisions: 151,
     rvqCalls: 1_057,
     feedbackCalls: 150,
-    chunks: [{
-      startFrame: 0,
-      frameLength: 150,
-      latentLength: 516,
-      cropLeftLatents: 0,
-      cropRightLatents: 0,
-      samplesPerChannel: 264_192,
-    }],
+    chunks: [
+      {
+        startFrame: 0,
+        frameLength: 150,
+        latentLength: 516,
+        cropLeftLatents: 0,
+        cropRightLatents: 0,
+        samplesPerChannel: 264_192,
+      },
+    ],
   },
   10: {
     durationSeconds: 10,
@@ -121,44 +123,46 @@ const expectations: Record<GateDuration, GatePlan> = {
       },
     ],
   },
-  ...Object.fromEntries([30, 60, 120, 300].map((durationSeconds) => {
-    const retainedFrames = durationSeconds * 25;
-    const chunkCount = Math.ceil(retainedFrames / 100) - 1;
-    const chunks = Array.from({ length: chunkCount }, (_, index) => {
-      const startFrame = index * 100;
-      const frameLength = Math.min(200, retainedFrames - startFrame);
-      const latentLength = Math.floor(frameLength * 441 / 128);
-      const cropLeftLatents = index === 0 ? 0 : 86;
-      const cropRightLatents = index === chunkCount - 1 ? 0 : 258;
-      return {
-        startFrame,
-        frameLength,
-        latentLength,
-        cropLeftLatents,
-        cropRightLatents,
-        samplesPerChannel: (latentLength - cropLeftLatents - cropRightLatents) * 512,
-      };
-    });
-    const samplesPerChannel = chunks.reduce(
-      (total, chunk) => total + chunk.samplesPerChannel,
-      0,
-    );
-    return [durationSeconds, {
-      durationSeconds,
-      requestedFrames: retainedFrames,
-      retainedFrames,
-      termination: 'max-frames' as const,
-      chunkCount,
-      samplesPerChannel,
-      wavBytes: 44 + samplesPerChannel * 4,
-      flowCalls: chunkCount * 30,
-      vocoderCalls: chunkCount * 2,
-      semanticDecisions: retainedFrames + 1,
-      rvqCalls: (retainedFrames + 1) * 7,
-      feedbackCalls: retainedFrames,
-      chunks,
-    }];
-  })) as Record<30 | 60 | 120 | 300, GatePlan>,
+  ...(Object.fromEntries(
+    [30, 60, 120, 300].map((durationSeconds) => {
+      const retainedFrames = durationSeconds * 25;
+      const chunkCount = Math.ceil(retainedFrames / 100) - 1;
+      const chunks = Array.from({ length: chunkCount }, (_, index) => {
+        const startFrame = index * 100;
+        const frameLength = Math.min(200, retainedFrames - startFrame);
+        const latentLength = Math.floor((frameLength * 441) / 128);
+        const cropLeftLatents = index === 0 ? 0 : 86;
+        const cropRightLatents = index === chunkCount - 1 ? 0 : 258;
+        return {
+          startFrame,
+          frameLength,
+          latentLength,
+          cropLeftLatents,
+          cropRightLatents,
+          samplesPerChannel: (latentLength - cropLeftLatents - cropRightLatents) * 512,
+        };
+      });
+      const samplesPerChannel = chunks.reduce((total, chunk) => total + chunk.samplesPerChannel, 0);
+      return [
+        durationSeconds,
+        {
+          durationSeconds,
+          requestedFrames: retainedFrames,
+          retainedFrames,
+          termination: 'max-frames' as const,
+          chunkCount,
+          samplesPerChannel,
+          wavBytes: 44 + samplesPerChannel * 4,
+          flowCalls: chunkCount * 30,
+          vocoderCalls: chunkCount * 2,
+          semanticDecisions: retainedFrames + 1,
+          rvqCalls: (retainedFrames + 1) * 7,
+          feedbackCalls: retainedFrames,
+          chunks,
+        },
+      ];
+    }),
+  ) as Record<30 | 60 | 120 | 300, GatePlan>),
 };
 
 export function gateExpectation(durationSeconds: GateDuration): GatePlan {
@@ -173,16 +177,11 @@ export function parseLongGateDuration(value: string | undefined): LongGateDurati
   return duration as LongGateDuration;
 }
 
-export function parseLongDurationMode(
-  value: string | undefined,
-  durationSeconds: LongGateDuration,
-): LongDurationMode {
+export function parseLongDurationMode(value: string | undefined, durationSeconds: LongGateDuration): LongDurationMode {
   if (value === undefined) throw new Error('MINIMAX_LONG_DURATION_MODE is required');
   if (value === 'product') return value;
-  if (value !== 'capacity-diagnostic')
-    throw new Error('MINIMAX_LONG_DURATION_MODE must use the mode allowlist');
-  if (durationSeconds !== 300)
-    throw new Error('capacity-diagnostic mode is restricted to the 300-second gate');
+  if (value !== 'capacity-diagnostic') throw new Error('MINIMAX_LONG_DURATION_MODE must use the mode allowlist');
+  if (durationSeconds !== 300) throw new Error('capacity-diagnostic mode is restricted to the 300-second gate');
   return value;
 }
 
@@ -192,12 +191,9 @@ export function assertCapacityDiagnosticResult(actual: Record<string, unknown>) 
   if (typeof actual.capacityDiagnostic !== 'object' || actual.capacityDiagnostic === null)
     throw new Error('capacity diagnostic metadata is missing');
   const metadata = actual.capacityDiagnostic as Record<string, unknown>;
-  if (metadata.kind !== 'continue-after-audio-end')
-    throw new Error('capacity diagnostic kind is invalid');
-  if (
-    !Number.isSafeInteger(metadata.suppressedAudioEnds)
-    || (metadata.suppressedAudioEnds as number) < 1
-  ) throw new Error('capacity diagnostic must suppress at least one audio end');
+  if (metadata.kind !== 'continue-after-audio-end') throw new Error('capacity diagnostic kind is invalid');
+  if (!Number.isSafeInteger(metadata.suppressedAudioEnds) || (metadata.suppressedAudioEnds as number) < 1)
+    throw new Error('capacity diagnostic must suppress at least one audio end');
   if (metadata.firstAudioEndAtRetainedFrame !== 1_743)
     throw new Error('capacity diagnostic first audio-end frame must be 1743');
 }
@@ -229,8 +225,7 @@ export function assertAudioHealthForPlan(actual: AudioHealth, expected: ProductP
     decodedSamples: expected.samplesPerChannel,
   };
   for (const [name, value] of Object.entries(fixed)) {
-    if (actual[name as keyof AudioHealth] !== value)
-      throw new Error(`${name} must be ${String(value)}`);
+    if (actual[name as keyof AudioHealth] !== value) throw new Error(`${name} must be ${String(value)}`);
   }
   if (!actual.finite) throw new Error('decoded samples must be finite');
   if (!actual.stereoDiffers) throw new Error('stereo channels must differ');
@@ -253,7 +248,7 @@ function productPlan(
   const chunks = Array.from({ length: chunkCount }, (_, index) => {
     const startFrame = index * 100;
     const frameLength = Math.min(200, retainedFrames - startFrame);
-    const latentLength = Math.floor(frameLength * 441 / 128);
+    const latentLength = Math.floor((frameLength * 441) / 128);
     const cropLeftLatents = index === 0 ? 0 : 86;
     const cropRightLatents = index === chunkCount - 1 ? 0 : 258;
     return {
@@ -265,10 +260,7 @@ function productPlan(
       samplesPerChannel: (latentLength - cropLeftLatents - cropRightLatents) * 512,
     };
   });
-  const samplesPerChannel = chunks.reduce(
-    (total, chunk) => total + chunk.samplesPerChannel,
-    0,
-  );
+  const samplesPerChannel = chunks.reduce((total, chunk) => total + chunk.samplesPerChannel, 0);
   return {
     durationSeconds,
     requestedFrames,
@@ -290,10 +282,7 @@ export function naturalEnd1743Expectation() {
   return productPlan(120, 3_000, 1_743, 'natural-end');
 }
 
-export function assertStableProgressMetrics(
-  progress: readonly ProgressMetric[],
-  stage: 'autoregressive' | 'flow',
-) {
+export function assertStableProgressMetrics(progress: readonly ProgressMetric[], stage: 'autoregressive' | 'flow') {
   const events = progress.filter((event) => event.stage === stage);
   if (events.length < 3) throw new Error(`${stage} progress must reach a stable sample window`);
   for (const event of events) {
@@ -318,8 +307,7 @@ function assertCountedProgress(
 ) {
   const events = progress.filter((event) => event.stage === stage && event.completed !== undefined);
   if (events.length === 0) throw new Error(`${stage} progress must be present`);
-  if (events.some((event) => event.total !== total))
-    throw new Error(`${stage} progress total must be ${total}`);
+  if (events.some((event) => event.total !== total)) throw new Error(`${stage} progress total must be ${total}`);
   const completed = events.map((event) => event.completed!);
   if (completed[0] !== 1) throw new Error(`${stage} progress must start at 1`);
   if (completed.at(-1) !== total) throw new Error(`${stage} progress must finish at ${total}`);
@@ -329,8 +317,7 @@ function assertCountedProgress(
 }
 
 function assertProductProgress(progress: readonly ProgressMetric[], expected: ProductPlan) {
-  const autoregressive = progress.filter((event) =>
-    event.stage === 'autoregressive' && event.completed !== undefined);
+  const autoregressive = progress.filter((event) => event.stage === 'autoregressive' && event.completed !== undefined);
   if (autoregressive.length === 0) throw new Error('autoregressive progress must be present');
   if (autoregressive.some((event) => event.total !== expected.requestedFrames))
     throw new Error(`autoregressive progress total must be ${expected.requestedFrames}`);
@@ -369,13 +356,14 @@ export function assertProductOutcome(input: {
   progress: readonly ProgressMetric[];
 }) {
   const actual = input.plan;
-  if (![6, 10, 30, 60, 120, 300].includes(actual.durationSeconds))
-    throw new Error('product duration is unsupported');
+  if (![6, 10, 30, 60, 120, 300].includes(actual.durationSeconds)) throw new Error('product duration is unsupported');
   if (actual.requestedFrames !== actual.durationSeconds * 25)
     throw new Error('product requested frames do not match duration');
-  if (!Number.isInteger(actual.retainedFrames)
-    || actual.retainedFrames < 1
-    || actual.retainedFrames > actual.requestedFrames)
+  if (
+    !Number.isInteger(actual.retainedFrames) ||
+    actual.retainedFrames < 1 ||
+    actual.retainedFrames > actual.requestedFrames
+  )
     throw new Error('product retained frames are invalid');
   if (actual.termination !== 'max-frames' && actual.termination !== 'natural-end')
     throw new Error('product termination is invalid');
@@ -399,16 +387,9 @@ export function assertProductOutcome(input: {
   } as const;
 }
 
-export function assertLongDurationProgress(
-  progress: readonly ProgressMetric[],
-  durationSeconds: LongGateDuration,
-) {
+export function assertLongDurationProgress(progress: readonly ProgressMetric[], durationSeconds: LongGateDuration) {
   const expected = gateExpectation(durationSeconds);
-  const autoregressive = assertCountedProgress(
-    progress,
-    'autoregressive',
-    expected.retainedFrames,
-  );
+  const autoregressive = assertCountedProgress(progress, 'autoregressive', expected.retainedFrames);
   const flow = assertCountedProgress(progress, 'flow', expected.flowCalls);
   const acoustic = assertCountedProgress(progress, 'acoustic', expected.chunkCount);
   const vocoder = assertCountedProgress(progress, 'vocoder', expected.vocoderCalls);
@@ -432,16 +413,13 @@ export function assertLongDurationProgress(
     throw new Error('progress must end through wav and complete exactly once');
   if (progress.at(-1)?.stage !== 'complete') throw new Error('complete must be the final progress event');
 
-  const sample = (values: readonly number[], interval: number, total: number) => values.filter(
-    (value) => value <= 3 || value % interval === 0 || value === total,
-  );
-  const metricSamples = (
-    events: readonly ProgressMetric[],
-    interval: number,
-    total: number,
-  ) => events.filter(({ completed }) => completed !== undefined && (
-    completed <= 3 || completed % interval === 0 || completed === total
-  ));
+  const sample = (values: readonly number[], interval: number, total: number) =>
+    values.filter((value) => value <= 3 || value % interval === 0 || value === total);
+  const metricSamples = (events: readonly ProgressMetric[], interval: number, total: number) =>
+    events.filter(
+      ({ completed }) =>
+        completed !== undefined && (completed <= 3 || completed % interval === 0 || completed === total),
+    );
   return {
     durationSeconds,
     eventCount: progress.length,
@@ -484,12 +462,8 @@ export function assertLongDurationProgress(
 }
 
 export function summarizeObservedProgress(progress: readonly ProgressMetric[]) {
-  const summarizeStage = (
-    stage: 'autoregressive' | 'flow' | 'acoustic' | 'vocoder',
-    interval: number,
-  ) => {
-    const events = progress.filter((event) =>
-      event.stage === stage && event.completed !== undefined);
+  const summarizeStage = (stage: 'autoregressive' | 'flow' | 'acoustic' | 'vocoder', interval: number) => {
+    const events = progress.filter((event) => event.stage === stage && event.completed !== undefined);
     const snapshot = (event: ProgressMetric) => ({
       completed: event.completed,
       ...(event.total === undefined ? {} : { total: event.total }),
@@ -502,21 +476,17 @@ export function summarizeObservedProgress(progress: readonly ProgressMetric[]) {
       eventCount: events.length,
       firstCompleted: events[0]?.completed,
       lastCompleted: events.at(-1)?.completed,
-      reportedTotals: [...new Set(events.flatMap((event) =>
-        event.total === undefined ? [] : [event.total]))],
+      reportedTotals: [...new Set(events.flatMap((event) => (event.total === undefined ? [] : [event.total])))],
       samples: events
-        .filter((event, index) =>
-          event.completed! <= 3
-          || event.completed! % interval === 0
-          || index === events.length - 1)
+        .filter(
+          (event, index) => event.completed! <= 3 || event.completed! % interval === 0 || index === events.length - 1,
+        )
         .map(snapshot),
     };
   };
   return {
     eventCount: progress.length,
-    sessionNames: progress
-      .filter((event) => event.stage === 'session')
-      .map((event) => event.name),
+    sessionNames: progress.filter((event) => event.stage === 'session').map((event) => event.name),
     terminalStages: progress
       .filter((event) => event.stage === 'wav' || event.stage === 'complete')
       .map((event) => event.stage),
@@ -539,26 +509,25 @@ export function createObservedRunEvidence(input: {
   progress: readonly ProgressMetric[];
   productOutcome: unknown;
 }) {
-  const result = typeof input.result === 'object' && input.result !== null
-    ? input.result as Record<string, unknown>
-    : undefined;
-  const plan = typeof result?.plan === 'object' && result.plan !== null
-    ? result.plan as Record<string, unknown>
-    : undefined;
+  const result =
+    typeof input.result === 'object' && input.result !== null ? (input.result as Record<string, unknown>) : undefined;
+  const plan =
+    typeof result?.plan === 'object' && result.plan !== null ? (result.plan as Record<string, unknown>) : undefined;
   const observedTermination = plan?.termination;
   return {
     schemaVersion: 1,
-    qualification: observedTermination === 'natural-end'
-      ? {
-          status: 'failed',
-          requiredTermination: 'max-frames',
-          observedTermination,
-        }
-      : {
-          status: 'not-evaluated',
-          requiredTermination: 'max-frames',
-          ...(observedTermination === undefined ? {} : { observedTermination }),
-        },
+    qualification:
+      observedTermination === 'natural-end'
+        ? {
+            status: 'failed',
+            requiredTermination: 'max-frames',
+            observedTermination,
+          }
+        : {
+            status: 'not-evaluated',
+            requiredTermination: 'max-frames',
+            ...(observedTermination === undefined ? {} : { observedTermination }),
+          },
     productOutcome: input.productOutcome,
     request: {
       durationSeconds: input.durationSeconds,
@@ -572,45 +541,33 @@ export function createObservedRunEvidence(input: {
   };
 }
 
-export function assertCancellationBoundary(
-  progress: readonly ProgressMetric[],
-  boundary: 'late-ar' | 'second-flow',
-) {
+export function assertCancellationBoundary(progress: readonly ProgressMetric[], boundary: 'late-ar' | 'second-flow') {
   for (const terminal of ['wav', 'complete']) {
     if (progress.some(({ stage }) => stage === terminal))
       throw new Error(`${boundary} cancellation must not reach ${terminal}`);
   }
   if (boundary === 'late-ar') {
-    const completed = progress
-      .filter(({ stage }) => stage === 'autoregressive')
-      .map((event) => event.completed ?? -1);
+    const completed = progress.filter(({ stage }) => stage === 'autoregressive').map((event) => event.completed ?? -1);
     const maximum = Math.max(...completed);
-    if (maximum < 100 || maximum >= 150)
-      throw new Error('late-ar cancellation must stop from frame 100 through 149');
+    if (maximum < 100 || maximum >= 150) throw new Error('late-ar cancellation must stop from frame 100 through 149');
     if (progress.some(({ stage }) => ['condition', 'acoustic', 'flow', 'vocoder'].includes(stage)))
       throw new Error('late-ar cancellation must not reach acoustic work');
-    if (progress.some(({ stage, name }) =>
-      stage === 'session' && ['condition', 'flow', 'vocoder'].includes(name ?? '')))
+    if (
+      progress.some(({ stage, name }) => stage === 'session' && ['condition', 'flow', 'vocoder'].includes(name ?? ''))
+    )
       throw new Error('late-ar cancellation must not create acoustic sessions');
     return;
   }
-  const completed = progress
-    .filter(({ stage }) => stage === 'flow')
-    .map((event) => event.completed ?? -1);
+  const completed = progress.filter(({ stage }) => stage === 'flow').map((event) => event.completed ?? -1);
   const maximum = Math.max(...completed);
-  if (maximum < 31 || maximum >= 60)
-    throw new Error('second-flow cancellation must stop from flow step 31 through 59');
+  if (maximum < 31 || maximum >= 60) throw new Error('second-flow cancellation must stop from flow step 31 through 59');
   if (progress.some(({ stage, completed: count }) => stage === 'acoustic' && count === 2))
     throw new Error('second-flow cancellation must not complete acoustic chunk 2');
   if (progress.some(({ stage, name }) => stage === 'vocoder' || (stage === 'session' && name === 'vocoder')))
     throw new Error('second-flow cancellation must not reach vocoder');
 }
 
-export function assertWavIdentifiers(actual: {
-  fmt: string;
-  fmtChunkSize: number;
-  data: string;
-}) {
+export function assertWavIdentifiers(actual: { fmt: string; fmtChunkSize: number; data: string }) {
   if (actual.fmt !== 'fmt ') throw new Error('WAV fmt identifier must be fmt ');
   if (actual.fmtChunkSize !== 16) throw new Error('WAV fmt chunk size must be 16');
   if (actual.data !== 'data') throw new Error('WAV data identifier must be data');

@@ -33,9 +33,7 @@ class MemoryStore implements ArtifactStore {
         chunks.push(chunk);
       },
       close: async () => {
-        const contents = new Uint8Array(
-          chunks.reduce((size, chunk) => size + chunk.byteLength, 0),
-        );
+        const contents = new Uint8Array(chunks.reduce((size, chunk) => size + chunk.byteLength, 0));
         let offset = 0;
         for (const chunk of chunks) {
           contents.set(chunk, offset);
@@ -69,43 +67,41 @@ describe('OpfsArtifactStore', () => {
     const cache = {} as FileSystemDirectoryHandle;
     const getDirectoryHandle = vi.fn().mockResolvedValue(cache);
 
-    const store = await OpfsArtifactStore.openExisting(
-      hash,
-      { getDirectoryHandle } as unknown as FileSystemDirectoryHandle,
-    );
+    const store = await OpfsArtifactStore.openExisting(hash, {
+      getDirectoryHandle,
+    } as unknown as FileSystemDirectoryHandle);
 
     expect(store).toBeInstanceOf(OpfsArtifactStore);
     expect(getDirectoryHandle).toHaveBeenCalledWith(cacheName);
   });
 
   it('returns undefined only when an existing cache is absent', async () => {
-    const getDirectoryHandle = vi.fn().mockRejectedValue(
-      new DOMException('missing', 'NotFoundError'),
-    );
+    const getDirectoryHandle = vi.fn().mockRejectedValue(new DOMException('missing', 'NotFoundError'));
 
-    await expect(OpfsArtifactStore.openExisting(
-      hash,
-      { getDirectoryHandle } as unknown as FileSystemDirectoryHandle,
-    )).resolves.toBeUndefined();
+    await expect(
+      OpfsArtifactStore.openExisting(hash, {
+        getDirectoryHandle,
+      } as unknown as FileSystemDirectoryHandle),
+    ).resolves.toBeUndefined();
   });
 
   it('propagates errors other than a missing existing cache', async () => {
     const error = new DOMException('blocked', 'SecurityError');
     const getDirectoryHandle = vi.fn().mockRejectedValue(error);
 
-    await expect(OpfsArtifactStore.openExisting(
-      hash,
-      { getDirectoryHandle } as unknown as FileSystemDirectoryHandle,
-    )).rejects.toBe(error);
+    await expect(
+      OpfsArtifactStore.openExisting(hash, {
+        getDirectoryHandle,
+      } as unknown as FileSystemDirectoryHandle),
+    ).rejects.toBe(error);
   });
 
   it('continues to create a cache when opening it normally', async () => {
     const getDirectoryHandle = vi.fn().mockResolvedValue({});
 
-    await OpfsArtifactStore.open(
-      hash,
-      { getDirectoryHandle } as unknown as FileSystemDirectoryHandle,
-    );
+    await OpfsArtifactStore.open(hash, {
+      getDirectoryHandle,
+    } as unknown as FileSystemDirectoryHandle);
 
     expect(getDirectoryHandle).toHaveBeenCalledWith(cacheName, { create: true });
   });
@@ -253,18 +249,22 @@ describe('ensureArtifact', () => {
     const data = encoder.encode('abcdefgh');
     const store = new MemoryStore();
     store.writer = async () => ({
-      write: async () => { throw new Error('disk full'); },
+      write: async () => {
+        throw new Error('disk full');
+      },
       close: async () => {},
     });
     const progress = vi.fn();
 
-    await expect(ensureArtifact(
-      { path: 'a.bin', bytes: 8, sha256: await sha256(data) },
-      new URL('https://example.test/a.bin'),
-      store,
-      progress,
-      async () => new Response(data),
-    )).rejects.toThrow('disk full');
+    await expect(
+      ensureArtifact(
+        { path: 'a.bin', bytes: 8, sha256: await sha256(data) },
+        new URL('https://example.test/a.bin'),
+        store,
+        progress,
+        async () => new Response(data),
+      ),
+    ).rejects.toThrow('disk full');
     expect(progress).not.toHaveBeenCalled();
   });
 

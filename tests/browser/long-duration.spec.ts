@@ -1,12 +1,4 @@
-import {
-  constants,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { constants, copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, expect, test } from '@playwright/test';
 import type {
@@ -35,9 +27,10 @@ import {
 } from './qualification-paths';
 import { analyzeCanonicalPcm16Wav } from './reference-capture-helpers';
 
-const fixedInput = JSON.parse(
-  readFileSync(path.resolve('tools/reference/fixed_case.json'), 'utf8'),
-) as { prompt: string; lyrics: string };
+const fixedInput = JSON.parse(readFileSync(path.resolve('tools/reference/fixed_case.json'), 'utf8')) as {
+  prompt: string;
+  lyrics: string;
+};
 
 type CapturedProgress = { atMs: number; message: WorkerProgress };
 type DecodedAudio = {
@@ -61,17 +54,13 @@ test.setTimeout(timeoutMs);
 
 const checkoutRoot = path.resolve('.');
 const linkedWorktree = statSync(path.join(checkoutRoot, '.git')).isFile();
-const captureDirectory = resolveQualificationCapture(
-  checkoutRoot,
-  process.env.MINIMAX_VARIABLE_CAPTURE_DIR,
-);
+const captureDirectory = resolveQualificationCapture(checkoutRoot, process.env.MINIMAX_VARIABLE_CAPTURE_DIR);
 
 function writeJsonExclusive(name: string, value: unknown) {
-  writeFileSync(
-    path.join(captureDirectory, name),
-    `${JSON.stringify(value, null, 2)}\n`,
-    { encoding: 'utf8', flag: 'wx' },
-  );
+  writeFileSync(path.join(captureDirectory, name), `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: 'utf8',
+    flag: 'wx',
+  });
 }
 
 test(`qualifies one isolated ${durationSeconds}-second ${mode} generation`, async () => {
@@ -98,14 +87,12 @@ test(`qualifies one isolated ${durationSeconds}-second ${mode} generation`, asyn
   });
   const wasmRequests: string[] = [];
   context.on('request', (networkRequest) => {
-    if (networkRequest.url().includes('ort-wasm-simd-threaded.jspi.wasm'))
-      wasmRequests.push(networkRequest.url());
+    if (networkRequest.url().includes('ort-wasm-simd-threaded.jspi.wasm')) wasmRequests.push(networkRequest.url());
   });
-  const page = context.pages()[0] ?? await context.newPage();
+  const page = context.pages()[0] ?? (await context.newPage());
   let run!: CompletedRun;
-  const evidenceStem = mode === 'capacity-diagnostic'
-    ? `${durationSeconds}s-capacity-diagnostic`
-    : `${durationSeconds}s`;
+  const evidenceStem =
+    mode === 'capacity-diagnostic' ? `${durationSeconds}s-capacity-diagnostic` : `${durationSeconds}s`;
   const wavName = `${evidenceStem}.wav`;
   const wavPath = path.join(captureDirectory, wavName);
   try {
@@ -139,10 +126,9 @@ test(`qualifies one isolated ${durationSeconds}-second ${mode} generation`, asyn
           };
     const downloadPromise = page.waitForEvent('download', { timeout: timeoutMs });
     const runPromise = page.evaluate(async (input): Promise<CompletedRun> => {
-      const worker = new Worker(
-        new URL('/src/workers/inference.worker.ts', location.origin),
-        { type: 'module' },
-      );
+      const worker = new Worker(new URL('/src/workers/inference.worker.ts', location.origin), {
+        type: 'module',
+      });
       const progress: CapturedProgress[] = [];
       try {
         return await new Promise<CompletedRun>((resolve, reject) => {
@@ -180,9 +166,7 @@ test(`qualifies one isolated ${durationSeconds}-second ${mode} generation`, asyn
               const objectUrl = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }));
               const anchor = document.createElement('a');
               anchor.href = objectUrl;
-              const diagnostic = input.type === 'diagnose-music-capacity'
-                ? '-capacity-diagnostic'
-                : '';
+              const diagnostic = input.type === 'diagnose-music-capacity' ? '-capacity-diagnostic' : '';
               anchor.download = `minimax-music3-${input.durationSeconds}s${diagnostic}.wav`;
               document.body.append(anchor);
               anchor.click();
@@ -245,38 +229,35 @@ test(`qualifies one isolated ${durationSeconds}-second ${mode} generation`, asyn
     }
   }
 
-  writeJsonExclusive(`${evidenceStem}-observed.json`, createObservedRunEvidence({
-    durationSeconds,
-    mode,
-    seed: 7,
-    promptTokens: 40,
-    result: run.result,
-    audio,
-    progress,
-    productOutcome,
-  }));
+  writeJsonExclusive(
+    `${evidenceStem}-observed.json`,
+    createObservedRunEvidence({
+      durationSeconds,
+      mode,
+      seed: 7,
+      promptTokens: 40,
+      result: run.result,
+      audio,
+      progress,
+      productOutcome,
+    }),
+  );
 
   if (productFailure) throw productFailure;
   if (!run.result.plan) throw new Error('long-duration result plan is missing');
   assertGateResult(run.result.plan as unknown as Record<string, unknown>, durationSeconds);
   expect(run.result.plan.chunks).toEqual(expected.chunks);
   assertAudioHealth(audio, durationSeconds);
-  const progressEvidence = assertLongDurationProgress(
-    progress,
-    durationSeconds,
-  );
+  const progressEvidence = assertLongDurationProgress(progress, durationSeconds);
   expect(run.result.status).toBe('passed');
   expect(run.result.attemptedSeeds).toEqual([7]);
   expect(run.result.wavBytes).toBe(expected.wavBytes);
   expect(run.result.artifactFetches).toBe(0);
   expect(run.result.adapters).toHaveLength(3);
   expect(run.result.flowStepMs).toHaveLength(expected.flowCalls);
-  expect(run.result.flowStepMs.every((milliseconds) =>
-    Number.isFinite(milliseconds) && milliseconds >= 0)).toBe(true);
-  if (mode === 'capacity-diagnostic')
-    assertCapacityDiagnosticResult(run.result as unknown as Record<string, unknown>);
-  else
-    expect(run.result).not.toHaveProperty('capacityDiagnostic');
+  expect(run.result.flowStepMs.every((milliseconds) => Number.isFinite(milliseconds) && milliseconds >= 0)).toBe(true);
+  if (mode === 'capacity-diagnostic') assertCapacityDiagnosticResult(run.result as unknown as Record<string, unknown>);
+  else expect(run.result).not.toHaveProperty('capacityDiagnostic');
   expect(run.result.comparison).toBeUndefined();
   expect(wasmRequests.length).toBeGreaterThan(0);
   expect(wasmRequests.every((url) => url.endsWith('.jspi.wasm?v=0569a267'))).toBe(true);

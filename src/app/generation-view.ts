@@ -37,10 +37,7 @@ const SESSION_STAGE: Record<MusicStage, number> = {
   wav: 4,
 };
 
-function appendLog(
-  view: GenerationView,
-  progress: WorkerProgress,
-): Pick<GenerationView, 'log' | 'lastLogStage'> {
+function appendLog(view: GenerationView, progress: WorkerProgress): Pick<GenerationView, 'log' | 'lastLogStage'> {
   const line = formatProgress(progress);
   const key = progress.stage === 'session' ? `session:${progress.name ?? ''}` : progress.stage;
   const log = key === view.lastLogStage ? view.log.slice(0, -1) : view.log;
@@ -57,10 +54,7 @@ function counter(progress: WorkerProgress): StageCounter | undefined {
   };
 }
 
-export function applyGenerationProgress(
-  view: GenerationView,
-  progress: WorkerProgress,
-): GenerationView {
+export function applyGenerationProgress(view: GenerationView, progress: WorkerProgress): GenerationView {
   const next: GenerationView = { ...view, ...appendLog(view, progress) };
   const measured = counter(progress);
   const fraction = measured && measured.total > 0 ? measured.completed / measured.total : undefined;

@@ -3,12 +3,7 @@ import type { KvPairSpec } from '../model/manifest';
 import { readGpuFp16Bits } from '../model/fp16-readback';
 import { GpuKvState } from './gpu-kv-state';
 import { planRetainedFrames, type RetainedFramesPlan, type Termination } from './duration-plan';
-import {
-  createDeterministicDraw,
-  sampleResidual,
-  sampleSemantic,
-  sampleSemanticExcludingAudioEnd,
-} from './sampler';
+import { createDeterministicDraw, sampleResidual, sampleSemantic, sampleSemanticExcludingAudioEnd } from './sampler';
 
 const batchSize = 2;
 const hiddenSize = 4096;
@@ -67,7 +62,10 @@ export interface FrameGenerationRuntime {
 }
 
 export class EarlyAudioEndError extends Error {
-  constructor(public readonly seed: number, public readonly retainedFrames: number) {
+  constructor(
+    public readonly seed: number,
+    public readonly retainedFrames: number,
+  ) {
     super(`audio end sampled after ${retainedFrames} retained frames with seed ${seed}`);
   }
 }
@@ -101,7 +99,7 @@ function initialCaches(runtime: FrameGenerationRuntime) {
 function decoderLengths(runtime: FrameGenerationRuntime, totalLength: number) {
   return {
     seqlens_k: new runtime.ort.Tensor('int32', new Int32Array(batchSize).fill(totalLength - 1), [batchSize]),
-    total_seq_len: new runtime.ort.Tensor('int32', new Int32Array([totalLength]), [],),
+    total_seq_len: new runtime.ort.Tensor('int32', new Int32Array([totalLength]), []),
   };
 }
 
@@ -151,12 +149,9 @@ async function sampleGlobal(
       draw,
     };
     const sampled = sampleSemantic(conditional, unconditional, sampling);
-    const suppressedAudioEnd = sampled === 16_384
-      && options.audioEndPolicy === 'continue-for-capacity-diagnostic';
+    const suppressedAudioEnd = sampled === 16_384 && options.audioEndPolicy === 'continue-for-capacity-diagnostic';
     return {
-      code: suppressedAudioEnd
-        ? sampleSemanticExcludingAudioEnd(conditional, unconditional, sampling)
-        : sampled,
+      code: suppressedAudioEnd ? sampleSemanticExcludingAudioEnd(conditional, unconditional, sampling) : sampled,
       lastState,
       suppressedAudioEnd,
     };
@@ -210,20 +205,23 @@ export function createFrameGenerator(runtime: FrameGenerationRuntime) {
         throw new Error('temperature must be finite and greater than zero');
       const { conditional, unconditional } = options.promptTokenRows ?? {};
       if (
-        !Array.isArray(conditional)
-        || !Array.isArray(unconditional)
-        || conditional.length === 0
-        || conditional.length !== unconditional.length
-      ) throw new Error('prompt token rows must have the same positive length');
+        !Array.isArray(conditional) ||
+        !Array.isArray(unconditional) ||
+        conditional.length === 0 ||
+        conditional.length !== unconditional.length
+      )
+        throw new Error('prompt token rows must have the same positive length');
       if (conditional.length > 5_000) throw new Error('prompt token rows must not exceed 5000 tokens');
       if ([...conditional, ...unconditional].some((token) => !Number.isSafeInteger(token) || token < 0))
         throw new Error('prompt token rows must contain non-negative integers');
       const promptLength = conditional.length;
-      if (
-        options.audioEndPolicy !== undefined
-        && options.audioEndPolicy !== 'continue-for-capacity-diagnostic'
-      ) throw new Error('audioEndPolicy is invalid');
-      planRetainedFrames({ retainedFrames: options.maxFrames, promptTokens: promptLength, termination: 'max-frames' });
+      if (options.audioEndPolicy !== undefined && options.audioEndPolicy !== 'continue-for-capacity-diagnostic')
+        throw new Error('audioEndPolicy is invalid');
+      planRetainedFrames({
+        retainedFrames: options.maxFrames,
+        promptTokens: promptLength,
+        termination: 'max-frames',
+      });
       const draw = createDeterministicDraw(options.seed);
       const cache = new GpuKvState(runtime.kvPairs);
       const frames: GeneratedFrame[] = [];
@@ -239,16 +237,20 @@ export function createFrameGenerator(runtime: FrameGenerationRuntime) {
       let lastState: ort.Tensor | undefined;
       try {
         const prompt = [...conditional, ...unconditional];
-        const promptEmbedding = new runtime.ort.Tensor(
-          'float16',
-          runtime.globalEmbedding.lookup(prompt),
-          [batchSize, promptLength, hiddenSize],
-        );
+        const promptEmbedding = new runtime.ort.Tensor('float16', runtime.globalEmbedding.lookup(prompt), [
+          batchSize,
+          promptLength,
+          hiddenSize,
+        ]);
         const emptyCaches = initialCaches(runtime);
         const lengths = decoderLengths(runtime, promptLength);
         let prefill: Record<string, ort.Tensor>;
         try {
-          prefill = await runtime.decoder.run({ inputs_embeds: promptEmbedding, ...lengths, ...emptyCaches });
+          prefill = await runtime.decoder.run({
+            inputs_embeds: promptEmbedding,
+            ...lengths,
+            ...emptyCaches,
+          });
         } finally {
           promptEmbedding.dispose();
           lengths.seqlens_k.dispose();
@@ -270,9 +272,7 @@ export function createFrameGenerator(runtime: FrameGenerationRuntime) {
           }
           const retain = frameIndex > 0;
           const frameOffset = frames.length * 8 * hiddenSize;
-          const groups = retain
-            ? hiddenGroups.subarray(frameOffset, frameOffset + 8 * hiddenSize)
-            : undefined;
+          const groups = retain ? hiddenGroups.subarray(frameOffset, frameOffset + 8 * hiddenSize) : undefined;
           if (groups) groups.set(await runtime.readConditionalHidden(lastState), 0);
           const semanticRows = runtime.globalEmbedding.lookup([
             audioCodeOffset + semanticCode,
@@ -282,11 +282,11 @@ export function createFrameGenerator(runtime: FrameGenerationRuntime) {
           const residual: number[] = [];
           try {
             for (let depth = 0; depth < 7; depth++) {
-              const residualEmbedding = new runtime.ort.Tensor(
-                'float16',
-                residualInputs(runtime, residual),
-                [batchSize, 6, hiddenSize],
-              );
+              const residualEmbedding = new runtime.ort.Tensor('float16', residualInputs(runtime, residual), [
+                batchSize,
+                6,
+                hiddenSize,
+              ]);
               const depthIndex = new runtime.ort.Tensor('int32', new Int32Array([depth]), []);
               let outputs: Record<string, ort.Tensor>;
               try {
@@ -338,11 +338,11 @@ export function createFrameGenerator(runtime: FrameGenerationRuntime) {
           if (frames.length === options.maxFrames) break;
 
           const feedbackSemantic = new runtime.ort.Tensor('float16', semanticRows, [batchSize, 1, hiddenSize]);
-          const feedbackResidual = new runtime.ort.Tensor(
-            'float16',
-            feedbackResiduals(runtime, residual),
-            [batchSize, 7, hiddenSize],
-          );
+          const feedbackResidual = new runtime.ort.Tensor('float16', feedbackResiduals(runtime, residual), [
+            batchSize,
+            7,
+            hiddenSize,
+          ]);
           let feedbackOutputs: Record<string, ort.Tensor>;
           try {
             feedbackOutputs = await runtime.feedback.run({
@@ -362,7 +362,11 @@ export function createFrameGenerator(runtime: FrameGenerationRuntime) {
           const nextLengths = decoderLengths(runtime, totalLength);
           let decoded: Record<string, ort.Tensor>;
           try {
-            decoded = await runtime.decoder.run({ inputs_embeds: nextEmbedding, ...nextLengths, ...cache.inputs() });
+            decoded = await runtime.decoder.run({
+              inputs_embeds: nextEmbedding,
+              ...nextLengths,
+              ...cache.inputs(),
+            });
           } finally {
             nextEmbedding.dispose();
             nextLengths.seqlens_k.dispose();

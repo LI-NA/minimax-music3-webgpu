@@ -14,11 +14,7 @@ export type Track = {
 
 export const INSTRUMENTAL_LYRICS = '[instrumental]';
 
-export function combineFinePrompt(settings: {
-  fineMeta: string;
-  fineVocal: string;
-  fineArrangement: string;
-}): string {
+export function combineFinePrompt(settings: { fineMeta: string; fineVocal: string; fineArrangement: string }): string {
   return [settings.fineMeta, settings.fineVocal, settings.fineArrangement]
     .map((part) => part.trim())
     .filter(Boolean)

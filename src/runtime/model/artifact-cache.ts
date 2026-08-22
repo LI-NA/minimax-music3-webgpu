@@ -2,12 +2,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import type { ArtifactFile } from './manifest';
 
-export type ProgressSink = (progress: {
-  path: string;
-  loaded: number;
-  total: number;
-  transferred: number;
-}) => void;
+export type ProgressSink = (progress: { path: string; loaded: number; total: number; transferred: number }) => void;
 export interface ArtifactWriter {
   write(data: Uint8Array): Promise<void>;
   close(): Promise<void>;
@@ -59,10 +54,7 @@ export async function ensureArtifact(
   let transferred = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
     const partialSize = attempt === 0 ? existingSize : 0;
-    const response = await fetcher(
-      source,
-      partialSize ? { headers: { Range: `bytes=${partialSize}-` } } : undefined,
-    );
+    const response = await fetcher(source, partialSize ? { headers: { Range: `bytes=${partialSize}-` } } : undefined);
     if (!response.ok) throw new Error(`artifact request failed: ${file.path}`);
     const append = partialSize > 0 && response.status === 206;
     const hash = sha256.create();
@@ -110,11 +102,8 @@ export async function ensureArtifact(
 
 export class OpfsArtifactStore implements ArtifactStore {
   constructor(private readonly root: FileSystemDirectoryHandle) {}
-  static async open(
-    manifestHash: string,
-    opfsRoot?: FileSystemDirectoryHandle,
-  ): Promise<OpfsArtifactStore> {
-    const root = opfsRoot ?? await navigator.storage.getDirectory();
+  static async open(manifestHash: string, opfsRoot?: FileSystemDirectoryHandle): Promise<OpfsArtifactStore> {
+    const root = opfsRoot ?? (await navigator.storage.getDirectory());
     return new OpfsArtifactStore(
       await root.getDirectoryHandle(`minimax-music3-${manifestHash}`, {
         create: true,
@@ -125,11 +114,9 @@ export class OpfsArtifactStore implements ArtifactStore {
     manifestHash: string,
     opfsRoot?: FileSystemDirectoryHandle,
   ): Promise<OpfsArtifactStore | undefined> {
-    const root = opfsRoot ?? await navigator.storage.getDirectory();
+    const root = opfsRoot ?? (await navigator.storage.getDirectory());
     try {
-      return new OpfsArtifactStore(
-        await root.getDirectoryHandle(`minimax-music3-${manifestHash}`),
-      );
+      return new OpfsArtifactStore(await root.getDirectoryHandle(`minimax-music3-${manifestHash}`));
     } catch (error) {
       if (error instanceof DOMException && error.name === 'NotFoundError') return undefined;
       throw error;
@@ -138,8 +125,7 @@ export class OpfsArtifactStore implements ArtifactStore {
   private async handle(path: string, create = false) {
     const parts = path.split('/');
     let directory = this.root;
-    for (const part of parts.slice(0, -1))
-      directory = await directory.getDirectoryHandle(part, { create });
+    for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part, { create });
     return directory.getFileHandle(parts.at(-1)!, { create });
   }
   async size(path: string) {
@@ -159,9 +145,7 @@ export class OpfsArtifactStore implements ArtifactStore {
     }
   }
   async writer(path: string, append: boolean) {
-    const writable = await (
-      await this.handle(path, true)
-    ).createWritable({ keepExistingData: append });
+    const writable = await (await this.handle(path, true)).createWritable({ keepExistingData: append });
     if (append) await writable.seek(await this.size(path));
     return {
       write: (data: Uint8Array) => writable.write(data.slice()),
@@ -173,8 +157,7 @@ export class OpfsArtifactStore implements ArtifactStore {
       try {
         const parts = entryPath.split('/');
         let directory = this.root;
-        for (const part of parts.slice(0, -1))
-          directory = await directory.getDirectoryHandle(part);
+        for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
         await directory.removeEntry(parts.at(-1)!);
       } catch (error) {
         if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;

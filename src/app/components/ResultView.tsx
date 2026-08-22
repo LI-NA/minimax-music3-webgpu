@@ -42,13 +42,7 @@ export function ResultView({
   const ready = track.status === 'ready';
   const canceled = track.status === 'canceled';
   const failed = track.status === 'error';
-  const statusLabel = ready
-    ? tr.stReady
-    : canceled
-      ? tr.stCanceled
-      : failed
-        ? tr.stError
-        : tr.stGen;
+  const statusLabel = ready ? tr.stReady : canceled ? tr.stCanceled : failed ? tr.stError : tr.stGen;
   const selPlaying = isCurrent && playing;
   const settings = track.settings;
   const settingsText = [
@@ -129,12 +123,7 @@ export function ResultView({
         <button type="button" onClick={onReuse} className={actionButton}>
           {tr.reuse}
         </button>
-        <button
-          type="button"
-          onClick={onVariation}
-          disabled={!canVariation}
-          className={actionButton}
-        >
+        <button type="button" onClick={onVariation} disabled={!canVariation} className={actionButton}>
           {tr.variation}
         </button>
         <button
@@ -149,36 +138,28 @@ export function ResultView({
       <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2">
         {metaCells.map((cell) => (
           <div key={cell.key} className="rounded-[10px] border border-line bg-panel px-3 py-2.5">
-            <div className="font-mono text-[9px] uppercase tracking-[.1em] text-muted2">
-              {cell.key}
-            </div>
+            <div className="font-mono text-[9px] uppercase tracking-[.1em] text-muted2">{cell.key}</div>
             <div className="mt-[5px] font-mono text-[13px] text-ink">{cell.value}</div>
           </div>
         ))}
       </div>
 
       <div>
-        <div className="mb-2 font-mono text-[10px] tracking-[.12em] text-muted">
-          {tr.modelSettings}
-        </div>
+        <div className="mb-2 font-mono text-[10px] tracking-[.12em] text-muted">{tr.modelSettings}</div>
         <div className="whitespace-pre-wrap rounded-[10px] border border-line bg-input px-4 py-3 font-mono text-[11px] leading-loose text-muted">
           {settingsText}
         </div>
       </div>
 
       <div>
-        <div className="mb-2 font-mono text-[10px] tracking-[.12em] text-muted">
-          {tr.promptLabel}
-        </div>
+        <div className="mb-2 font-mono text-[10px] tracking-[.12em] text-muted">{tr.promptLabel}</div>
         <div className="whitespace-pre-wrap rounded-[10px] border border-line bg-panel px-4 py-3.5 text-xs leading-[1.7] text-ink">
           {promptFromSettings(settings)}
         </div>
       </div>
 
       <div>
-        <div className="mb-2 font-mono text-[10px] tracking-[.12em] text-muted">
-          {tr.lyricsLabel}
-        </div>
+        <div className="mb-2 font-mono text-[10px] tracking-[.12em] text-muted">{tr.lyricsLabel}</div>
         <div className="whitespace-pre-wrap rounded-[10px] border border-line bg-panel px-4 py-3.5 font-mono text-[11.5px] leading-[1.8] text-muted">
           {lyricsFromSettings(settings)}
         </div>

@@ -1,4 +1,13 @@
-import { constants, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import {
+  constants,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -33,9 +42,9 @@ type CapturedRun = {
   wavFile: string;
 };
 
-const fixedCase = JSON.parse(
-  readFileSync(path.resolve('tools/reference/fixed_case.json'), 'utf8'),
-) as { comparisonMetricKeys: string[] };
+const fixedCase = JSON.parse(readFileSync(path.resolve('tools/reference/fixed_case.json'), 'utf8')) as {
+  comparisonMetricKeys: string[];
+};
 
 const expectedPlan: MusicGenerationResultPlan = {
   durationSeconds: 10,
@@ -75,16 +84,14 @@ function writeJsonExclusive(file: string, value: unknown) {
 }
 
 function runReferenceTool(checkoutRoot: string, args: readonly string[]) {
-  const result = spawnSync(
-    'uv',
-    ['run', 'python', 'tools/reference/reference_case.py', ...args],
-    { cwd: checkoutRoot, encoding: 'utf8', maxBuffer: 1024 * 1024 },
-  );
+  const result = spawnSync('uv', ['run', 'python', 'tools/reference/reference_case.py', ...args], {
+    cwd: checkoutRoot,
+    encoding: 'utf8',
+    maxBuffer: 1024 * 1024,
+  });
   if (result.error) throw result.error;
   if (result.status !== 0)
-    throw new Error(
-      `reference_case.py failed with status ${String(result.status)}\n${result.stdout}${result.stderr}`,
-    );
+    throw new Error(`reference_case.py failed with status ${String(result.status)}\n${result.stdout}${result.stderr}`);
 }
 
 async function decodeAudio(page: Page): Promise<DecodedAudio> {
@@ -138,11 +145,7 @@ function assertHealthyWav(analysis: CanonicalWavAnalysis, decoded: DecodedAudio)
   assertAudioHealth(audio, 10);
 }
 
-async function captureRun(
-  page: Page,
-  layout: ReferenceCaptureLayout,
-  runNumber: 1 | 2,
-): Promise<CapturedRun> {
+async function captureRun(page: Page, layout: ReferenceCaptureLayout, runNumber: 1 | 2): Promise<CapturedRun> {
   const resultSection = page.getByTestId('music-generation-result');
   const generate = page.getByRole('button', { name: 'Generate 10-second music' });
   await expect(generate).toBeEnabled();
@@ -150,8 +153,8 @@ async function captureRun(
   await expect(resultSection).toHaveCount(0);
   await page.waitForFunction(
     () =>
-      document.querySelector('[data-testid="music-generation-result"]')
-      || document.querySelector('output')?.textContent?.startsWith('Error:'),
+      document.querySelector('[data-testid="music-generation-result"]') ||
+      document.querySelector('output')?.textContent?.startsWith('Error:'),
     undefined,
     { timeout: timeoutMs },
   );
@@ -199,22 +202,19 @@ async function captureRun(
 test('captures two fixed ten-second WebGPU runs and publishes a verified cloud receipt', async () => {
   const captureId = process.env.MINIMAX_REFERENCE_CAPTURE_ID;
   if (!captureId) throw new Error('MINIMAX_REFERENCE_CAPTURE_ID is required');
-  if (process.env.MINIMAX_RELEASE !== 'music-variable')
-    throw new Error('MINIMAX_RELEASE must be music-variable');
+  if (process.env.MINIMAX_RELEASE !== 'music-variable') throw new Error('MINIMAX_RELEASE must be music-variable');
   expect(test.info().config.workers).toBe(1);
 
   const checkoutRoot = path.resolve('.');
   const layout = resolveCaptureLayout(
     checkoutRoot,
     captureId,
-    process.env.MINIMAX_REFERENCE_CHROME_PROFILE
-      ?? process.env.MINIMAX_VARIABLE_CHROME_PROFILE,
+    process.env.MINIMAX_REFERENCE_CHROME_PROFILE ?? process.env.MINIMAX_VARIABLE_CHROME_PROFILE,
     statSync(path.join(checkoutRoot, '.git')).isFile(),
   );
   assertFreshCaptureLayout(layout, existsSync);
   const manifest = path.join(checkoutRoot, 'artifacts', 'release', 'music-variable', 'manifest.json');
-  if (!existsSync(manifest) || !statSync(manifest).isFile())
-    throw new Error('music-variable manifest is unavailable');
+  if (!existsSync(manifest) || !statSync(manifest).isFile()) throw new Error('music-variable manifest is unavailable');
 
   mkdirSync(layout.captureRoot, { recursive: true });
   mkdirSync(layout.caseRoot, { recursive: true });
@@ -225,7 +225,7 @@ test('captures two fixed ten-second WebGPU runs and publishes a verified cloud r
     channel: 'chrome',
     headless: false,
   });
-  const page = context.pages()[0] ?? await context.newPage();
+  const page = context.pages()[0] ?? (await context.newPage());
   let first!: CapturedRun;
   let second!: CapturedRun;
   try {
@@ -245,22 +245,30 @@ test('captures two fixed ten-second WebGPU runs and publishes a verified cloud r
 
   const firstMetrics = path.join(layout.captureDirectory, first.metricsFile);
   const firstWav = path.join(layout.captureDirectory, first.wavFile);
-  if (existsSync(layout.caseDirectory))
-    throw new Error(`reference case already exists: ${layout.caseDirectory}`);
+  if (existsSync(layout.caseDirectory)) throw new Error(`reference case already exists: ${layout.caseDirectory}`);
   runReferenceTool(checkoutRoot, [
     'build',
-    '--manifest', manifest,
-    '--metrics', firstMetrics,
-    '--wav', firstWav,
-    '--output-root', layout.caseRoot,
-    '--case-id', layout.captureId,
+    '--manifest',
+    manifest,
+    '--metrics',
+    firstMetrics,
+    '--wav',
+    firstWav,
+    '--output-root',
+    layout.caseRoot,
+    '--case-id',
+    layout.captureId,
   ]);
   runReferenceTool(checkoutRoot, [
     'verify',
-    '--case', layout.caseDirectory,
-    '--manifest', manifest,
-    '--metrics', firstMetrics,
-    '--wav', firstWav,
+    '--case',
+    layout.caseDirectory,
+    '--manifest',
+    manifest,
+    '--metrics',
+    firstMetrics,
+    '--wav',
+    firstWav,
   ]);
   expect(readdirSync(layout.caseDirectory)).toEqual(['receipt.json']);
 
@@ -283,7 +291,9 @@ test('captures two fixed ten-second WebGPU runs and publishes a verified cloud r
       decoded: run.decoded,
       health: run.health,
     })),
-    receipt: path.relative(layout.captureDirectory, path.join(layout.caseDirectory, 'receipt.json'))
-      .split(path.sep).join('/'),
+    receipt: path
+      .relative(layout.captureDirectory, path.join(layout.caseDirectory, 'receipt.json'))
+      .split(path.sep)
+      .join('/'),
   });
 });

@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  inspectWebGpu,
-  inspectWebGpuForRequirements,
-} from '../../../src/runtime/model/webgpu-device';
+import { inspectWebGpu, inspectWebGpuForRequirements } from '../../../src/runtime/model/webgpu-device';
 
 describe('inspectWebGpu', () => {
   it('rejects an adapter without shader-f16', async () => {
@@ -35,10 +32,12 @@ describe('inspectWebGpu', () => {
     const requestAdapter = vi.fn().mockResolvedValue(adapter);
     const gpu = { requestAdapter } as unknown as GPU;
 
-    await expect(inspectWebGpuForRequirements(gpu, {
-      maxStorageBufferBindingSize: 1_000_000_000,
-      maxStorageBuffersPerShaderStage: 9,
-    })).resolves.toEqual({ supported: true, adapter });
+    await expect(
+      inspectWebGpuForRequirements(gpu, {
+        maxStorageBufferBindingSize: 1_000_000_000,
+        maxStorageBuffersPerShaderStage: 9,
+      }),
+    ).resolves.toEqual({ supported: true, adapter });
     expect(requestAdapter).toHaveBeenCalledWith({ powerPreference: 'high-performance' });
     expect(requestDevice).not.toHaveBeenCalled();
   });
@@ -58,10 +57,12 @@ describe('inspectWebGpu', () => {
       requestAdapter: vi.fn().mockResolvedValue(adapter),
     } as unknown as GPU;
 
-    await expect(inspectWebGpuForRequirements(gpu, {
-      maxStorageBufferBindingSize: 1_000_000_000,
-      maxStorageBuffersPerShaderStage: 9,
-    })).resolves.toEqual({
+    await expect(
+      inspectWebGpuForRequirements(gpu, {
+        maxStorageBufferBindingSize: 1_000_000_000,
+        maxStorageBuffersPerShaderStage: 9,
+      }),
+    ).resolves.toEqual({
       supported: false,
       reason: 'Adapter limits are insufficient',
     });

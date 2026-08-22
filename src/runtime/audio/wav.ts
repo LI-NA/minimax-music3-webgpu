@@ -14,14 +14,10 @@ export function encodeStereoPcm16Wav(
   return buffer;
 }
 
-export function createStereoPcm16Wav(
-  samplesPerChannel: number,
-  sampleRate = 44_100,
-): ArrayBuffer {
+export function createStereoPcm16Wav(samplesPerChannel: number, sampleRate = 44_100): ArrayBuffer {
   if (!Number.isSafeInteger(samplesPerChannel) || samplesPerChannel < 0)
     throw new Error('samples per channel must be a non-negative integer');
-  if (!Number.isSafeInteger(sampleRate) || sampleRate <= 0)
-    throw new Error('sample rate must be a positive integer');
+  if (!Number.isSafeInteger(sampleRate) || sampleRate <= 0) throw new Error('sample rate must be a positive integer');
   const dataBytes = samplesPerChannel * CHANNELS * BYTES_PER_SAMPLE;
   if (dataBytes > 0xffff_ffff - 36) throw new Error('WAV data exceeds RIFF capacity');
   const buffer = new ArrayBuffer(HEADER_BYTES + dataBytes);

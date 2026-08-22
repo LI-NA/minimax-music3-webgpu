@@ -1,16 +1,6 @@
-import type {
-  ArtifactCacheStatus,
-  ArtifactErrorCode,
-  ArtifactOperation,
-  WorkerProgress,
-} from '../workers/protocol';
+import type { ArtifactCacheStatus, ArtifactErrorCode, ArtifactOperation, WorkerProgress } from '../workers/protocol';
 
-export type ArtifactCacheUiOperation =
-  | null
-  | 'inspect'
-  | 'request-persistence'
-  | 'download'
-  | 'delete';
+export type ArtifactCacheUiOperation = null | 'inspect' | 'request-persistence' | 'download' | 'delete';
 
 export type ArtifactCacheRetryTarget = 'inspect' | 'download' | 'delete';
 
@@ -48,9 +38,7 @@ export interface ArtifactCacheControls {
   canGenerate: boolean;
 }
 
-export function createArtifactCacheUiState(
-  status: ArtifactCacheStatus | null = null,
-): ArtifactCacheUiState {
+export function createArtifactCacheUiState(status: ArtifactCacheStatus | null = null): ArtifactCacheUiState {
   return {
     status,
     operation: null,
@@ -61,10 +49,7 @@ export function createArtifactCacheUiState(
   };
 }
 
-export function deriveArtifactCacheControls(
-  state: ArtifactCacheUiState,
-  musicRunning = false,
-): ArtifactCacheControls {
+export function deriveArtifactCacheControls(state: ArtifactCacheUiState, musicRunning = false): ArtifactCacheControls {
   const idle = state.operation === null;
   const incomplete = state.status?.state === 'missing' || state.status?.state === 'partial';
   const downloadable = idle && incomplete && state.status?.sufficient === true && !musicRunning;
@@ -84,9 +69,7 @@ export function artifactDownloadActionLabel(state: ArtifactCacheUiState): string
   if (deriveArtifactCacheControls(state).canRetry) {
     return 'Retry Download';
   }
-  return state.status?.state === 'partial'
-    ? 'Resume Download'
-    : 'Download Model';
+  return state.status?.state === 'partial' ? 'Resume Download' : 'Download Model';
 }
 
 export type ArtifactCacheUiAction =
@@ -94,7 +77,11 @@ export type ArtifactCacheUiAction =
   | { type: 'persistence-resolved'; warning?: string }
   | { type: 'download-started' }
   | { type: 'progress-received'; progress: WorkerProgress }
-  | { type: 'status-received'; status: ArtifactCacheStatus; source: 'inspect' | 'download' | 'delete' }
+  | {
+      type: 'status-received';
+      status: ArtifactCacheStatus;
+      source: 'inspect' | 'download' | 'delete';
+    }
   | { type: 'operation-failed'; error: ArtifactCacheUiError }
   | { type: 'download-cancelled' };
 
@@ -123,12 +110,13 @@ export function artifactCacheUiReducer(
   }
   if (action.type === 'progress-received') {
     if (
-      state.operation !== 'download'
-      || action.progress.stage !== 'artifact'
-      || action.progress.currentFile === undefined
-      || action.progress.completedBytes === undefined
-      || action.progress.totalBytes === undefined
-    ) return state;
+      state.operation !== 'download' ||
+      action.progress.stage !== 'artifact' ||
+      action.progress.currentFile === undefined ||
+      action.progress.completedBytes === undefined ||
+      action.progress.totalBytes === undefined
+    )
+      return state;
     return {
       ...state,
       downloadProgress: {
@@ -141,11 +129,9 @@ export function artifactCacheUiReducer(
     };
   }
   if (action.type === 'status-received') {
-    const preserveInterruption = action.source === 'inspect'
-      && (
-        (state.lastError !== null && state.lastError.retryTarget !== 'inspect')
-        || state.notice !== null
-      );
+    const preserveInterruption =
+      action.source === 'inspect' &&
+      ((state.lastError !== null && state.lastError.retryTarget !== 'inspect') || state.notice !== null);
     return {
       ...state,
       status: action.status,
@@ -156,11 +142,9 @@ export function artifactCacheUiReducer(
     };
   }
   if (action.type === 'operation-failed') {
-    const preserveInterruption = action.error.retryTarget === 'inspect'
-      && (
-        (state.lastError !== null && state.lastError.retryTarget !== 'inspect')
-        || state.notice !== null
-      );
+    const preserveInterruption =
+      action.error.retryTarget === 'inspect' &&
+      ((state.lastError !== null && state.lastError.retryTarget !== 'inspect') || state.notice !== null);
     return {
       ...state,
       operation: null,
@@ -181,10 +165,7 @@ export function artifactCacheUiReducer(
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
-  const unit = Math.max(
-    0,
-    Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1),
-  );
+  const unit = Math.max(0, Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1));
   const value = bytes / 1024 ** unit;
   return `${unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
 }
@@ -203,26 +184,27 @@ export function formatEta(milliseconds: number): string {
 
 export function describeArtifactCacheStatus(state: ArtifactCacheUiState): string {
   const status = state.status;
-  if (!status) return state.operation === 'inspect'
-    ? 'Inspecting model files.'
-    : 'Model file status is unavailable.';
+  if (!status) return state.operation === 'inspect' ? 'Inspecting model files.' : 'Model file status is unavailable.';
 
   const verified = `${formatBytes(status.completeArtifactBytes)} of ${formatBytes(status.totalArtifactBytes)} verified`;
-  const cache = status.state === 'ready'
-    ? `Model files are ready (${verified}).`
-    : status.state === 'partial'
-      ? `Model files are partially downloaded (${verified}).`
-      : `Model files are not downloaded (${verified}).`;
+  const cache =
+    status.state === 'ready'
+      ? `Model files are ready (${verified}).`
+      : status.state === 'partial'
+        ? `Model files are partially downloaded (${verified}).`
+        : `Model files are not downloaded (${verified}).`;
   const requiredHeadroom = `${formatBytes(status.requiredHeadroomBytes)} required headroom`;
-  const capacity = status.sufficient === undefined || status.availableBytes === undefined
-    ? `Available storage is unavailable (${requiredHeadroom}).`
-    : status.sufficient
-      ? `Storage capacity is sufficient (${formatBytes(status.availableBytes)} available, ${requiredHeadroom}).`
-      : `Storage capacity is insufficient (${formatBytes(status.availableBytes)} available, ${requiredHeadroom}).`;
-  const persistence = status.persistence === 'persistent'
-    ? 'Storage is persistent.'
-    : status.persistence === 'best-effort'
-      ? 'Storage is best-effort and may be evicted.'
-      : 'Persistence status is unavailable.';
+  const capacity =
+    status.sufficient === undefined || status.availableBytes === undefined
+      ? `Available storage is unavailable (${requiredHeadroom}).`
+      : status.sufficient
+        ? `Storage capacity is sufficient (${formatBytes(status.availableBytes)} available, ${requiredHeadroom}).`
+        : `Storage capacity is insufficient (${formatBytes(status.availableBytes)} available, ${requiredHeadroom}).`;
+  const persistence =
+    status.persistence === 'persistent'
+      ? 'Storage is persistent.'
+      : status.persistence === 'best-effort'
+        ? 'Storage is best-effort and may be evicted.'
+        : 'Persistence status is unavailable.';
   return `${cache} ${capacity} ${persistence}`;
 }

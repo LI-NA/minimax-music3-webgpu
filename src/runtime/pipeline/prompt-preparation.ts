@@ -77,7 +77,8 @@ export function cleanCaption(caption: string): string {
     }
     return line.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '$1').replace(/\s+$/, '');
   });
-  return lines.join('\n')
+  return lines
+    .join('\n')
     .replace(/^\s*[-*_]{3,}\s*$/gm, '')
     .replaceAll('• ', '')
     .replaceAll('    ', '')
@@ -85,10 +86,13 @@ export function cleanCaption(caption: string): string {
 }
 
 export function normalizeLyrics(lyrics: string): string {
-  const text = lyrics.split('\n').map((line) => {
-    const match = leadingTags.exec(line);
-    return match ? match[1].trim() : line;
-  }).join('\n');
+  const text = lyrics
+    .split('\n')
+    .map((line) => {
+      const match = leadingTags.exec(line);
+      return match ? match[1].trim() : line;
+    })
+    .join('\n');
   return `[start]\n${text
     .replaceAll('] ', ']\n')
     .replaceAll(' [', '\n[')
@@ -97,8 +101,7 @@ export function normalizeLyrics(lyrics: string): string {
 }
 
 function validateText(value: unknown, label: 'prompt' | 'lyrics'): asserts value is string {
-  if (typeof value !== 'string' || !value.trim())
-    throw new Error(`${label} must be a non-empty string`);
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} must be a non-empty string`);
 }
 
 function validateFrames(requestedFrames: unknown): asserts requestedFrames is number {
@@ -118,11 +121,16 @@ export function preparePrompt({ prompt, lyrics, requestedFrames, tokenizer }: Pr
   validateText(prompt, 'prompt');
   validateText(lyrics, 'lyrics');
   validateFrames(requestedFrames);
-  const assembledPrompt = `${IM_START}${CAPTION_START}${cleanCaption(prompt)}${CAPTION_END}`
-    + `${LYRICS_START}${normalizeLyrics(lyrics)}${LYRICS_END}${IM_END}${AUDIO_START}`;
+  const assembledPrompt =
+    `${IM_START}${CAPTION_START}${cleanCaption(prompt)}${CAPTION_END}` +
+    `${LYRICS_START}${normalizeLyrics(lyrics)}${LYRICS_END}${IM_END}${AUDIO_START}`;
   const conditional = [...tokenizer.encode(assembledPrompt).ids];
   validateIds(conditional, requestedFrames);
   const unconditional = [...conditional];
   unconditional.fill(AUDIO_CFG_TOKEN_ID, 1, -2);
-  return { assembledPrompt, promptTokens: conditional.length, tokenRows: [conditional, unconditional] };
+  return {
+    assembledPrompt,
+    promptTokens: conditional.length,
+    tokenRows: [conditional, unconditional],
+  };
 }

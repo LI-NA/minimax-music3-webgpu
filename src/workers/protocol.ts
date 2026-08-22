@@ -30,10 +30,7 @@ export type MusicGenerationRequest = {
   type: 'generate-music';
 } & MusicGenerationRequestInput;
 export type ArtifactOperation =
-  | 'inspect-artifact-cache'
-  | 'download-artifacts'
-  | 'delete-artifact-caches'
-  | 'generate-music';
+  'inspect-artifact-cache' | 'download-artifacts' | 'delete-artifact-caches' | 'generate-music';
 export type ArtifactCacheRequest =
   | { type: 'inspect-artifact-cache'; manifestUrl: string }
   | { type: 'download-artifacts'; manifestUrl: string }
@@ -82,40 +79,29 @@ export type MusicCapacityDiagnosticRequest = {
   requestedFrames: 7_500;
 };
 
-export function validateMusicCapacityDiagnosticRequest(
-  raw: unknown,
-): MusicCapacityDiagnosticRequest {
-  if (typeof raw !== 'object' || raw === null)
-    throw new Error('Music capacity diagnostic request must be an object');
+export function validateMusicCapacityDiagnosticRequest(raw: unknown): MusicCapacityDiagnosticRequest {
+  if (typeof raw !== 'object' || raw === null) throw new Error('Music capacity diagnostic request must be an object');
   const request = raw as Record<string, unknown>;
-  const keys = [
-    'diagnostic',
-    'durationSeconds',
-    'manifestUrl',
-    'promptTokens',
-    'requestedFrames',
-    'seed',
-    'type',
-  ];
+  const keys = ['diagnostic', 'durationSeconds', 'manifestUrl', 'promptTokens', 'requestedFrames', 'seed', 'type'];
   if (JSON.stringify(Object.keys(request).sort()) !== JSON.stringify(keys))
     throw new Error('Music capacity diagnostic request fields are invalid');
-  if (request.type !== 'diagnose-music-capacity')
-    throw new Error('Invalid music capacity diagnostic request type');
-  if (request.diagnostic !== 'continue-after-audio-end')
-    throw new Error('Invalid music capacity diagnostic policy');
+  if (request.type !== 'diagnose-music-capacity') throw new Error('Invalid music capacity diagnostic request type');
+  if (request.diagnostic !== 'continue-after-audio-end') throw new Error('Invalid music capacity diagnostic policy');
   if (typeof request.manifestUrl !== 'string' || request.manifestUrl.length === 0)
     throw new Error('Music capacity diagnostic manifest URL must be a non-empty string');
   if (
-    typeof request.seed !== 'number'
-    || !Number.isInteger(request.seed)
-    || request.seed < 0
-    || request.seed > 4_294_967_295
-  ) throw new Error('Music capacity diagnostic seed must be a uint32 integer');
+    typeof request.seed !== 'number' ||
+    !Number.isInteger(request.seed) ||
+    request.seed < 0 ||
+    request.seed > 4_294_967_295
+  )
+    throw new Error('Music capacity diagnostic seed must be a uint32 integer');
   if (
-    request.durationSeconds !== 300
-    || request.promptTokens !== CAPACITY_DIAGNOSTIC_PROMPT_TOKENS
-    || request.requestedFrames !== 7_500
-  ) throw new Error('Music capacity diagnostic must use 300 seconds, 40 prompt tokens, and 7500 frames');
+    request.durationSeconds !== 300 ||
+    request.promptTokens !== CAPACITY_DIAGNOSTIC_PROMPT_TOKENS ||
+    request.requestedFrames !== 7_500
+  )
+    throw new Error('Music capacity diagnostic must use 300 seconds, 40 prompt tokens, and 7500 frames');
   return request as MusicCapacityDiagnosticRequest;
 }
 
@@ -127,53 +113,49 @@ export function validateArtifactCacheRequest(raw: unknown): ArtifactCacheRequest
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
     throw new Error('Artifact cache request must be an object');
   const request = raw as Record<string, unknown>;
-  if (!sameKeys(request, ['manifestUrl', 'type']))
-    throw new Error('Artifact cache request fields are invalid');
+  if (!sameKeys(request, ['manifestUrl', 'type'])) throw new Error('Artifact cache request fields are invalid');
   if (
-    request.type !== 'inspect-artifact-cache'
-    && request.type !== 'download-artifacts'
-    && request.type !== 'delete-artifact-caches'
-  ) throw new Error('Invalid artifact cache request type');
+    request.type !== 'inspect-artifact-cache' &&
+    request.type !== 'download-artifacts' &&
+    request.type !== 'delete-artifact-caches'
+  )
+    throw new Error('Invalid artifact cache request type');
   if (typeof request.manifestUrl !== 'string' || request.manifestUrl.length === 0)
     throw new Error('Artifact cache manifest URL must be a non-empty string');
   return request as ArtifactCacheRequest;
 }
 
 function validateSampling(value: unknown): asserts value is MusicSamplingInput {
-  if (typeof value !== 'object' || value === null)
-    throw new Error('Music generation sampling fields are invalid');
+  if (typeof value !== 'object' || value === null) throw new Error('Music generation sampling fields are invalid');
   const sampling = value as Record<string, unknown>;
-  if (!sameKeys(sampling, [
-    'flowGuidance',
-    'flowSteps',
-    'globalGuidance',
-    'residualTopK',
-    'semanticTopK',
-    'temperature',
-  ])) throw new Error('Music generation sampling fields are invalid');
   if (
-    typeof sampling.globalGuidance !== 'number'
-    || !Number.isFinite(sampling.globalGuidance)
-    || sampling.globalGuidance < 0
-    || typeof sampling.flowGuidance !== 'number'
-    || !Number.isFinite(sampling.flowGuidance)
-    || sampling.flowGuidance < 0
-    || sampling.flowGuidance > 65_504
-    || typeof sampling.semanticTopK !== 'number'
-    || !Number.isInteger(sampling.semanticTopK)
-    || sampling.semanticTopK < 1
-    || sampling.semanticTopK > 16_385
-    || typeof sampling.residualTopK !== 'number'
-    || !Number.isInteger(sampling.residualTopK)
-    || sampling.residualTopK < 1
-    || sampling.residualTopK > 1_024
-    || typeof sampling.temperature !== 'number'
-    || !Number.isFinite(sampling.temperature)
-    || sampling.temperature <= 0
-    || typeof sampling.flowSteps !== 'number'
-    || !Number.isSafeInteger(sampling.flowSteps)
-    || sampling.flowSteps < 1
-  ) throw new Error('Music generation sampling values are invalid');
+    !sameKeys(sampling, ['flowGuidance', 'flowSteps', 'globalGuidance', 'residualTopK', 'semanticTopK', 'temperature'])
+  )
+    throw new Error('Music generation sampling fields are invalid');
+  if (
+    typeof sampling.globalGuidance !== 'number' ||
+    !Number.isFinite(sampling.globalGuidance) ||
+    sampling.globalGuidance < 0 ||
+    typeof sampling.flowGuidance !== 'number' ||
+    !Number.isFinite(sampling.flowGuidance) ||
+    sampling.flowGuidance < 0 ||
+    sampling.flowGuidance > 65_504 ||
+    typeof sampling.semanticTopK !== 'number' ||
+    !Number.isInteger(sampling.semanticTopK) ||
+    sampling.semanticTopK < 1 ||
+    sampling.semanticTopK > 16_385 ||
+    typeof sampling.residualTopK !== 'number' ||
+    !Number.isInteger(sampling.residualTopK) ||
+    sampling.residualTopK < 1 ||
+    sampling.residualTopK > 1_024 ||
+    typeof sampling.temperature !== 'number' ||
+    !Number.isFinite(sampling.temperature) ||
+    sampling.temperature <= 0 ||
+    typeof sampling.flowSteps !== 'number' ||
+    !Number.isSafeInteger(sampling.flowSteps) ||
+    sampling.flowSteps < 1
+  )
+    throw new Error('Music generation sampling values are invalid');
 }
 
 export function createMusicGenerationRequest(input: MusicGenerationRequestInput): MusicGenerationRequest {
@@ -181,18 +163,10 @@ export function createMusicGenerationRequest(input: MusicGenerationRequestInput)
 }
 
 export function validateMusicGenerationRequest(raw: unknown): MusicGenerationRequest {
-  if (typeof raw !== 'object' || raw === null)
-    throw new Error('Music generation request must be an object');
+  if (typeof raw !== 'object' || raw === null) throw new Error('Music generation request must be an object');
   const request = raw as Record<string, unknown>;
-  if (!sameKeys(request, [
-    'durationSeconds',
-    'lyrics',
-    'manifestUrl',
-    'prompt',
-    'sampling',
-    'seed',
-    'type',
-  ])) throw new Error('Music generation request fields are invalid');
+  if (!sameKeys(request, ['durationSeconds', 'lyrics', 'manifestUrl', 'prompt', 'sampling', 'seed', 'type']))
+    throw new Error('Music generation request fields are invalid');
   if (request.type !== 'generate-music') throw new Error('Invalid music generation request type');
   if (typeof request.manifestUrl !== 'string' || request.manifestUrl.length === 0)
     throw new Error('Music generation manifest URL must be a non-empty string');
@@ -201,11 +175,12 @@ export function validateMusicGenerationRequest(raw: unknown): MusicGenerationReq
   if (typeof request.lyrics !== 'string' || request.lyrics.trim().length === 0)
     throw new Error('Music generation lyrics must be a non-empty string');
   if (
-    typeof request.seed !== 'number'
-    || !Number.isInteger(request.seed)
-    || request.seed < 0
-    || request.seed > 4_294_967_295
-  ) throw new Error('Music generation seed must be a uint32 integer');
+    typeof request.seed !== 'number' ||
+    !Number.isInteger(request.seed) ||
+    request.seed < 0 ||
+    request.seed > 4_294_967_295
+  )
+    throw new Error('Music generation seed must be a uint32 integer');
   planDuration({ durationSeconds: request.durationSeconds as number, promptTokens: 0 });
   validateSampling(request.sampling);
   return request as MusicGenerationRequest;
@@ -263,8 +238,7 @@ export function createMusicGenerationResultPlan(
     promptTokens: request.promptTokens,
     flowSteps,
   });
-  if (retainedFrames > requested.retainedFrames)
-    throw new Error('Retained frames must not exceed requested frames');
+  if (retainedFrames > requested.retainedFrames) throw new Error('Retained frames must not exceed requested frames');
   const retained = planRetainedFrames({
     retainedFrames,
     promptTokens: request.promptTokens,
@@ -443,9 +417,7 @@ export type MusicCapacityDiagnosticWorkerResult = MusicGenerationWorkerMetrics &
   capacityDiagnostic: CapacityDiagnosticMetadata;
 };
 export type AnyMusicGenerationWorkerResult =
-  | MusicGenerationWorkerResult
-  | LegacyFiveSecondMusicWorkerResult
-  | MusicCapacityDiagnosticWorkerResult;
+  MusicGenerationWorkerResult | LegacyFiveSecondMusicWorkerResult | MusicCapacityDiagnosticWorkerResult;
 export type WorkerResponse =
   | WorkerProgress
   | { type: 'artifact-cache-status'; status: ArtifactCacheStatus }

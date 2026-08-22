@@ -39,18 +39,14 @@ function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(STORE))
-        request.result.createObjectStore(STORE, { keyPath: 'id' });
+      if (!request.result.objectStoreNames.contains(STORE)) request.result.createObjectStore(STORE, { keyPath: 'id' });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error('IndexedDB open failed'));
   });
 }
 
-async function withStore<T>(
-  mode: IDBTransactionMode,
-  run: (store: IDBObjectStore) => IDBRequest<T>,
-): Promise<T> {
+async function withStore<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   const database = await openDatabase();
   try {
     return await requestPromise(run(database.transaction(STORE, mode).objectStore(STORE)));
@@ -60,10 +56,7 @@ async function withStore<T>(
 }
 
 export async function listStoredTracks(): Promise<StoredTrack[]> {
-  const tracks = await withStore(
-    'readonly',
-    (store) => store.getAll() as IDBRequest<StoredTrack[]>,
-  );
+  const tracks = await withStore('readonly', (store) => store.getAll() as IDBRequest<StoredTrack[]>);
   return tracks.sort((left, right) => right.createdAt - left.createdAt);
 }
 

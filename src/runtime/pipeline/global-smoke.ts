@@ -32,7 +32,11 @@ const finite = (data: ort.Tensor['data']) =>
     : Array.from(data as Float32Array).every(Number.isFinite);
 
 function embeddings(runtime: GlobalSmokeRuntime, ids: readonly number[], length: number) {
-  return new runtime.ort.Tensor('float16', runtime.embedding.lookup(ids), [batchSize, length, runtime.embeddingTable.columns]);
+  return new runtime.ort.Tensor('float16', runtime.embedding.lookup(ids), [
+    batchSize,
+    length,
+    runtime.embeddingTable.columns,
+  ]);
 }
 function initialCaches(runtime: GlobalSmokeRuntime): Record<string, ort.Tensor> {
   return Object.fromEntries(
@@ -62,10 +66,7 @@ function cacheLength(outputs: Record<string, ort.Tensor>, pairs: readonly KvPair
     throw new Error('decoder KV cache lengths disagree');
   return lengths[0]!;
 }
-async function reducedLogits(
-  runtime: GlobalSmokeRuntime,
-  hidden: ort.Tensor,
-): Promise<boolean> {
+async function reducedLogits(runtime: GlobalSmokeRuntime, hidden: ort.Tensor): Promise<boolean> {
   const input = runtime.head.inputNames[0];
   const outputs = await runtime.head.run({ [input]: hidden });
   try {
@@ -151,7 +152,14 @@ export async function runGlobalSmoke(runtime: GlobalSmokeRuntime): Promise<Globa
       ownedTensorBytes = Math.max(ownedTensorBytes, cache.ownedBytes());
     }
     if (!finiteLogits) throw new Error('reduced logits are not finite');
-    return { sessionCreateMs: 0, stepMs, cacheLengths, tensorLocations: locations, finiteLogits, ownedTensorBytes };
+    return {
+      sessionCreateMs: 0,
+      stepMs,
+      cacheLengths,
+      tensorLocations: locations,
+      finiteLogits,
+      ownedTensorBytes,
+    };
   } finally {
     cache.dispose();
     runtime.embedding.dispose();

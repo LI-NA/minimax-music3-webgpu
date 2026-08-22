@@ -20,7 +20,9 @@ class FakeInputTensor {
     public readonly dims: readonly number[],
   ) {}
 
-  dispose() { this.disposed = true; }
+  dispose() {
+    this.disposed = true;
+  }
 }
 
 describe('fixed vocoder generation', () => {
@@ -29,9 +31,7 @@ describe('fixed vocoder generation', () => {
     const second = analyticVocoderLatents();
 
     expect(first).toHaveLength(latentValues);
-    expect(first.slice(0, 6)).toEqual(
-      new Uint16Array([0x2800, 0xa800, 0x3000, 0xb000, 0x3400, 0xb400]),
-    );
+    expect(first.slice(0, 6)).toEqual(new Uint16Array([0x2800, 0xa800, 0x3000, 0xb000, 0x3400, 0xb400]));
     expect(second).toEqual(first);
     expect(second).not.toBe(first);
   });
@@ -50,7 +50,9 @@ describe('fixed vocoder generation', () => {
       dims: [1, 2, waveformSamples],
       location: 'cpu',
       getData: async () => waveform,
-      dispose: () => { outputDisposed = true; },
+      dispose: () => {
+        outputDisposed = true;
+      },
     };
 
     const wav = await generateFixedVocoderWav(
@@ -93,25 +95,27 @@ describe('fixed vocoder generation', () => {
     let tensors = 0;
     let runs = 0;
 
-    await expect(generateFixedVocoderWav(
-      {
-        ort: {
-          Tensor: class extends FakeInputTensor {
-            constructor(type: string, data: Uint16Array, dims: readonly number[]) {
-              super(type, data, dims);
-              tensors++;
-            }
-          },
-        } as never,
-        session: {
-          run: async () => {
-            runs++;
-            return {};
-          },
-        } as never,
-      },
-      new Uint16Array(latentValues - 1),
-    )).rejects.toThrow(`latents must contain exactly ${latentValues} float16 values`);
+    await expect(
+      generateFixedVocoderWav(
+        {
+          ort: {
+            Tensor: class extends FakeInputTensor {
+              constructor(type: string, data: Uint16Array, dims: readonly number[]) {
+                super(type, data, dims);
+                tensors++;
+              }
+            },
+          } as never,
+          session: {
+            run: async () => {
+              runs++;
+              return {};
+            },
+          } as never,
+        },
+        new Uint16Array(latentValues - 1),
+      ),
+    ).rejects.toThrow(`latents must contain exactly ${latentValues} float16 values`);
 
     expect(tensors).toBe(0);
     expect(runs).toBe(0);
@@ -125,23 +129,27 @@ describe('fixed vocoder generation', () => {
       dims: [1, 2, waveformSamples],
       location: 'cpu',
       getData: async () => new Float32Array(2 * waveformSamples),
-      dispose: () => { outputDisposed = true; },
+      dispose: () => {
+        outputDisposed = true;
+      },
     };
 
-    await expect(generateFixedVocoderWav(
-      {
-        ort: {
-          Tensor: class extends FakeInputTensor {
-            constructor(type: string, data: Uint16Array, dims: readonly number[]) {
-              super(type, data, dims);
-              inputs.push(this);
-            }
-          },
-        } as never,
-        session: { run: async () => ({ waveform: output }) } as never,
-      },
-      new Uint16Array(latentValues),
-    )).rejects.toThrow('vocoder waveform must be float32');
+    await expect(
+      generateFixedVocoderWav(
+        {
+          ort: {
+            Tensor: class extends FakeInputTensor {
+              constructor(type: string, data: Uint16Array, dims: readonly number[]) {
+                super(type, data, dims);
+                inputs.push(this);
+              }
+            },
+          } as never,
+          session: { run: async () => ({ waveform: output }) } as never,
+        },
+        new Uint16Array(latentValues),
+      ),
+    ).rejects.toThrow('vocoder waveform must be float32');
 
     expect(inputs[0].disposed).toBe(true);
     expect(outputDisposed).toBe(true);
@@ -159,23 +167,27 @@ describe('fixed vocoder generation', () => {
         dataReads++;
         return new Float32Array();
       },
-      dispose: () => { outputDisposed = true; },
+      dispose: () => {
+        outputDisposed = true;
+      },
     };
 
-    await expect(generateFixedVocoderWav(
-      {
-        ort: {
-          Tensor: class extends FakeInputTensor {
-            constructor(type: string, data: Uint16Array, dims: readonly number[]) {
-              super(type, data, dims);
-              inputs.push(this);
-            }
-          },
-        } as never,
-        session: { run: async () => ({ waveform: output }) } as never,
-      },
-      new Uint16Array(latentValues),
-    )).rejects.toThrow('vocoder waveform must have shape [1,2,220160]');
+    await expect(
+      generateFixedVocoderWav(
+        {
+          ort: {
+            Tensor: class extends FakeInputTensor {
+              constructor(type: string, data: Uint16Array, dims: readonly number[]) {
+                super(type, data, dims);
+                inputs.push(this);
+              }
+            },
+          } as never,
+          session: { run: async () => ({ waveform: output }) } as never,
+        },
+        new Uint16Array(latentValues),
+      ),
+    ).rejects.toThrow('vocoder waveform must have shape [1,2,220160]');
 
     expect(dataReads).toBe(0);
     expect(inputs[0].disposed).toBe(true);
@@ -190,23 +202,27 @@ describe('fixed vocoder generation', () => {
       dims: [1, 2, waveformSamples],
       location: 'cpu',
       getData: async () => new Uint16Array(2 * waveformSamples),
-      dispose: () => { outputDisposed = true; },
+      dispose: () => {
+        outputDisposed = true;
+      },
     };
 
-    await expect(generateFixedVocoderWav(
-      {
-        ort: {
-          Tensor: class extends FakeInputTensor {
-            constructor(type: string, data: Uint16Array, dims: readonly number[]) {
-              super(type, data, dims);
-              inputs.push(this);
-            }
-          },
-        } as never,
-        session: { run: async () => ({ waveform: output }) } as never,
-      },
-      new Uint16Array(latentValues),
-    )).rejects.toThrow('vocoder waveform data must be a Float32Array');
+    await expect(
+      generateFixedVocoderWav(
+        {
+          ort: {
+            Tensor: class extends FakeInputTensor {
+              constructor(type: string, data: Uint16Array, dims: readonly number[]) {
+                super(type, data, dims);
+                inputs.push(this);
+              }
+            },
+          } as never,
+          session: { run: async () => ({ waveform: output }) } as never,
+        },
+        new Uint16Array(latentValues),
+      ),
+    ).rejects.toThrow('vocoder waveform data must be a Float32Array');
 
     expect(inputs[0].disposed).toBe(true);
     expect(outputDisposed).toBe(true);
@@ -222,23 +238,27 @@ describe('fixed vocoder generation', () => {
       dims: [1, 2, waveformSamples],
       location: 'cpu',
       getData: async () => waveform,
-      dispose: () => { outputDisposed = true; },
+      dispose: () => {
+        outputDisposed = true;
+      },
     };
 
-    await expect(generateFixedVocoderWav(
-      {
-        ort: {
-          Tensor: class extends FakeInputTensor {
-            constructor(type: string, data: Uint16Array, dims: readonly number[]) {
-              super(type, data, dims);
-              inputs.push(this);
-            }
-          },
-        } as never,
-        session: { run: async () => ({ waveform: output }) } as never,
-      },
-      new Uint16Array(latentValues),
-    )).rejects.toThrow('vocoder waveform samples must be finite');
+    await expect(
+      generateFixedVocoderWav(
+        {
+          ort: {
+            Tensor: class extends FakeInputTensor {
+              constructor(type: string, data: Uint16Array, dims: readonly number[]) {
+                super(type, data, dims);
+                inputs.push(this);
+              }
+            },
+          } as never,
+          session: { run: async () => ({ waveform: output }) } as never,
+        },
+        new Uint16Array(latentValues),
+      ),
+    ).rejects.toThrow('vocoder waveform samples must be finite');
 
     expect(inputs[0].disposed).toBe(true);
     expect(outputDisposed).toBe(true);
@@ -252,23 +272,27 @@ describe('fixed vocoder generation', () => {
       dims: [1, 2, waveformSamples],
       location: 'cpu',
       getData: async () => new Float32Array(2 * waveformSamples - 1),
-      dispose: () => { outputDisposed = true; },
+      dispose: () => {
+        outputDisposed = true;
+      },
     };
 
-    await expect(generateFixedVocoderWav(
-      {
-        ort: {
-          Tensor: class extends FakeInputTensor {
-            constructor(type: string, data: Uint16Array, dims: readonly number[]) {
-              super(type, data, dims);
-              inputs.push(this);
-            }
-          },
-        } as never,
-        session: { run: async () => ({ waveform: output }) } as never,
-      },
-      new Uint16Array(latentValues),
-    )).rejects.toThrow(`vocoder waveform must contain exactly ${2 * waveformSamples} samples`);
+    await expect(
+      generateFixedVocoderWav(
+        {
+          ort: {
+            Tensor: class extends FakeInputTensor {
+              constructor(type: string, data: Uint16Array, dims: readonly number[]) {
+                super(type, data, dims);
+                inputs.push(this);
+              }
+            },
+          } as never,
+          session: { run: async () => ({ waveform: output }) } as never,
+        },
+        new Uint16Array(latentValues),
+      ),
+    ).rejects.toThrow(`vocoder waveform must contain exactly ${2 * waveformSamples} samples`);
 
     expect(inputs[0].disposed).toBe(true);
     expect(outputDisposed).toBe(true);
@@ -279,24 +303,27 @@ describe('variable vocoder generation', () => {
   it('matches the fixed deterministic stereo wrapper for the five-second plan', async () => {
     const plan = planDuration({ durationSeconds: 5, promptTokens: 0 });
     const latentBits = analyticVocoderLatents();
-    const left = Float32Array.from(
-      { length: waveformSamples },
-      (_, index) => ((index % 17) - 8) / 8,
-    );
+    const left = Float32Array.from({ length: waveformSamples }, (_, index) => ((index % 17) - 8) / 8);
     const right = Float32Array.from(left, (sample) => -sample);
     const fixedWaveform = new Float32Array(2 * waveformSamples);
     fixedWaveform.set(left);
     fixedWaveform.set(right, waveformSamples);
     const makeOutput = (waveform: Float32Array, dims: readonly number[]) => ({
-      type: 'float32', dims, location: 'cpu', getData: async () => waveform, dispose() {},
+      type: 'float32',
+      dims,
+      location: 'cpu',
+      getData: async () => waveform,
+      dispose() {},
     });
     const ortRuntime = { Tensor: FakeInputTensor } as never;
     const fixed = await generateFixedVocoderWav(
       {
         ort: ortRuntime,
-        session: { run: async () => ({
-          waveform: makeOutput(fixedWaveform, [1, 2, waveformSamples]),
-        }) } as never,
+        session: {
+          run: async () => ({
+            waveform: makeOutput(fixedWaveform, [1, 2, waveformSamples]),
+          }),
+        } as never,
       },
       latentBits,
     );
@@ -304,10 +331,12 @@ describe('variable vocoder generation', () => {
     const variable = await generateVariableVocoderWav(
       {
         ort: ortRuntime,
-        session: { run: async () => {
-          const waveform = monoCall++ === 0 ? left : right;
-          return { waveform: makeOutput(waveform, [1, 1, waveformSamples]) };
-        } } as never,
+        session: {
+          run: async () => {
+            const waveform = monoCall++ === 0 ? left : right;
+            return { waveform: makeOutput(waveform, [1, 1, waveformSamples]) };
+          },
+        } as never,
       },
       plan,
       [latentBits],
@@ -332,7 +361,7 @@ describe('variable vocoder generation', () => {
     const observerDisposalCounts: number[] = [];
     const ordering: string[] = [];
     let clock = 0;
-    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock += 5);
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => (clock += 5));
     const session = {
       run: async ({ latents }: Record<string, FakeInputTensor>) => {
         const callIndex = calls.length;
@@ -341,31 +370,37 @@ describe('variable vocoder generation', () => {
         const channel = callIndex % 2;
         const sampleCount = 512 * plan.chunks[chunkIndex].latentLength;
         const waveform = new Float32Array(sampleCount).fill(
-          chunkIndex === 0 ? (channel === 0 ? 0.25 : -0.25) : (channel === 0 ? 0.5 : -0.5),
+          chunkIndex === 0 ? (channel === 0 ? 0.25 : -0.25) : channel === 0 ? 0.5 : -0.5,
         );
         if (chunkIndex === 0 && channel === 0) {
           waveform[plan.chunks[0].samplesPerChannel - 1] = 0.125;
           waveform[plan.chunks[0].samplesPerChannel] = 0.75;
         }
         if (chunkIndex === 1 && channel === 0) waveform[0] = -0.75;
-        return { waveform: {
-          type: 'float32',
-          dims: [1, 1, sampleCount],
-          location: 'cpu',
-          getData: async () => waveform,
-          dispose: () => { outputDisposals++; },
-        } };
+        return {
+          waveform: {
+            type: 'float32',
+            dims: [1, 1, sampleCount],
+            location: 'cpu',
+            getData: async () => waveform,
+            dispose: () => {
+              outputDisposals++;
+            },
+          },
+        };
       },
     };
 
     const wav = await generateVariableVocoderWav(
       {
-        ort: { Tensor: class extends FakeInputTensor {
-          constructor(type: string, data: Uint16Array, dims: readonly number[]) {
-            super(type, data, dims);
-            inputs.push(this);
-          }
-        } } as never,
+        ort: {
+          Tensor: class extends FakeInputTensor {
+            constructor(type: string, data: Uint16Array, dims: readonly number[]) {
+              super(type, data, dims);
+              inputs.push(this);
+            }
+          },
+        } as never,
         session: session as never,
       },
       plan,
@@ -384,17 +419,48 @@ describe('variable vocoder generation', () => {
     expect(wav.byteLength).toBe(1_763_372);
     expect(plan.samplesPerChannel).toBe(440_832);
     expect(calls.map(({ dims }) => dims)).toEqual([
-      [1, 64, 689], [1, 64, 689], [1, 64, 516], [1, 64, 516],
+      [1, 64, 689],
+      [1, 64, 689],
+      [1, 64, 516],
+      [1, 64, 516],
     ]);
     expect(calls.map(({ bits }) => bits[0])).toEqual([0x3000, 0xb000, 0x3001, 0xb001]);
     expect(inputs.every(({ disposed }) => disposed)).toBe(true);
     expect(outputDisposals).toBe(4);
     expect(observerDisposalCounts).toEqual([1, 2, 3, 4]);
     expect(completed).toEqual([
-      { chunkIndex: 0, channel: 'left', completedCalls: 1, totalCalls: 4, inferenceMs: 5, pcmWriteMs: 5 },
-      { chunkIndex: 0, channel: 'right', completedCalls: 2, totalCalls: 4, inferenceMs: 5, pcmWriteMs: 5 },
-      { chunkIndex: 1, channel: 'left', completedCalls: 3, totalCalls: 4, inferenceMs: 5, pcmWriteMs: 5 },
-      { chunkIndex: 1, channel: 'right', completedCalls: 4, totalCalls: 4, inferenceMs: 5, pcmWriteMs: 5 },
+      {
+        chunkIndex: 0,
+        channel: 'left',
+        completedCalls: 1,
+        totalCalls: 4,
+        inferenceMs: 5,
+        pcmWriteMs: 5,
+      },
+      {
+        chunkIndex: 0,
+        channel: 'right',
+        completedCalls: 2,
+        totalCalls: 4,
+        inferenceMs: 5,
+        pcmWriteMs: 5,
+      },
+      {
+        chunkIndex: 1,
+        channel: 'left',
+        completedCalls: 3,
+        totalCalls: 4,
+        inferenceMs: 5,
+        pcmWriteMs: 5,
+      },
+      {
+        chunkIndex: 1,
+        channel: 'right',
+        completedCalls: 4,
+        totalCalls: 4,
+        inferenceMs: 5,
+        pcmWriteMs: 5,
+      },
     ]);
     expect(ordering).toEqual(['wav-start', '0:left', '0:right', '1:left', '1:right']);
     expect(view.getInt16(44, true)).toBe(8_192);
@@ -410,24 +476,30 @@ describe('variable vocoder generation', () => {
     let calls = 0;
     const validWaveform = new Float32Array(waveformSamples);
 
-    await expect(generateVariableVocoderWav(
-      {
-        ort: { Tensor: FakeInputTensor } as never,
-        session: { run: async () => {
-          const call = calls++;
-          return { waveform: {
-            type: call === 0 ? 'float32' : 'float16',
-            dims: [1, 1, waveformSamples],
-            location: 'cpu',
-            getData: async () => validWaveform,
-            dispose() {},
-          } };
-        } } as never,
-      },
-      plan,
-      [new Uint16Array(latentValues)],
-      (progress) => completed.push(progress),
-    )).rejects.toThrow('vocoder waveform must be float32');
+    await expect(
+      generateVariableVocoderWav(
+        {
+          ort: { Tensor: FakeInputTensor } as never,
+          session: {
+            run: async () => {
+              const call = calls++;
+              return {
+                waveform: {
+                  type: call === 0 ? 'float32' : 'float16',
+                  dims: [1, 1, waveformSamples],
+                  location: 'cpu',
+                  getData: async () => validWaveform,
+                  dispose() {},
+                },
+              };
+            },
+          } as never,
+        },
+        plan,
+        [new Uint16Array(latentValues)],
+        (progress) => completed.push(progress),
+      ),
+    ).rejects.toThrow('vocoder waveform must be float32');
 
     expect(calls).toBe(2);
     expect(completed).toEqual([
@@ -444,14 +516,21 @@ describe('variable vocoder generation', () => {
     const plan = planDuration({ durationSeconds: 6, promptTokens: 0 });
     let runs = 0;
 
-    await expect(generateVariableVocoderWav(
-      {
-        ort: { Tensor: FakeInputTensor } as never,
-        session: { run: async () => { runs++; return {}; } } as never,
-      },
-      plan,
-      [new Uint16Array(128 * plan.chunks[0].latentLength - 1)],
-    )).rejects.toThrow('vocoder chunk 0 latents must contain exactly 66048 float16 values');
+    await expect(
+      generateVariableVocoderWav(
+        {
+          ort: { Tensor: FakeInputTensor } as never,
+          session: {
+            run: async () => {
+              runs++;
+              return {};
+            },
+          } as never,
+        },
+        plan,
+        [new Uint16Array(128 * plan.chunks[0].latentLength - 1)],
+      ),
+    ).rejects.toThrow('vocoder chunk 0 latents must contain exactly 66048 float16 values');
     expect(runs).toBe(0);
   });
 
@@ -464,25 +543,35 @@ describe('variable vocoder generation', () => {
     let outputDisposed = false;
     const inputs: FakeInputTensor[] = [];
 
-    await expect(generateVariableVocoderWav(
-      {
-        ort: { Tensor: class extends FakeInputTensor {
-          constructor(tensorType: string, bits: Uint16Array, shape: readonly number[]) {
-            super(tensorType, bits, shape);
-            inputs.push(this);
-          }
-        } } as never,
-        session: { run: async () => ({ waveform: {
-          type,
-          dims,
-          location: 'cpu',
-          getData: async () => data,
-          dispose: () => { outputDisposed = true; },
-        } }) } as never,
-      },
-      plan,
-      [new Uint16Array(128 * plan.chunks[0].latentLength)],
-    )).rejects.toThrow(message);
+    await expect(
+      generateVariableVocoderWav(
+        {
+          ort: {
+            Tensor: class extends FakeInputTensor {
+              constructor(tensorType: string, bits: Uint16Array, shape: readonly number[]) {
+                super(tensorType, bits, shape);
+                inputs.push(this);
+              }
+            },
+          } as never,
+          session: {
+            run: async () => ({
+              waveform: {
+                type,
+                dims,
+                location: 'cpu',
+                getData: async () => data,
+                dispose: () => {
+                  outputDisposed = true;
+                },
+              },
+            }),
+          } as never,
+        },
+        plan,
+        [new Uint16Array(128 * plan.chunks[0].latentLength)],
+      ),
+    ).rejects.toThrow(message);
     expect(inputs[0].disposed).toBe(true);
     expect(outputDisposed).toBe(true);
   });

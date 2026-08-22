@@ -32,10 +32,9 @@ export function createArtifactProgressReporter({
         const transferredDelta = transferredBytes - transferredBaseline.bytes;
         const elapsedMs = timestamp - transferredBaseline.timestamp;
         if (transferredDelta > 0 && elapsedMs > 0) {
-          const rate = transferredDelta * 1_000 / elapsedMs;
-          const etaMs = (totalBytes - currentCompletedBytes) * 1_000 / rate;
-          if (Number.isFinite(rate) && rate > 0 && Number.isFinite(etaMs))
-            next = { ...progress, rate, etaMs };
+          const rate = (transferredDelta * 1_000) / elapsedMs;
+          const etaMs = ((totalBytes - currentCompletedBytes) * 1_000) / rate;
+          if (Number.isFinite(rate) && rate > 0 && Number.isFinite(etaMs)) next = { ...progress, rate, etaMs };
         }
       }
       transferredBaseline = { bytes: transferredBytes, timestamp };
@@ -65,10 +64,11 @@ export function createArtifactProgressReporter({
       const timestamp = now();
       const currentCompletedBytes = Math.min(totalBytes, Math.max(0, completedBefore + loaded));
       if (
-        lastReportedAt === undefined
-        || lastProgress?.currentFile !== next.currentFile
-        || timestamp - lastReportedAt >= REPORT_INTERVAL_MS
-      ) emit(next, timestamp, currentCompletedBytes, transferredBytes);
+        lastReportedAt === undefined ||
+        lastProgress?.currentFile !== next.currentFile ||
+        timestamp - lastReportedAt >= REPORT_INTERVAL_MS
+      )
+        emit(next, timestamp, currentCompletedBytes, transferredBytes);
     },
     complete(path: string, total: number, completedBytes: number, cacheHit: boolean, transferredBytes?: number) {
       reportedCompletedBytes = Math.max(reportedCompletedBytes, completedBytes);

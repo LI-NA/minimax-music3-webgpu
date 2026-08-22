@@ -14,15 +14,12 @@ export function patchOrtWebGpuConvTransposeCoordinates(source: Uint8Array): Uint
 
   const offsets: number[] = [];
   for (let offset = 0; offset <= source.length - brokenCast.length; offset++) {
-    if (brokenCast.every((value, index) => source[offset + index] === value))
-      offsets.push(offset);
+    if (brokenCast.every((value, index) => source[offset + index] === value)) offsets.push(offset);
   }
-  if (offsets.length !== 8)
-    throw new Error(`expected 8 ConvTranspose coordinate casts, found ${offsets.length}`);
+  if (offsets.length !== 8) throw new Error(`expected 8 ConvTranspose coordinate casts, found ${offsets.length}`);
 
   const patched = Uint8Array.from(source);
   for (const offset of offsets) patched.set(fixedCast, offset);
-  if (hash(patched) !== patchedSha256)
-    throw new Error('patched onnxruntime-web JSPI WASM hash is unexpected');
+  if (hash(patched) !== patchedSha256) throw new Error('patched onnxruntime-web JSPI WASM hash is unexpected');
   return patched;
 }

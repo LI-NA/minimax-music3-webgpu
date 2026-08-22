@@ -11,8 +11,7 @@ test('generates and decodes the fixed five-second WAV and reuses the combined re
   );
   const wasmRequests: string[] = [];
   context.on('request', (request) => {
-    if (request.url().includes('ort-wasm-simd-threaded.jspi.wasm'))
-      wasmRequests.push(request.url());
+    if (request.url().includes('ort-wasm-simd-threaded.jspi.wasm')) wasmRequests.push(request.url());
   });
   const page = context.pages()[0] ?? (await context.newPage());
   try {
@@ -27,8 +26,8 @@ test('generates and decodes the fixed five-second WAV and reuses the combined re
     await expect(progress).toHaveAttribute('value', /\d+/);
     await page.waitForFunction(
       () =>
-        document.querySelector('[data-testid="music-generation-result"]')
-        || document.querySelector('output')?.textContent?.startsWith('Error:'),
+        document.querySelector('[data-testid="music-generation-result"]') ||
+        document.querySelector('output')?.textContent?.startsWith('Error:'),
       undefined,
       { timeout: 4 * 60 * 60_000 },
     );
@@ -46,7 +45,11 @@ test('generates and decodes the fixed five-second WAV and reuses the combined re
       const audioContext = new AudioContext({ sampleRate: 44_100 });
       try {
         const buffer = await audioContext.decodeAudioData(wav);
-        return { sampleRate: buffer.sampleRate, channels: buffer.numberOfChannels, samples: buffer.length };
+        return {
+          sampleRate: buffer.sampleRate,
+          channels: buffer.numberOfChannels,
+          samples: buffer.length,
+        };
       } finally {
         await audioContext.close();
       }
@@ -90,8 +93,7 @@ test('generates and decodes the fixed five-second WAV and reuses the combined re
       if (left === previousLeft && right === previousRight) currentConstantFrameRun += 1;
       else currentConstantFrameRun = 1;
       longestConstantFrameRun = Math.max(longestConstantFrameRun, currentConstantFrameRun);
-      if (frame >= lateWindowStart)
-        lateWindowDelta += Math.abs(left - previousLeft) + Math.abs(right - previousRight);
+      if (frame >= lateWindowStart) lateWindowDelta += Math.abs(left - previousLeft) + Math.abs(right - previousRight);
       previousLeft = left;
       previousRight = right;
     }

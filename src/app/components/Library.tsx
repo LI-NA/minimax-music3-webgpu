@@ -18,8 +18,7 @@ export type LibraryProps = {
 };
 
 function subLine(tr: Messages, track: Track, generationPercent: number) {
-  if (track.status === 'generating')
-    return { text: `${tr.stGen} · ${generationPercent}%`, tone: 'text-accent' };
+  if (track.status === 'generating') return { text: `${tr.stGen} · ${generationPercent}%`, tone: 'text-accent' };
   if (track.status === 'canceled') return { text: tr.stCanceled, tone: 'text-danger' };
   if (track.status === 'error') return { text: tr.stError, tone: 'text-danger' };
   return {
@@ -100,9 +99,7 @@ export function Library({
                 </div>
               </div>
               <div className="flex flex-none flex-col items-end gap-1">
-                <div className="font-mono text-[9.5px] text-muted2">
-                  {formatTimeOfDay(track.createdAt)}
-                </div>
+                <div className="font-mono text-[9.5px] text-muted2">{formatTimeOfDay(track.createdAt)}</div>
                 <button
                   type="button"
                   onClick={stopThen(() => onDelete(track))}

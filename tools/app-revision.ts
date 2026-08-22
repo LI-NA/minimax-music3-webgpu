@@ -3,9 +3,9 @@ import { readFileSync, readdirSync } from 'node:fs';
 
 const checkoutRoot = new URL('../', import.meta.url);
 
-export const APP_VERSION = (JSON.parse(
-  readFileSync(new URL('package.json', checkoutRoot), 'utf8'),
-) as { version: string }).version;
+export const APP_VERSION = (
+  JSON.parse(readFileSync(new URL('package.json', checkoutRoot), 'utf8')) as { version: string }
+).version;
 
 function applicationSources(directory: URL, prefix = 'src'): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {

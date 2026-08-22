@@ -28,23 +28,27 @@ interface FakeDirectoryEntries {
   [name: string]: File | FakeDirectoryEntries;
 }
 
-const fakeDirectory = (entries: FakeDirectoryEntries): FileSystemDirectoryHandle => ({
-  kind: 'directory',
-  name: '',
-  async *entries() {
-    for (const [name, entry] of Object.entries(entries)) {
-      if (entry instanceof File) {
-        yield [name, {
-          kind: 'file',
-          name,
-          getFile: async () => entry,
-        } as unknown as FileSystemFileHandle];
-      } else {
-        yield [name, fakeDirectory(entry)];
+const fakeDirectory = (entries: FakeDirectoryEntries): FileSystemDirectoryHandle =>
+  ({
+    kind: 'directory',
+    name: '',
+    async *entries() {
+      for (const [name, entry] of Object.entries(entries)) {
+        if (entry instanceof File) {
+          yield [
+            name,
+            {
+              kind: 'file',
+              name,
+              getFile: async () => entry,
+            } as unknown as FileSystemFileHandle,
+          ];
+        } else {
+          yield [name, fakeDirectory(entry)];
+        }
       }
-    }
-  },
-} as unknown as FileSystemDirectoryHandle);
+    },
+  }) as unknown as FileSystemDirectoryHandle;
 
 describe('project artifact cache management', () => {
   const a = `minimax-music3-${'a'.repeat(64)}`;
@@ -117,15 +121,10 @@ describe('withArtifactCacheMutationLock', () => {
     const action = vi.fn().mockResolvedValue('result');
     const request = vi.fn(async (_name, _options, callback) => callback());
 
-    await expect(withArtifactCacheMutationLock(
-      action,
-      { request } as unknown as Pick<LockManager, 'request'>,
-    )).resolves.toBe('result');
-    expect(request).toHaveBeenCalledWith(
-      'minimax-music3-artifact-cache',
-      { mode: 'exclusive' },
-      expect.any(Function),
-    );
+    await expect(
+      withArtifactCacheMutationLock(action, { request } as unknown as Pick<LockManager, 'request'>),
+    ).resolves.toBe('result');
+    expect(request).toHaveBeenCalledWith('minimax-music3-artifact-cache', { mode: 'exclusive' }, expect.any(Function));
     expect(action).toHaveBeenCalledTimes(1);
   });
 
@@ -146,15 +145,10 @@ describe('withArtifactCacheReadLock', () => {
     const action = vi.fn().mockResolvedValue('result');
     const request = vi.fn(async (_name, _options, callback) => callback());
 
-    await expect(withArtifactCacheReadLock(
-      action,
-      { request } as unknown as Pick<LockManager, 'request'>,
-    )).resolves.toBe('result');
-    expect(request).toHaveBeenCalledWith(
-      'minimax-music3-artifact-cache',
-      { mode: 'shared' },
-      expect.any(Function),
-    );
+    await expect(
+      withArtifactCacheReadLock(action, { request } as unknown as Pick<LockManager, 'request'>),
+    ).resolves.toBe('result');
+    expect(request).toHaveBeenCalledWith('minimax-music3-artifact-cache', { mode: 'shared' }, expect.any(Function));
     expect(action).toHaveBeenCalledTimes(1);
   });
 
@@ -178,11 +172,15 @@ describe('requestPersistentStorage', () => {
     const storage = {
       persist: vi.fn(() => {
         calls.push('persist');
-        return new Promise<boolean>((resolve) => { resolvePersist = resolve; });
+        return new Promise<boolean>((resolve) => {
+          resolvePersist = resolve;
+        });
       }),
       persisted: vi.fn(() => {
         calls.push('persisted');
-        return new Promise<boolean>((resolve) => { resolvePersisted = resolve; });
+        return new Promise<boolean>((resolve) => {
+          resolvePersisted = resolve;
+        });
       }),
     };
 
@@ -362,12 +360,17 @@ describe('assessArtifactCapacity', () => {
   });
 
   it('requires no headroom for a ready cache', () => {
-    expect(assessArtifactCapacity({
-      ...inspection,
-      state: 'ready',
-      additionalBytesNeeded: 0,
-      largestPendingArtifactBytes: 0,
-    }, { usage: 100, quota: 100 })).toEqual({
+    expect(
+      assessArtifactCapacity(
+        {
+          ...inspection,
+          state: 'ready',
+          additionalBytesNeeded: 0,
+          largestPendingArtifactBytes: 0,
+        },
+        { usage: 100, quota: 100 },
+      ),
+    ).toEqual({
       usageBytes: 100,
       quotaBytes: 100,
       availableBytes: 0,

@@ -7,9 +7,7 @@ const DiagnosticsApp = lazy(() => import('./app/DiagnosticsApp'));
 
 const query = new URLSearchParams(window.location.search);
 const diagnostics =
-  window.location.pathname.startsWith('/diagnostics') ||
-  query.has('diagnostics') ||
-  query.has('frames');
+  window.location.pathname.startsWith('/diagnostics') || query.has('diagnostics') || query.has('frames');
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

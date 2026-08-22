@@ -1,10 +1,6 @@
 import type * as ort from 'onnxruntime-web/jspi';
 
-import {
-  createStereoPcm16Wav,
-  encodeStereoPcm16Wav,
-  writeStereoPcm16WavChannel,
-} from '../audio/wav';
+import { createStereoPcm16Wav, encodeStereoPcm16Wav, writeStereoPcm16WavChannel } from '../audio/wav';
 import type { RetainedFramesPlan } from './duration-plan';
 
 const latentShape = [1, 128, 430] as const;
@@ -50,20 +46,16 @@ export async function generateFixedVocoderWav(
     if (!output) throw new Error('vocoder did not return waveform');
     if (output.type !== 'float32') throw new Error('vocoder waveform must be float32');
     if (
-      output.dims.length !== waveformShape.length
-      || output.dims.some((value, index) => value !== waveformShape[index])
-    ) throw new Error('vocoder waveform must have shape [1,2,220160]');
+      output.dims.length !== waveformShape.length ||
+      output.dims.some((value, index) => value !== waveformShape[index])
+    )
+      throw new Error('vocoder waveform must have shape [1,2,220160]');
     const waveform = await output.getData();
-    if (!(waveform instanceof Float32Array))
-      throw new Error('vocoder waveform data must be a Float32Array');
+    if (!(waveform instanceof Float32Array)) throw new Error('vocoder waveform data must be a Float32Array');
     if (waveform.length !== waveformValues)
       throw new Error(`vocoder waveform must contain exactly ${waveformValues} samples`);
-    if (!waveform.every(Number.isFinite))
-      throw new Error('vocoder waveform samples must be finite');
-    return encodeStereoPcm16Wav([
-      waveform.subarray(0, waveformSamples),
-      waveform.subarray(waveformSamples),
-    ]);
+    if (!waveform.every(Number.isFinite)) throw new Error('vocoder waveform samples must be finite');
+    return encodeStereoPcm16Wav([waveform.subarray(0, waveformSamples), waveform.subarray(waveformSamples)]);
   } finally {
     output?.dispose();
     input.dispose();
@@ -84,20 +76,17 @@ export async function generateVariableVocoderWav(
     const chunk = plan.chunks[index];
     const expectedValues = 128 * chunk.latentLength;
     if (latentChunks[index].length !== expectedValues)
-      throw new Error(
-        `vocoder chunk ${index} latents must contain exactly ${expectedValues} float16 values`,
-      );
+      throw new Error(`vocoder chunk ${index} latents must contain exactly ${expectedValues} float16 values`);
     if (
-      chunk.cropLeftLatents < 0
-      || chunk.cropRightLatents < 0
-      || chunk.cropLeftLatents + chunk.cropRightLatents > chunk.latentLength
-      || chunk.samplesPerChannel
-        !== (chunk.latentLength - chunk.cropLeftLatents - chunk.cropRightLatents) * 512
-    ) throw new Error(`vocoder chunk ${index} crop metadata is invalid`);
+      chunk.cropLeftLatents < 0 ||
+      chunk.cropRightLatents < 0 ||
+      chunk.cropLeftLatents + chunk.cropRightLatents > chunk.latentLength ||
+      chunk.samplesPerChannel !== (chunk.latentLength - chunk.cropLeftLatents - chunk.cropRightLatents) * 512
+    )
+      throw new Error(`vocoder chunk ${index} crop metadata is invalid`);
     plannedSamples += chunk.samplesPerChannel;
   }
-  if (plannedSamples !== plan.samplesPerChannel)
-    throw new Error('vocoder plan sample total does not match its chunks');
+  if (plannedSamples !== plan.samplesPerChannel) throw new Error('vocoder plan sample total does not match its chunks');
 
   onWavStart?.();
   const wav = createStereoPcm16Wav(plan.samplesPerChannel);
@@ -168,19 +157,13 @@ async function runMonoVocoderChannel(
     if (!output) throw new Error('vocoder did not return waveform');
     if (output.type !== 'float32') throw new Error('vocoder waveform must be float32');
     const waveformSamples = 512 * latentLength;
-    if (
-      output.dims.length !== 3
-      || output.dims[0] !== 1
-      || output.dims[1] !== 1
-      || output.dims[2] !== waveformSamples
-    ) throw new Error(`vocoder waveform must have shape [1,1,${waveformSamples}]`);
+    if (output.dims.length !== 3 || output.dims[0] !== 1 || output.dims[1] !== 1 || output.dims[2] !== waveformSamples)
+      throw new Error(`vocoder waveform must have shape [1,1,${waveformSamples}]`);
     const waveform = await output.getData();
-    if (!(waveform instanceof Float32Array))
-      throw new Error('vocoder waveform data must be a Float32Array');
+    if (!(waveform instanceof Float32Array)) throw new Error('vocoder waveform data must be a Float32Array');
     if (waveform.length !== waveformSamples)
       throw new Error(`vocoder waveform must contain exactly ${waveformSamples} samples`);
-    if (!waveform.every(Number.isFinite))
-      throw new Error('vocoder waveform samples must be finite');
+    if (!waveform.every(Number.isFinite)) throw new Error('vocoder waveform samples must be finite');
     const inferenceMs = performance.now() - inferenceStarted;
     const pcmWriteStarted = performance.now();
     writeStereoPcm16WavChannel(

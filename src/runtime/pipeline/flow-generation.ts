@@ -111,20 +111,16 @@ export function float32ToFloat16Bits(value: number) {
   return sign | (halfExponent << 10) | (rounded >>> 13);
 }
 
-function requireFloat16(
-  tensor: ort.Tensor,
-  name: string,
-  shape: readonly number[],
-  requireGpu = false,
-) {
+function requireFloat16(tensor: ort.Tensor, name: string, shape: readonly number[], requireGpu = false) {
   if (
-    tensor.type !== 'float16'
-    || (requireGpu && tensor.location !== 'gpu-buffer')
-    || tensor.dims.length !== shape.length
-    || tensor.dims.some((value, index) => value !== shape[index])
-  ) throw new Error(
-    `${name} must be a ${requireGpu ? 'GPU-resident ' : ''}float16 tensor with shape [${shape.join(',')}]`,
-  );
+    tensor.type !== 'float16' ||
+    (requireGpu && tensor.location !== 'gpu-buffer') ||
+    tensor.dims.length !== shape.length ||
+    tensor.dims.some((value, index) => value !== shape[index])
+  )
+    throw new Error(
+      `${name} must be a ${requireGpu ? 'GPU-resident ' : ''}float16 tensor with shape [${shape.join(',')}]`,
+    );
 }
 
 export async function runFixedFlowStep(
@@ -146,9 +142,7 @@ export async function runFixedFlowStep(
     [1],
   );
   const dt = new runtime.ort.Tensor('float32', new Float32Array([schedule.dts[step]]), [1]);
-  const guidance = new runtime.ort.Tensor(
-    'float16', new Uint16Array([float32ToFloat16Bits(flowGuidance)]), [1],
-  );
+  const guidance = new runtime.ort.Tensor('float16', new Uint16Array([float32ToFloat16Bits(flowGuidance)]), [1]);
   let next: ort.Tensor | undefined;
   try {
     const outputs = await runtime.session.run({ latents, condition, timestep, dt, guidance });
@@ -180,9 +174,7 @@ export async function runFixedFlowGeneration(
   let latents = initialLatents;
   try {
     for (let index = 0; index < flowStepCount; index++) {
-      const next = await runFixedFlowStep(
-        runtime, latents, condition, index, flowGuidance, flowStepCount,
-      );
+      const next = await runFixedFlowStep(runtime, latents, condition, index, flowGuidance, flowStepCount);
       latents.dispose();
       latents = next;
       onStep?.(index + 1);
@@ -197,10 +189,7 @@ export async function runFixedFlowGeneration(
 function paddedChannelValues(values: Uint16Array, sourceLength: number) {
   const padded = new Uint16Array(latentChannels * maximumLatents);
   for (let channel = 0; channel < latentChannels; channel++)
-    padded.set(
-      values.subarray(channel * sourceLength, (channel + 1) * sourceLength),
-      channel * maximumLatents,
-    );
+    padded.set(values.subarray(channel * sourceLength, (channel + 1) * sourceLength), channel * maximumLatents);
   return padded;
 }
 
@@ -218,10 +207,7 @@ function channelInterval(values: Uint16Array, length: number, start: number, end
   const intervalLength = end - start;
   const selected = new Uint16Array(latentChannels * intervalLength);
   for (let channel = 0; channel < latentChannels; channel++)
-    selected.set(
-      values.subarray(channel * length + start, channel * length + end),
-      channel * intervalLength,
-    );
+    selected.set(values.subarray(channel * length + start, channel * length + end), channel * intervalLength);
   return selected;
 }
 
@@ -236,8 +222,7 @@ function restoreChannelPrefix(values: Uint16Array, prefix: Uint16Array) {
 function nearestIndices(frameLength: number, latentLength: number) {
   const result = new BigInt64Array(maximumLatents);
   const scale = Math.fround(frameLength / latentLength);
-  for (let index = 0; index < latentLength; index++)
-    result[index] = BigInt(Math.floor(Math.fround(index * scale)));
+  for (let index = 0; index < latentLength; index++) result[index] = BigInt(Math.floor(Math.fround(index * scale)));
   return result;
 }
 
@@ -263,17 +248,17 @@ async function encodeMaximumCondition(
   chunk: DurationChunkPlan,
 ) {
   const paddedFrames = new Uint16Array(maximumFrames * frameHiddenWidth);
-  paddedFrames.set(frameHiddens.subarray(
-    chunk.startFrame * frameHiddenWidth,
-    (chunk.startFrame + chunk.frameLength) * frameHiddenWidth,
-  ));
-  const frames = new runtime.ort.Tensor('float16', paddedFrames, [1, maximumFrames, frameHiddenWidth]);
-  const nearest = new runtime.ort.Tensor('int64', nearestIndices(chunk.frameLength, chunk.latentLength), [maximumLatents]);
-  const mask = new runtime.ort.Tensor(
-    'float16',
-    activeLatentMask(chunk.latentLength),
-    [1, maximumLatents, 1],
+  paddedFrames.set(
+    frameHiddens.subarray(
+      chunk.startFrame * frameHiddenWidth,
+      (chunk.startFrame + chunk.frameLength) * frameHiddenWidth,
+    ),
   );
+  const frames = new runtime.ort.Tensor('float16', paddedFrames, [1, maximumFrames, frameHiddenWidth]);
+  const nearest = new runtime.ort.Tensor('int64', nearestIndices(chunk.frameLength, chunk.latentLength), [
+    maximumLatents,
+  ]);
+  const mask = new runtime.ort.Tensor('float16', activeLatentMask(chunk.latentLength), [1, maximumLatents, 1]);
   let output: ort.Tensor | undefined;
   try {
     const started = performance.now();
@@ -284,11 +269,7 @@ async function encodeMaximumCondition(
     });
     output = outputs.condition;
     if (!output) throw new Error('condition session did not return condition');
-    const bits = await readGpuFp16Bits(
-      output,
-      [1, maximumLatents, conditionWidth],
-      'condition',
-    );
+    const bits = await readGpuFp16Bits(output, [1, maximumLatents, conditionWidth], 'condition');
     return { bits, elapsedMs: performance.now() - started };
   } finally {
     output?.dispose();
@@ -316,29 +297,22 @@ async function generateMaximumFlowChunk(
     ? channelInterval(initialLatents, chunk.latentLength, 0, overlapLatents)
     : new Uint16Array(latentChannels * overlapLatents);
   const previousLatentBits = previousLatent ?? new Uint16Array(latentChannels * overlapLatents);
-  const condition = new runtime.ort.Tensor(
-    'float16', conditionBits, [1, maximumLatents, conditionWidth],
-  );
-  const activeMask = new runtime.ort.Tensor(
-    'float16', activeLatentMask(chunk.latentLength), [1, maximumLatents, 1],
-  );
-  const attentionBias = new runtime.ort.Tensor(
-    'float16', keyAttentionBias(chunk.latentLength), [1, 1, 1, maximumLatents + 1],
-  );
-  const noisePrompt = new runtime.ort.Tensor(
-    'float16', noisePromptBits, [1, latentChannels, overlapLatents],
-  );
-  const previous = new runtime.ort.Tensor(
-    'float16', previousLatentBits, [1, latentChannels, overlapLatents],
-  );
-  const overlapEnabled = new runtime.ort.Tensor(
-    'float16', new Uint16Array([previousLatent ? fp16One : 0]), [1],
-  );
-  let latents: ort.Tensor = new runtime.ort.Tensor(
-    'float16',
-    paddedChannelValues(initialLatents, chunk.latentLength),
-    [1, latentChannels, maximumLatents],
-  );
+  const condition = new runtime.ort.Tensor('float16', conditionBits, [1, maximumLatents, conditionWidth]);
+  const activeMask = new runtime.ort.Tensor('float16', activeLatentMask(chunk.latentLength), [1, maximumLatents, 1]);
+  const attentionBias = new runtime.ort.Tensor('float16', keyAttentionBias(chunk.latentLength), [
+    1,
+    1,
+    1,
+    maximumLatents + 1,
+  ]);
+  const noisePrompt = new runtime.ort.Tensor('float16', noisePromptBits, [1, latentChannels, overlapLatents]);
+  const previous = new runtime.ort.Tensor('float16', previousLatentBits, [1, latentChannels, overlapLatents]);
+  const overlapEnabled = new runtime.ort.Tensor('float16', new Uint16Array([previousLatent ? fp16One : 0]), [1]);
+  let latents: ort.Tensor = new runtime.ort.Tensor('float16', paddedChannelValues(initialLatents, chunk.latentLength), [
+    1,
+    latentChannels,
+    maximumLatents,
+  ]);
   try {
     const schedule = exactFlowSchedule(flowStepCount);
     onChunkStart?.(chunkIndex, completedSteps);
@@ -350,9 +324,7 @@ async function generateMaximumFlowChunk(
         [1],
       );
       const dt = new runtime.ort.Tensor('float32', new Float32Array([schedule.dts[index]]), [1]);
-      const guidance = new runtime.ort.Tensor(
-        'float16', new Uint16Array([float32ToFloat16Bits(flowGuidance)]), [1],
-      );
+      const guidance = new runtime.ort.Tensor('float16', new Uint16Array([float32ToFloat16Bits(flowGuidance)]), [1]);
       let next: ort.Tensor | undefined;
       try {
         const outputs = await runtime.flowSession.run({
@@ -381,11 +353,7 @@ async function generateMaximumFlowChunk(
         guidance.dispose();
       }
     }
-    const downloaded = await readGpuFp16Bits(
-      latents,
-      [1, latentChannels, maximumLatents],
-      'final latents',
-    );
+    const downloaded = await readGpuFp16Bits(latents, [1, latentChannels, maximumLatents], 'final latents');
     const active = activeChannelValues(downloaded, chunk.latentLength);
     if (previousLatent) restoreChannelPrefix(active, previousLatent);
     onChunkComplete?.({ chunkIndex, elapsedMs: performance.now() - started });
@@ -454,35 +422,20 @@ function analyticFp16(length: number, positive: number, negative: number) {
   return values;
 }
 
-function analyticFp16Tensor(
-  runtime: FlowSmokeRuntime,
-  values: Uint16Array,
-  dims: readonly number[],
-) {
+function analyticFp16Tensor(runtime: FlowSmokeRuntime, values: Uint16Array, dims: readonly number[]) {
   return new runtime.ort.Tensor('float16', values, dims);
 }
 
 export function areFiniteFlowValues(data: unknown) {
-  if (data instanceof Uint16Array)
-    return data.every((value) => (value & 0x7c00) !== 0x7c00);
-  if (
-    data instanceof Float32Array
-    || (ArrayBuffer.isView(data) && data.constructor.name === 'Float16Array')
-  ) return Array.from(data as unknown as ArrayLike<number>).every(Number.isFinite);
+  if (data instanceof Uint16Array) return data.every((value) => (value & 0x7c00) !== 0x7c00);
+  if (data instanceof Float32Array || (ArrayBuffer.isView(data) && data.constructor.name === 'Float16Array'))
+    return Array.from(data as unknown as ArrayLike<number>).every(Number.isFinite);
   throw new Error('flow output did not download as float16');
 }
 
 export async function runFlowSmoke(runtime: FlowSmokeRuntime): Promise<FlowSmokeMetrics> {
-  const makeLatents = () => analyticFp16Tensor(
-    runtime,
-    analyticFp16(128 * 430, 0x2c00, 0xac00),
-    [1, 128, 430],
-  );
-  const makeCondition = () => analyticFp16Tensor(
-    runtime,
-    analyticFp16(430 * 2048, 0x2800, 0xa800),
-    [1, 430, 2048],
-  );
+  const makeLatents = () => analyticFp16Tensor(runtime, analyticFp16(128 * 430, 0x2c00, 0xac00), [1, 128, 430]);
+  const makeCondition = () => analyticFp16Tensor(runtime, analyticFp16(430 * 2048, 0x2800, 0xa800), [1, 430, 2048]);
   const oneLatents = makeLatents();
   const oneCondition = makeCondition();
   let oneOutput: ort.Tensor | undefined;
@@ -491,9 +444,7 @@ export async function runFlowSmoke(runtime: FlowSmokeRuntime): Promise<FlowSmoke
   let oneStepFinite = false;
   try {
     const started = performance.now();
-    oneOutput = await runFixedFlowStep(
-      runtime, oneLatents, oneCondition, 0, defaultFlowGuidance, defaultFlowSteps,
-    );
+    oneOutput = await runFixedFlowStep(runtime, oneLatents, oneCondition, 0, defaultFlowGuidance, defaultFlowSteps);
     oneStepMs = performance.now() - started;
     oneStepLocation = oneOutput.location;
     oneStepFinite = areFiniteFlowValues(await oneOutput.getData());

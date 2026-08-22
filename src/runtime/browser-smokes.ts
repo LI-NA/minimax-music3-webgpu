@@ -46,9 +46,7 @@ export async function runExternalDataOpfsSmoke() {
 }
 export async function runMatMulNBitsSmoke() {
   configure(await device());
-  const model = new Uint8Array(
-    await (await fetch('/test-fixtures/matmul-nbits.onnx')).arrayBuffer(),
-  );
+  const model = new Uint8Array(await (await fetch('/test-fixtures/matmul-nbits.onnx')).arrayBuffer());
   const session = await ort.InferenceSession.create(model, {
     executionProviders: ['webgpu'],
     extra: { session: { disable_cpu_ep_fallback: '1' } },
@@ -61,9 +59,6 @@ export async function runMatMulNBitsSmoke() {
   return Array.from(data).map((value) => {
     const exponent = (value >>> 10) & 31;
     const fraction = value & 1023;
-    return (
-      (value >>> 15 ? -1 : 1) *
-      (exponent ? (1 + fraction / 1024) * 2 ** (exponent - 15) : fraction * 2 ** -24)
-    );
+    return (value >>> 15 ? -1 : 1) * (exponent ? (1 + fraction / 1024) * 2 ** (exponent - 15) : fraction * 2 ** -24);
   });
 }

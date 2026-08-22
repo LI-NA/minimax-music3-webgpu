@@ -17,9 +17,7 @@ function count(source: Uint8Array, pattern: Uint8Array) {
 
 describe('pinned ORT WebGPU runtime patch', () => {
   it('uses FP32 for all eight ConvTranspose coordinate casts without changing WASM length', () => {
-    const source = readFileSync(
-      'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jspi.wasm',
-    );
+    const source = readFileSync('node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jspi.wasm');
 
     const patched = patchOrtWebGpuConvTransposeCoordinates(source);
 
@@ -33,13 +31,9 @@ describe('pinned ORT WebGPU runtime patch', () => {
   });
 
   it('fails closed when the pinned source bytes differ', () => {
-    const source = Uint8Array.from(
-      readFileSync('node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jspi.wasm'),
-    );
+    const source = Uint8Array.from(readFileSync('node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jspi.wasm'));
     source[0] ^= 1;
 
-    expect(() => patchOrtWebGpuConvTransposeCoordinates(source)).toThrow(
-      'differs from the pinned runtime',
-    );
+    expect(() => patchOrtWebGpuConvTransposeCoordinates(source)).toThrow('differs from the pinned runtime');
   });
 });

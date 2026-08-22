@@ -1,6 +1,4 @@
-export type WebGpuCapability =
-  | { supported: true; adapter: GPUAdapter }
-  | { supported: false; reason: string };
+export type WebGpuCapability = { supported: true; adapter: GPUAdapter } | { supported: false; reason: string };
 
 export async function inspectWebGpu(gpu: GPU | undefined): Promise<WebGpuCapability> {
   if (!gpu) return { supported: false, reason: 'WebGPU is unavailable' };
@@ -8,10 +6,8 @@ export async function inspectWebGpu(gpu: GPU | undefined): Promise<WebGpuCapabil
     powerPreference: 'high-performance',
   });
   if (!adapter) return { supported: false, reason: 'No WebGPU adapter was found' };
-  if (adapter.info.isFallbackAdapter)
-    return { supported: false, reason: 'A fallback adapter is not supported' };
-  if (!adapter.features.has('shader-f16'))
-    return { supported: false, reason: 'shader-f16 is unavailable' };
+  if (adapter.info.isFallbackAdapter) return { supported: false, reason: 'A fallback adapter is not supported' };
+  if (!adapter.features.has('shader-f16')) return { supported: false, reason: 'shader-f16 is unavailable' };
   return { supported: true, adapter };
 }
 
@@ -22,9 +18,8 @@ export async function inspectWebGpuForRequirements(
   const capability = await inspectWebGpu(gpu);
   if (!capability.supported) return capability;
   const limits = capability.adapter.limits as unknown as Record<string, number>;
-  if (Object.entries(requiredLimits).some(
-    ([name, value]) => typeof limits[name] !== 'number' || limits[name] < value,
-  )) return { supported: false, reason: 'Adapter limits are insufficient' };
+  if (Object.entries(requiredLimits).some(([name, value]) => typeof limits[name] !== 'number' || limits[name] < value))
+    return { supported: false, reason: 'Adapter limits are insufficient' };
   return capability;
 }
 
@@ -37,9 +32,7 @@ export async function createWebGpuDevice(
   const requiredFeatures: GPUFeatureName[] = ['shader-f16'];
   const limits = capability.adapter.limits as unknown as Record<string, number>;
   const required = Object.fromEntries(
-    Object.entries(requiredLimits).filter(
-      ([name, value]) => typeof limits[name] === 'number' && limits[name] >= value,
-    ),
+    Object.entries(requiredLimits).filter(([name, value]) => typeof limits[name] === 'number' && limits[name] >= value),
   );
   if (Object.keys(required).length !== Object.keys(requiredLimits).length)
     throw new Error('Adapter limits are insufficient');

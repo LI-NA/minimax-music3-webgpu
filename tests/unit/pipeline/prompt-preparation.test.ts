@@ -32,12 +32,14 @@ describe('prompt preparation', () => {
   it('assembles the exact fixed checkpoint prompt and CFG rows', () => {
     const fake = tokenizerFor(fixtureRows[0]);
 
-    expect(preparePrompt({
-      prompt: fixedPrompt,
-      lyrics: fixedLyrics,
-      requestedFrames: 250,
-      tokenizer: fake.tokenizer,
-    })).toEqual({
+    expect(
+      preparePrompt({
+        prompt: fixedPrompt,
+        lyrics: fixedLyrics,
+        requestedFrames: 250,
+        tokenizer: fake.tokenizer,
+      }),
+    ).toEqual({
       assembledPrompt: fixedCase.assembledPrompt,
       promptTokens: 40,
       tokenRows: fixtureRows,
@@ -56,24 +58,46 @@ describe('prompt preparation', () => {
     });
 
     expect(prepared.assembledPrompt).toBe(
-      '<|im_start|><|caption_start|>genre is Jazz\nVocal\nfourspaces<|caption_end|>'
-      + '<|lyrics_start|>[start]\n[verse]\n[chorus]\n[bridge]\nA ]\nB\n[c]\n^ D<|lyrics_end|>'
-      + '<|im_end|><|audio_start|>',
+      '<|im_start|><|caption_start|>genre is Jazz\nVocal\nfourspaces<|caption_end|>' +
+        '<|lyrics_start|>[start]\n[verse]\n[chorus]\n[bridge]\nA ]\nB\n[c]\n^ D<|lyrics_end|>' +
+        '<|im_end|><|audio_start|>',
     );
   });
 
   it('rejects blank inputs, oversized prompts, and context overflows', () => {
     const fake = tokenizerFor([151644, 151645, 151669]);
-    expect(() => preparePrompt({ prompt: ' ', lyrics: 'lyric', requestedFrames: 1, tokenizer: fake.tokenizer }))
-      .toThrow('prompt');
-    expect(() => preparePrompt({ prompt: 'prompt', lyrics: '\t', requestedFrames: 1, tokenizer: fake.tokenizer }))
-      .toThrow('lyrics');
-    expect(() => preparePrompt({
-      prompt: 'prompt', lyrics: 'lyric', requestedFrames: 1, tokenizer: tokenizerFor(Array(5_001).fill(1)).tokenizer,
-    })).toThrow('5000');
-    expect(() => preparePrompt({
-      prompt: 'prompt', lyrics: 'lyric', requestedFrames: 7_500, tokenizer: tokenizerFor(Array(2_741).fill(1)).tokenizer,
-    })).toThrow('10240');
+    expect(() =>
+      preparePrompt({
+        prompt: ' ',
+        lyrics: 'lyric',
+        requestedFrames: 1,
+        tokenizer: fake.tokenizer,
+      }),
+    ).toThrow('prompt');
+    expect(() =>
+      preparePrompt({
+        prompt: 'prompt',
+        lyrics: '\t',
+        requestedFrames: 1,
+        tokenizer: fake.tokenizer,
+      }),
+    ).toThrow('lyrics');
+    expect(() =>
+      preparePrompt({
+        prompt: 'prompt',
+        lyrics: 'lyric',
+        requestedFrames: 1,
+        tokenizer: tokenizerFor(Array(5_001).fill(1)).tokenizer,
+      }),
+    ).toThrow('5000');
+    expect(() =>
+      preparePrompt({
+        prompt: 'prompt',
+        lyrics: 'lyric',
+        requestedFrames: 7_500,
+        tokenizer: tokenizerFor(Array(2_741).fill(1)).tokenizer,
+      }),
+    ).toThrow('10240');
   });
 
   it.skipIf(!hasLocalReleaseTokenizer)('requires the local release tokenizer to encode the fixed case', async () => {
@@ -83,12 +107,14 @@ describe('prompt preparation', () => {
     ]);
     const tokenizer = createPromptTokenizer(tokenizerJson, tokenizerConfigJson);
 
-    expect(preparePrompt({
-      prompt: fixedPrompt,
-      lyrics: fixedLyrics,
-      requestedFrames: 250,
-      tokenizer,
-    })).toEqual({
+    expect(
+      preparePrompt({
+        prompt: fixedPrompt,
+        lyrics: fixedLyrics,
+        requestedFrames: 250,
+        tokenizer,
+      }),
+    ).toEqual({
       assembledPrompt: fixedCase.assembledPrompt,
       promptTokens: 40,
       tokenRows: fixtureRows,

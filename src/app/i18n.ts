@@ -18,8 +18,7 @@ const ko = {
   metaPh: '장르, BPM, Key, 분위기, 믹스 스타일',
   vocalPh: '보컬 유무, 음색, 창법, 화음, 이펙트',
   arrPh: '섹션 진행, 악기 구성, 에너지 변화',
-  fineNote:
-    '세 영역은 순서대로 합쳐져 모델에 전달됩니다. Raw Prompt 탭에서 전체 내용을 확인할 수 있습니다.',
+  fineNote: '세 영역은 순서대로 합쳐져 모델에 전달됩니다. Raw Prompt 탭에서 전체 내용을 확인할 수 있습니다.',
   rawPh: '모델에 전달할 음악 설명을 직접 입력하세요',
   rawNote: 'Raw Prompt를 수정해도 Fine-grained 필드는 그대로 유지됩니다.',
   lyricsTitle: 'Lyrics',
@@ -30,8 +29,7 @@ const ko = {
   maxDur: '최대 길이',
   seedTitle: 'Seed',
   seedPh: '비워두면 랜덤 Seed 사용',
-  seedNote:
-    '실제 사용한 Seed는 생성 결과와 목록에 표시됩니다. 목록에서 곡을 선택하면 해당 Seed가 채워집니다.',
+  seedNote: '실제 사용한 Seed는 생성 결과와 목록에 표시됩니다. 목록에서 곡을 선택하면 해당 Seed가 채워집니다.',
   advanced: '고급 설정',
   reset: '기본값으로 초기화',
   generate: '생성',
@@ -84,8 +82,7 @@ const ko = {
   statRemaining: '남음',
   newTrackLabel: '새 곡',
   newLabel: '새 곡 만들기',
-  newDesc:
-    '입력 패널에서 Prompt와 Lyrics를 작성하고 Generate를 누르면 이 화면에서 생성 과정을 볼 수 있습니다.',
+  newDesc: '입력 패널에서 Prompt와 Lyrics를 작성하고 Generate를 누르면 이 화면에서 생성 과정을 볼 수 있습니다.',
   step1: 'Prompt 작성',
   step2: 'Lyrics 입력 또는 Instrumental 선택',
   step3: 'Generate 실행',
@@ -151,8 +148,7 @@ const en: Messages = {
   metaPh: 'Genre, BPM, key, mood, mix style',
   vocalPh: 'Vocal presence, timbre, delivery, harmonies, effects',
   arrPh: 'Section flow, instrumentation, energy changes',
-  fineNote:
-    'The three fields are merged in order and sent to the model. Check the full text in the Raw Prompt tab.',
+  fineNote: 'The three fields are merged in order and sent to the model. Check the full text in the Raw Prompt tab.',
   rawPh: 'Describe the music to send to the model',
   rawNote: 'Editing the Raw Prompt keeps your Fine-grained fields intact.',
   lyricsTitle: 'Lyrics',
@@ -163,8 +159,7 @@ const en: Messages = {
   maxDur: 'Maximum Duration',
   seedTitle: 'Seed',
   seedPh: 'Leave empty for a random seed',
-  seedNote:
-    'The seed actually used appears in the result and list. Selecting a track fills in its seed.',
+  seedNote: 'The seed actually used appears in the result and list. Selecting a track fills in its seed.',
   advanced: 'Advanced Controls',
   reset: 'Reset to Defaults',
   generate: 'Generate',
@@ -223,8 +218,7 @@ const en: Messages = {
   statRemaining: 'REMAINING',
   newTrackLabel: 'NEW TRACK',
   newLabel: 'Start a New Track',
-  newDesc:
-    'Write your prompt and lyrics in the input panel, then press Generate to watch the process here.',
+  newDesc: 'Write your prompt and lyrics in the input panel, then press Generate to watch the process here.',
   step1: 'Write the prompt',
   step2: 'Add lyrics or choose Instrumental',
   step3: 'Press Generate',

@@ -1,16 +1,13 @@
 import type * as ort from 'onnxruntime-web/jspi';
 
-export async function readGpuFp16Bits(
-  tensor: ort.Tensor,
-  dims: readonly number[],
-  name: string,
-): Promise<Uint16Array> {
+export async function readGpuFp16Bits(tensor: ort.Tensor, dims: readonly number[], name: string): Promise<Uint16Array> {
   if (
-    tensor.type !== 'float16'
-    || tensor.location !== 'gpu-buffer'
-    || tensor.dims.length !== dims.length
-    || tensor.dims.some((value, index) => value !== dims[index])
-  ) throw new Error(`${name} must be a GPU-resident float16 tensor with shape [${dims.join(',')}]`);
+    tensor.type !== 'float16' ||
+    tensor.location !== 'gpu-buffer' ||
+    tensor.dims.length !== dims.length ||
+    tensor.dims.some((value, index) => value !== dims[index])
+  )
+    throw new Error(`${name} must be a GPU-resident float16 tensor with shape [${dims.join(',')}]`);
 
   const data = await tensor.getData();
   if (!(data instanceof Uint16Array) && !(data instanceof Float16Array))

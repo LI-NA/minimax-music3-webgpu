@@ -6,7 +6,11 @@ import { pathToFileURL } from 'node:url';
 const origin = 'http://127.0.0.1:5173';
 const port = Number(process.env.MINIMAX_ARTIFACT_PORT ?? 5174);
 const requestedRelease = process.env.MINIMAX_RELEASE;
-const releaseName = ['global-one-layer', 'rvq', 'condition', 'flow', 'vocoder', 'music-5s', 'music-variable'].includes(requestedRelease) ? requestedRelease : 'global';
+const releaseName = ['global-one-layer', 'rvq', 'condition', 'flow', 'vocoder', 'music-5s', 'music-variable'].includes(
+  requestedRelease,
+)
+  ? requestedRelease
+  : 'global';
 const defaultRoot = resolve(process.env.MINIMAX_RELEASE_ROOT ?? `artifacts/release/${releaseName}`);
 
 function reply(response, status, headers = {}) {
@@ -21,7 +25,8 @@ function range(value, size) {
   if (size === 0) return undefined;
   const start = match[1] === '' ? undefined : Number(match[1]);
   const end = match[2] === '' ? undefined : Number(match[2]);
-  if ((start !== undefined && !Number.isSafeInteger(start)) || (end !== undefined && !Number.isSafeInteger(end))) return undefined;
+  if ((start !== undefined && !Number.isSafeInteger(start)) || (end !== undefined && !Number.isSafeInteger(end)))
+    return undefined;
   if (start === undefined) {
     if (end === undefined || end < 1) return undefined;
     return { start: Math.max(0, size - end), end: size - 1 };

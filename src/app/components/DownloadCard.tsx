@@ -1,10 +1,5 @@
 import type { ArtifactCacheControls, ArtifactCacheUiState } from '../artifact-cache-ui';
-import {
-  deriveArtifactCacheControls,
-  formatBytes,
-  formatEta,
-  formatRate,
-} from '../artifact-cache-ui';
+import { deriveArtifactCacheControls, formatBytes, formatEta, formatRate } from '../artifact-cache-ui';
 import type { Messages } from '../i18n';
 
 export type DownloadCardProps = {
@@ -17,8 +12,7 @@ export type DownloadCardProps = {
   onRefresh: () => void;
 };
 
-const secondaryButton =
-  'rounded-lg border border-line bg-transparent px-3.5 py-1.5 text-[11.5px] text-muted';
+const secondaryButton = 'rounded-lg border border-line bg-transparent px-3.5 py-1.5 text-[11.5px] text-muted';
 
 function detailLine(key: string, value: string) {
   return `${key.padEnd(14)}${value}`;
@@ -40,11 +34,7 @@ export function DownloadCard({
   const totalBytes = progress?.totalBytes ?? status?.totalArtifactBytes ?? 0;
   const percent = totalBytes > 0 ? Math.floor((completedBytes / totalBytes) * 100) : 0;
   const retryable = deriveArtifactCacheControls(cacheState).canRetry;
-  const actionLabel = retryable
-    ? tr.dlRetry
-    : status?.state === 'partial'
-      ? tr.dlResume
-      : tr.dlAction;
+  const actionLabel = retryable ? tr.dlRetry : status?.state === 'partial' ? tr.dlResume : tr.dlAction;
   const details = downloading
     ? [
         progress ? detailLine(tr.dlFile, progress.currentFile) : null,
@@ -74,8 +64,7 @@ export function DownloadCard({
               className="h-full rounded"
               style={{
                 width: downloading && !progress ? '100%' : `${percent}%`,
-                background:
-                  'repeating-linear-gradient(45deg, var(--accent) 0 10px, var(--accent2) 10px 20px)',
+                background: 'repeating-linear-gradient(45deg, var(--accent) 0 10px, var(--accent2) 10px 20px)',
                 backgroundSize: '28px 28px',
                 animation: downloading ? 'slide 1s linear infinite' : undefined,
               }}
@@ -94,22 +83,17 @@ export function DownloadCard({
       {status && status.sufficient === false && (
         <div className="text-[11.5px] leading-normal text-danger">
           {tr.dlInsufficient}{' '}
-          {status.availableBytes !== undefined &&
-            `${formatBytes(status.availableBytes)} ${tr.dlAvailable} · `}
+          {status.availableBytes !== undefined && `${formatBytes(status.availableBytes)} ${tr.dlAvailable} · `}
           {formatBytes(status.requiredHeadroomBytes)} {tr.dlRequired}
         </div>
       )}
       {cacheState.persistenceWarning && (
-        <div className="text-[11px] leading-normal text-muted2">
-          {cacheState.persistenceWarning}
-        </div>
+        <div className="text-[11px] leading-normal text-muted2">{cacheState.persistenceWarning}</div>
       )}
       {status?.persistence === 'best-effort' && (
         <div className="text-[11px] leading-normal text-muted2">{tr.dlBestEffort}</div>
       )}
-      {cacheState.notice && (
-        <div className="text-[11px] leading-normal text-muted2">{cacheState.notice}</div>
-      )}
+      {cacheState.notice && <div className="text-[11px] leading-normal text-muted2">{cacheState.notice}</div>}
       <div className="text-[11px] leading-relaxed text-muted2">{tr.dlNote}</div>
       <div className="flex flex-wrap gap-2">
         {(controls.canDownload || controls.canRetry) && (

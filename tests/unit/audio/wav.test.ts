@@ -1,18 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  createStereoPcm16Wav,
-  encodeStereoPcm16Wav,
-  writeStereoPcm16WavChannel,
-} from '../../../src/runtime/audio/wav';
+import { createStereoPcm16Wav, encodeStereoPcm16Wav, writeStereoPcm16WavChannel } from '../../../src/runtime/audio/wav';
 
 describe('encodeStereoPcm16Wav', () => {
   it('writes the exact fixed five-second stereo container size and header', () => {
     const samples = 220_160;
-    const wav = encodeStereoPcm16Wav([
-      new Float32Array(samples),
-      new Float32Array(samples),
-    ]);
+    const wav = encodeStereoPcm16Wav([new Float32Array(samples), new Float32Array(samples)]);
     const view = new DataView(wav);
 
     expect(wav.byteLength).toBe(880_684);
@@ -31,29 +24,21 @@ describe('encodeStereoPcm16Wav', () => {
   });
 
   it('clamps, scales, and interleaves signed PCM16 samples', () => {
-    const wav = encodeStereoPcm16Wav([
-      Float32Array.of(-2, -0.5, 1),
-      Float32Array.of(2, 0.5, 0),
-    ]);
+    const wav = encodeStereoPcm16Wav([Float32Array.of(-2, -0.5, 1), Float32Array.of(2, 0.5, 0)]);
     const view = new DataView(wav);
 
     expect(Array.from({ length: 6 }, (_, index) => view.getInt16(44 + index * 2, true))).toEqual([
-      -32_768,
-      32_767,
-      -16_384,
-      16_384,
-      32_767,
-      0,
+      -32_768, 32_767, -16_384, 16_384, 32_767, 0,
     ]);
   });
 
   it('rejects unequal channels and non-finite samples', () => {
-    expect(() =>
-      encodeStereoPcm16Wav([Float32Array.of(0), Float32Array.of(0, 1)]),
-    ).toThrow('channel lengths must match');
-    expect(() =>
-      encodeStereoPcm16Wav([Float32Array.of(Number.NaN), Float32Array.of(0)]),
-    ).toThrow('samples must be finite');
+    expect(() => encodeStereoPcm16Wav([Float32Array.of(0), Float32Array.of(0, 1)])).toThrow(
+      'channel lengths must match',
+    );
+    expect(() => encodeStereoPcm16Wav([Float32Array.of(Number.NaN), Float32Array.of(0)])).toThrow(
+      'samples must be finite',
+    );
   });
 });
 
@@ -78,17 +63,15 @@ describe('direct stereo PCM16 WAV assembly', () => {
     expect(Array.from({ length: 8 }, (_, index) => view.getInt16(44 + index * 2, true))).toEqual([
       0, 0, -32_768, 32_767, 16_384, -16_384, 0, 0,
     ]);
-    expect(() => writeStereoPcm16WavChannel(
-      wav, 0, 0, Float32Array.of(Number.POSITIVE_INFINITY),
-    )).toThrow('samples must be finite');
-    expect(() => writeStereoPcm16WavChannel(
-      wav, 1, 4, Float32Array.of(0),
-    )).toThrow('channel write exceeds WAV sample capacity');
+    expect(() => writeStereoPcm16WavChannel(wav, 0, 0, Float32Array.of(Number.POSITIVE_INFINITY))).toThrow(
+      'samples must be finite',
+    );
+    expect(() => writeStereoPcm16WavChannel(wav, 1, 4, Float32Array.of(0))).toThrow(
+      'channel write exceeds WAV sample capacity',
+    );
   });
 });
 
 function ascii(view: DataView, offset: number, length: number): string {
-  return String.fromCharCode(
-    ...Array.from({ length }, (_, index) => view.getUint8(offset + index)),
-  );
+  return String.fromCharCode(...Array.from({ length }, (_, index) => view.getUint8(offset + index)));
 }

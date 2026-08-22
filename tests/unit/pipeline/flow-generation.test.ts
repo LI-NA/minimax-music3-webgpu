@@ -26,7 +26,9 @@ class FakeTensor {
     this.location = location;
   }
 
-  dispose() { this.disposed = true; }
+  dispose() {
+    this.disposed = true;
+  }
   async getData() {
     this.getDataCalls++;
     this.onGetData?.();
@@ -35,10 +37,9 @@ class FakeTensor {
 }
 
 const bits = (values: Float32Array) => Array.from(new Uint32Array(values.buffer));
-const fixedCase = JSON.parse(readFileSync(
-  new URL('../../../tools/reference/fixed_case.json', import.meta.url),
-  'utf8',
-)) as {
+const fixedCase = JSON.parse(
+  readFileSync(new URL('../../../tools/reference/fixed_case.json', import.meta.url), 'utf8'),
+) as {
   timestepF32Bits: number[];
   dtF32Bits: number[];
   flowScheduleRevision: string;
@@ -62,8 +63,7 @@ describe('fixed flow schedule', () => {
 
     expect(timestepBits).toEqual(fixedCase.timestepF32Bits);
     expect(dtBits).toEqual(fixedCase.dtF32Bits);
-    expect(`sha256:${createHash('sha256').update(raw).digest('hex')}`)
-      .toBe(fixedCase.flowScheduleRevision);
+    expect(`sha256:${createHash('sha256').update(raw).digest('hex')}`).toBe(fixedCase.flowScheduleRevision);
   });
 
   it('matches the pinned numpy linspace schedule for any positive step count', () => {
@@ -79,19 +79,18 @@ describe('fixed flow schedule', () => {
     expect(Array.from(exactFlowSchedule(1).dts)).toEqual([1]);
   });
 
-  it.each([0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
-    'rejects invalid step count %s',
-    (stepCount) => {
-      expect(() => exactFlowSchedule(stepCount)).toThrow('positive safe integer');
-    },
-  );
+  it.each([0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])('rejects invalid step count %s', (stepCount) => {
+    expect(() => exactFlowSchedule(stepCount)).toThrow('positive safe integer');
+  });
 });
 
 describe('flow output finite checks', () => {
   it('accepts raw FP16 bits and decoded Float16Array or Float32Array values', () => {
-    const Float16 = (globalThis as unknown as {
-      Float16Array: { from(values: readonly number[]): ArrayLike<number> };
-    }).Float16Array;
+    const Float16 = (
+      globalThis as unknown as {
+        Float16Array: { from(values: readonly number[]): ArrayLike<number> };
+      }
+    ).Float16Array;
 
     expect(areFiniteFlowValues(new Uint16Array([0x0000, 0x3c00, 0xbc00]))).toBe(true);
     expect(areFiniteFlowValues(new Uint16Array([0x7c00]))).toBe(false);
@@ -114,17 +113,24 @@ describe('fixed flow generation', () => {
       const condition = new FakeTensor('float16', new Uint16Array(), [1, 430, 2048]);
       let calls = 0;
 
-      await expect(runFixedFlowGeneration(
-        {
-          ort: { Tensor: FakeTensor } as never,
-          session: { run: async () => { calls++; return {}; } } as never,
-        },
-        initial as never,
-        condition as never,
-        undefined,
-        1.7,
-        stepCount,
-      )).rejects.toThrow('positive safe integer');
+      await expect(
+        runFixedFlowGeneration(
+          {
+            ort: { Tensor: FakeTensor } as never,
+            session: {
+              run: async () => {
+                calls++;
+                return {};
+              },
+            } as never,
+          },
+          initial as never,
+          condition as never,
+          undefined,
+          1.7,
+          stepCount,
+        ),
+      ).rejects.toThrow('positive safe integer');
       expect(calls).toBe(0);
     },
   );
@@ -175,11 +181,13 @@ describe('fixed flow generation', () => {
       }),
     };
 
-    await expect(runFixedFlowGeneration(
-      { ort: { Tensor: FakeTensor } as never, session: session as never },
-      initial as never,
-      condition as never,
-    )).rejects.toThrow('next_latents must be a GPU-resident float16 tensor');
+    await expect(
+      runFixedFlowGeneration(
+        { ort: { Tensor: FakeTensor } as never, session: session as never },
+        initial as never,
+        condition as never,
+      ),
+    ).rejects.toThrow('next_latents must be a GPU-resident float16 tensor');
   });
 });
 
@@ -198,9 +206,7 @@ describe('official chunked flow generation', () => {
       const values = new Uint16Array(128 * latentLength);
       for (let channel = 0; channel < 128; channel++)
         for (let index = 0; index < latentLength; index++)
-          values[channel * latentLength + index] = chunkIndex === 0
-            ? 0x0400 + index
-            : 0x2400 + index;
+          values[channel * latentLength + index] = chunkIndex === 0 ? 0x0400 + index : 0x2400 + index;
       return values;
     });
     const conditionFeeds: Record<string, FakeTensor>[] = [];
@@ -213,9 +219,9 @@ describe('official chunked flow generation', () => {
         for (let latent = 0; latent < maxLatents; latent++)
           values.fill(0x1000 * (chunkIndex + 1) + latent, latent * conditionWidth, (latent + 1) * conditionWidth);
         now += 5;
-        const output = new FakeTensor(
-          'float16', values, [1, maxLatents, conditionWidth], 'gpu-buffer', () => { now += 2; },
-        );
+        const output = new FakeTensor('float16', values, [1, maxLatents, conditionWidth], 'gpu-buffer', () => {
+          now += 2;
+        });
         conditionOutputs.push(output);
         return { condition: output };
       },
@@ -234,12 +240,17 @@ describe('official chunked flow generation', () => {
         const values = new Uint16Array(128 * maxLatents);
         for (let channel = 0; channel < 128; channel++)
           for (let index = 0; index < maxLatents; index++)
-            values[channel * maxLatents + index] = chunkIndex === 0
-              ? 0x4000 + index
-              : 0x6000 + step;
+            values[channel * maxLatents + index] = chunkIndex === 0 ? 0x4000 + index : 0x6000 + step;
         const output = new FakeTensor(
-          'float16', values, [1, 128, maxLatents], 'gpu-buffer',
-          step === 6 ? () => { now += 3; } : undefined,
+          'float16',
+          values,
+          [1, 128, maxLatents],
+          'gpu-buffer',
+          step === 6
+            ? () => {
+                now += 3;
+              }
+            : undefined,
         );
         flowOutputs.push(output);
         return { next_latents: output };
@@ -259,15 +270,13 @@ describe('official chunked flow generation', () => {
         flowGuidance: 1.25,
         flowSteps: 7,
         onConditionStart: (chunkIndex) => ordering.push(`condition-start:${chunkIndex}`),
-        onConditionComplete: ({ chunkIndex, elapsedMs }) =>
-          ordering.push(`condition:${chunkIndex}:${elapsedMs}`),
+        onConditionComplete: ({ chunkIndex, elapsedMs }) => ordering.push(`condition:${chunkIndex}:${elapsedMs}`),
         onChunkStart: (chunkIndex, globalCompletedSteps) => {
           expect(conditionOutputs[chunkIndex].getDataCalls).toBe(1);
           expect(conditionOutputs[chunkIndex].disposed).toBe(true);
           ordering.push(`start:${chunkIndex}:${globalCompletedSteps}`);
         },
-        onChunkComplete: ({ chunkIndex, elapsedMs }) =>
-          ordering.push(`complete:${chunkIndex}:${elapsedMs}`),
+        onChunkComplete: ({ chunkIndex, elapsedMs }) => ordering.push(`complete:${chunkIndex}:${elapsedMs}`),
         onStep: (step) => completedSteps.push(step),
       },
     );
@@ -275,8 +284,10 @@ describe('official chunked flow generation', () => {
     expect(result.map(({ startFrame }) => startFrame)).toEqual([0, 100]);
     expect(result.map(({ frameLength }) => frameLength)).toEqual([200, 150]);
     expect(result.map(({ latentLength }) => latentLength)).toEqual([689, 516]);
-    expect(result.map(({ cropLeftLatents, cropRightLatents }) => [cropLeftLatents, cropRightLatents]))
-      .toEqual([[0, 258], [86, 0]]);
+    expect(result.map(({ cropLeftLatents, cropRightLatents }) => [cropLeftLatents, cropRightLatents])).toEqual([
+      [0, 258],
+      [86, 0],
+    ]);
     expect(conditionFeeds).toHaveLength(2);
     expect(conditionFeeds.map((feed) => feed.frame_hiddens.data[0])).toEqual([0x1111, 0x2222]);
     expect(conditionFeeds[1].frame_hiddens.data[150 * 32_768]).toBe(0);
@@ -304,26 +315,37 @@ describe('official chunked flow generation', () => {
     const expectedCarry = Array.from({ length: overlapLatents }, (_, index) => 0x4000 + 345 + index);
     const expectedNoisePrompt = Array.from({ length: overlapLatents }, (_, index) => 0x2400 + index);
     expect(secondChunkFeeds.every((feed) => feed.overlap_enabled.data[0] === 0x3c00)).toBe(true);
-    expect(secondChunkFeeds.every((feed) =>
-      Array.from((feed.previous_latent.data as Uint16Array).slice(0, overlapLatents)).join(',')
-      === expectedCarry.join(','),
-    )).toBe(true);
-    expect(secondChunkFeeds.every((feed) =>
-      Array.from((feed.noise_prompt.data as Uint16Array).slice(0, overlapLatents)).join(',')
-      === expectedNoisePrompt.join(','),
-    )).toBe(true);
-    expect(secondChunkFeeds.every((feed) => {
-      const condition = feed.condition.data as Uint16Array;
-      return condition[0] === 0x1000 + 345
-        && condition[(overlapLatents - 1) * conditionWidth] === 0x1000 + 516
-        && condition[516 * conditionWidth] === 0;
-    })).toBe(true);
-    expect(secondChunkFeeds.every((feed) => {
-      const mask = feed.active_latent_mask.data as Uint16Array;
-      const bias = feed.key_attention_bias.data as Uint16Array;
-      return mask[515] === 0x3c00 && mask[516] === 0
-        && bias[516] === 0 && bias[517] === 0xfbff;
-    })).toBe(true);
+    expect(
+      secondChunkFeeds.every(
+        (feed) =>
+          Array.from((feed.previous_latent.data as Uint16Array).slice(0, overlapLatents)).join(',') ===
+          expectedCarry.join(','),
+      ),
+    ).toBe(true);
+    expect(
+      secondChunkFeeds.every(
+        (feed) =>
+          Array.from((feed.noise_prompt.data as Uint16Array).slice(0, overlapLatents)).join(',') ===
+          expectedNoisePrompt.join(','),
+      ),
+    ).toBe(true);
+    expect(
+      secondChunkFeeds.every((feed) => {
+        const condition = feed.condition.data as Uint16Array;
+        return (
+          condition[0] === 0x1000 + 345 &&
+          condition[(overlapLatents - 1) * conditionWidth] === 0x1000 + 516 &&
+          condition[516 * conditionWidth] === 0
+        );
+      }),
+    ).toBe(true);
+    expect(
+      secondChunkFeeds.every((feed) => {
+        const mask = feed.active_latent_mask.data as Uint16Array;
+        const bias = feed.key_attention_bias.data as Uint16Array;
+        return mask[515] === 0x3c00 && mask[516] === 0 && bias[516] === 0 && bias[517] === 0xfbff;
+      }),
+    ).toBe(true);
     expect(flowFeeds.slice(1, 7).every((feed) => feed.latents.location === 'gpu-buffer')).toBe(true);
     expect(flowFeeds.slice(8).every((feed) => feed.latents.location === 'gpu-buffer')).toBe(true);
     const secondInitial = flowFeeds[7].latents.data as Uint16Array;
@@ -331,10 +353,9 @@ describe('official chunked flow generation', () => {
     expect(secondInitial[516]).toBe(0);
 
     for (let channel = 0; channel < 128; channel++)
-      expect(Array.from(result[1].latentBits.slice(
-        channel * 516,
-        channel * 516 + overlapLatents,
-      ))).toEqual(expectedCarry);
+      expect(Array.from(result[1].latentBits.slice(channel * 516, channel * 516 + overlapLatents))).toEqual(
+        expectedCarry,
+      );
     expect(result[1].latentBits[overlapLatents]).toBe(0x6000 + 6);
     expect(result.map(({ latentBits }) => latentBits.length)).toEqual([128 * 689, 128 * 516]);
     nowSpy.mockRestore();
@@ -348,31 +369,35 @@ describe('official chunked flow generation', () => {
     let chunkCompletions = 0;
     let flowCalls = 0;
 
-    await expect(runChunkedFlowGeneration(
-      {
-        ort: { Tensor: FakeTensor } as never,
-        conditionSession: {
-          run: async () => { throw new Error('condition failed'); },
-        } as never,
-        flowSession: {
-          run: async () => {
-            flowCalls++;
-            return {};
-          },
-        } as never,
-      },
-      {
-        plan,
-        frameHiddens: new Uint16Array(plan.retainedFrames * 32_768),
-        initialLatents: plan.chunks.map(({ latentLength }) => new Uint16Array(128 * latentLength)),
-        flowGuidance: 1.7,
-        flowSteps: 30,
-        onConditionStart: (chunkIndex) => conditionStarts.push(chunkIndex),
-        onConditionComplete: () => conditionCompletions++,
-        onChunkStart: () => chunkStarts++,
-        onChunkComplete: () => chunkCompletions++,
-      },
-    )).rejects.toThrow('condition failed');
+    await expect(
+      runChunkedFlowGeneration(
+        {
+          ort: { Tensor: FakeTensor } as never,
+          conditionSession: {
+            run: async () => {
+              throw new Error('condition failed');
+            },
+          } as never,
+          flowSession: {
+            run: async () => {
+              flowCalls++;
+              return {};
+            },
+          } as never,
+        },
+        {
+          plan,
+          frameHiddens: new Uint16Array(plan.retainedFrames * 32_768),
+          initialLatents: plan.chunks.map(({ latentLength }) => new Uint16Array(128 * latentLength)),
+          flowGuidance: 1.7,
+          flowSteps: 30,
+          onConditionStart: (chunkIndex) => conditionStarts.push(chunkIndex),
+          onConditionComplete: () => conditionCompletions++,
+          onChunkStart: () => chunkStarts++,
+          onChunkComplete: () => chunkCompletions++,
+        },
+      ),
+    ).rejects.toThrow('condition failed');
 
     expect(chunkStarts).toBe(0);
     expect(conditionStarts).toEqual([0]);
@@ -387,43 +412,35 @@ describe('official chunked flow generation', () => {
     let conditionCompletions = 0;
     let chunkCompletions = 0;
 
-    await expect(runChunkedFlowGeneration(
-      {
-        ort: { Tensor: FakeTensor } as never,
-        conditionSession: {
-          run: async () => ({
-            condition: new FakeTensor(
-              'float16',
-              new Uint16Array(689 * 2048),
-              [1, 689, 2048],
-              'gpu-buffer',
-            ),
-          }),
-        } as never,
-        flowSession: {
-          run: async () => {
-            flowCalls++;
-            return {
-              next_latents: new FakeTensor(
-                'float16',
-                new Uint16Array(),
-                [1, 128, 689],
-                'gpu-buffer',
-              ),
-            };
-          },
-        } as never,
-      },
-      {
-        plan,
-        frameHiddens: new Uint16Array(plan.retainedFrames * 32_768),
-        initialLatents: [new Uint16Array(128 * plan.chunks[0].latentLength)],
-        flowGuidance: 1.7,
-        flowSteps: 30,
-        onConditionComplete: () => conditionCompletions++,
-        onChunkComplete: () => chunkCompletions++,
-      },
-    )).rejects.toThrow('final latents downloader returned 0 values');
+    await expect(
+      runChunkedFlowGeneration(
+        {
+          ort: { Tensor: FakeTensor } as never,
+          conditionSession: {
+            run: async () => ({
+              condition: new FakeTensor('float16', new Uint16Array(689 * 2048), [1, 689, 2048], 'gpu-buffer'),
+            }),
+          } as never,
+          flowSession: {
+            run: async () => {
+              flowCalls++;
+              return {
+                next_latents: new FakeTensor('float16', new Uint16Array(), [1, 128, 689], 'gpu-buffer'),
+              };
+            },
+          } as never,
+        },
+        {
+          plan,
+          frameHiddens: new Uint16Array(plan.retainedFrames * 32_768),
+          initialLatents: [new Uint16Array(128 * plan.chunks[0].latentLength)],
+          flowGuidance: 1.7,
+          flowSteps: 30,
+          onConditionComplete: () => conditionCompletions++,
+          onChunkComplete: () => chunkCompletions++,
+        },
+      ),
+    ).rejects.toThrow('final latents downloader returned 0 values');
 
     expect(flowCalls).toBe(30);
     expect(conditionCompletions).toBe(1);
@@ -463,10 +480,8 @@ describe('flow browser smoke', () => {
     expect(result.stepMs).toHaveLength(30);
     expect(outputs.filter((tensor) => tensor.getDataCalls > 0)).toEqual([outputs[0], outputs[30]]);
     expect(outputs.every((tensor) => tensor.disposed)).toBe(true);
-    expect(Array.from((feeds[0].latents.data as Uint16Array).slice(0, 4)))
-      .toEqual([0x2c00, 0xac00, 0x2c00, 0xac00]);
-    expect(Array.from((feeds[0].condition.data as Uint16Array).slice(0, 4)))
-      .toEqual([0x2800, 0xa800, 0x2800, 0xa800]);
+    expect(Array.from((feeds[0].latents.data as Uint16Array).slice(0, 4))).toEqual([0x2c00, 0xac00, 0x2c00, 0xac00]);
+    expect(Array.from((feeds[0].condition.data as Uint16Array).slice(0, 4))).toEqual([0x2800, 0xa800, 0x2800, 0xa800]);
     expect(feeds[0].latents.disposed).toBe(true);
     expect(feeds[0].condition.disposed).toBe(true);
     expect(feeds[1].latents.disposed).toBe(true);

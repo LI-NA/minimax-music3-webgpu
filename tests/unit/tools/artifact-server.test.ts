@@ -57,7 +57,9 @@ afterAll(() => stopServer(server));
 
 describe('artifact range server', () => {
   it('serves a contained single byte range and rejects traversal', async () => {
-    const range = await fetch(`http://127.0.0.1:${port}/sample.bin`, { headers: { Range: 'bytes=1-2' } });
+    const range = await fetch(`http://127.0.0.1:${port}/sample.bin`, {
+      headers: { Range: 'bytes=1-2' },
+    });
     expect(range.status).toBe(206);
     expect(range.headers.get('accept-ranges')).toBe('bytes');
     expect(range.headers.get('content-range')).toBe('bytes 1-2/4');
@@ -112,7 +114,9 @@ describe('artifact range server', () => {
       }
       expect(streamFailed).toBe(true);
 
-      const followup = await fetch(`http://127.0.0.1:${failingPort}/sample.bin`, { method: 'HEAD' });
+      const followup = await fetch(`http://127.0.0.1:${failingPort}/sample.bin`, {
+        method: 'HEAD',
+      });
       expect(followup.status).toBe(200);
       expect(failingServer.exitCode).toBeNull();
     } finally {

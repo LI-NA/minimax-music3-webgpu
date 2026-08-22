@@ -31,11 +31,7 @@ function finite(data: ort.Tensor['data']) {
 }
 
 export async function runConditionSmoke(runtime: ConditionSmokeRuntime): Promise<ConditionSmokeMetrics> {
-  const input = new runtime.ort.Tensor(
-    'float16',
-    analyticInput(),
-    [1, frameCount, hiddenGroups * hiddenSize],
-  );
+  const input = new runtime.ort.Tensor('float16', analyticInput(), [1, frameCount, hiddenGroups * hiddenSize]);
   let output: ort.Tensor | undefined;
   try {
     const started = performance.now();

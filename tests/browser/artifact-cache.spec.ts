@@ -6,12 +6,8 @@ test('resumes an interrupted artifact download in OPFS and deletes only project 
   const result = await page.evaluate(async () => {
     const cacheModuleUrl = '/src/runtime/model/artifact-cache.ts';
     const managementModuleUrl = '/src/runtime/model/artifact-cache-management.ts';
-    const { ensureArtifact, OpfsArtifactStore } = await import(
-      /* @vite-ignore */ cacheModuleUrl
-    );
-    const { deleteProjectArtifactCaches, inspectArtifactCache } = await import(
-      /* @vite-ignore */ managementModuleUrl
-    );
+    const { ensureArtifact, OpfsArtifactStore } = await import(/* @vite-ignore */ cacheModuleUrl);
+    const { deleteProjectArtifactCaches, inspectArtifactCache } = await import(/* @vite-ignore */ managementModuleUrl);
     const root = await navigator.storage.getDirectory();
     const iterableRoot = root as FileSystemDirectoryHandle & {
       entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
@@ -22,12 +18,7 @@ test('resumes an interrupted artifact download in OPFS and deletes only project 
     const extraProjectCacheName = `minimax-music3-${extraProjectHash}`;
     const unrelatedName = 'artifact-cache-browser-unrelated';
     const nearMatchName = `${artifactCacheName}-extra`;
-    const fixtureNames = [
-      artifactCacheName,
-      extraProjectCacheName,
-      unrelatedName,
-      nearMatchName,
-    ];
+    const fixtureNames = [artifactCacheName, extraProjectCacheName, unrelatedName, nearMatchName];
     const ownedNames = new Set<string>();
     const projectCachePattern = /^minimax-music3-[a-f0-9]{64}$/;
     const listDirectories = async () => {
@@ -44,10 +35,7 @@ test('resumes an interrupted artifact download in OPFS and deletes only project 
         try {
           await root.removeEntry(name, { recursive: true });
         } catch (error) {
-          if (
-            !(error instanceof DOMException && error.name === 'NotFoundError')
-            && !cleanupFailed
-          ) {
+          if (!(error instanceof DOMException && error.name === 'NotFoundError') && !cleanupFailed) {
             cleanupFailed = true;
             firstCleanupError = error;
           }
@@ -78,9 +66,8 @@ test('resumes an interrupted artifact download in OPFS and deletes only project 
       }
 
       const data = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
-      const sha256 = Array.from(
-        new Uint8Array(await crypto.subtle.digest('SHA-256', data)),
-        (byte) => byte.toString(16).padStart(2, '0'),
+      const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', data)), (byte) =>
+        byte.toString(16).padStart(2, '0'),
       ).join('');
       const artifact = { path: 'tiny.bin', bytes: data.byteLength, sha256 };
       const source = new URL('https://artifact-cache.test/tiny.bin');

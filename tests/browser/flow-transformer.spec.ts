@@ -17,8 +17,8 @@ test('runs one and 30 fixed flow steps on WebGPU and reuses its OPFS release', a
     const progress = page.locator('output');
     await page.waitForFunction(
       () =>
-        document.querySelector('[data-testid="flow-smoke-result"]')
-        || document.querySelector('output')?.textContent?.startsWith('Error:'),
+        document.querySelector('[data-testid="flow-smoke-result"]') ||
+        document.querySelector('output')?.textContent?.startsWith('Error:'),
       undefined,
       { timeout: 30 * 60_000 },
     );

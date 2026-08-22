@@ -44,10 +44,7 @@ export function resolveCaptureLayout(
   const artifactRoot = path.resolve(checkoutRoot, 'artifacts');
   const captureRoot = path.join(artifactRoot, 'reference', 'captures');
   const caseRoot = path.join(artifactRoot, 'reference', 'cases');
-  const profileRoot = path.join(
-    artifactRoot,
-    linkedWorktree ? 'worktree-profiles' : 'browser-profiles',
-  );
+  const profileRoot = path.join(artifactRoot, linkedWorktree ? 'worktree-profiles' : 'browser-profiles');
   const captureDirectory = path.join(captureRoot, captureId);
   const caseDirectory = path.join(caseRoot, captureId);
   if (linkedWorktree && !requestedProfile)
@@ -55,8 +52,7 @@ export function resolveCaptureLayout(
   const profile = requestedProfile
     ? path.resolve(checkoutRoot, requestedProfile)
     : path.join(profileRoot, 'variable-duration', 'task11');
-  if (!canonicalContainedChild(captureRoot, captureDirectory)
-    || !canonicalContainedChild(caseRoot, caseDirectory))
+  if (!canonicalContainedChild(captureRoot, captureDirectory) || !canonicalContainedChild(caseRoot, caseDirectory))
     throw new Error('capture and case paths must remain inside their artifact roots');
   if (!canonicalContainedChild(profileRoot, profile)) {
     const rootName = linkedWorktree ? 'worktree-profiles' : 'browser-profiles';
@@ -73,14 +69,9 @@ export function resolveCaptureLayout(
   };
 }
 
-export function assertFreshCaptureLayout(
-  layout: ReferenceCaptureLayout,
-  exists: (candidate: string) => boolean,
-) {
-  if (exists(layout.captureDirectory))
-    throw new Error(`reference capture already exists: ${layout.captureDirectory}`);
-  if (exists(layout.caseDirectory))
-    throw new Error(`reference case already exists: ${layout.caseDirectory}`);
+export function assertFreshCaptureLayout(layout: ReferenceCaptureLayout, exists: (candidate: string) => boolean) {
+  if (exists(layout.captureDirectory)) throw new Error(`reference capture already exists: ${layout.captureDirectory}`);
+  if (exists(layout.caseDirectory)) throw new Error(`reference case already exists: ${layout.caseDirectory}`);
 }
 
 export function assertMatchingWavSha256(first: string, second: string) {
@@ -95,19 +86,19 @@ export function analyzeCanonicalPcm16Wav(bytes: Uint8Array): CanonicalWavAnalysi
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const dataBytes = view.getUint32(40, true);
   const canonical =
-    ascii(bytes, 0, 4) === 'RIFF'
-    && view.getUint32(4, true) === bytes.byteLength - 8
-    && ascii(bytes, 8, 8) === 'WAVEfmt '
-    && view.getUint32(16, true) === 16
-    && view.getUint16(20, true) === 1
-    && view.getUint16(22, true) === 2
-    && view.getUint32(24, true) === 44_100
-    && view.getUint32(28, true) === 176_400
-    && view.getUint16(32, true) === 4
-    && view.getUint16(34, true) === 16
-    && ascii(bytes, 36, 4) === 'data'
-    && dataBytes === bytes.byteLength - 44
-    && dataBytes % 4 === 0;
+    ascii(bytes, 0, 4) === 'RIFF' &&
+    view.getUint32(4, true) === bytes.byteLength - 8 &&
+    ascii(bytes, 8, 8) === 'WAVEfmt ' &&
+    view.getUint32(16, true) === 16 &&
+    view.getUint16(20, true) === 1 &&
+    view.getUint16(22, true) === 2 &&
+    view.getUint32(24, true) === 44_100 &&
+    view.getUint32(28, true) === 176_400 &&
+    view.getUint16(32, true) === 4 &&
+    view.getUint16(34, true) === 16 &&
+    ascii(bytes, 36, 4) === 'data' &&
+    dataBytes === bytes.byteLength - 44 &&
+    dataBytes % 4 === 0;
   if (!canonical) throw new Error('WAV must be canonical PCM16 stereo at 44,100 Hz');
 
   const samplesPerChannel = dataBytes / 4;
@@ -127,8 +118,7 @@ export function analyzeCanonicalPcm16Wav(bytes: Uint8Array): CanonicalWavAnalysi
     if (left === previousLeft && right === previousRight) currentConstantFrameRun++;
     else currentConstantFrameRun = 1;
     longestConstantFrameRun = Math.max(longestConstantFrameRun, currentConstantFrameRun);
-    if (frame >= finalSecondStart)
-      finalSecondDelta += Math.abs(left - previousLeft) + Math.abs(right - previousRight);
+    if (frame >= finalSecondStart) finalSecondDelta += Math.abs(left - previousLeft) + Math.abs(right - previousRight);
     previousLeft = left;
     previousRight = right;
   }

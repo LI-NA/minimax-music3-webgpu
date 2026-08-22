@@ -40,13 +40,7 @@ export type GenerationProgressProps = {
   onCancel: () => void;
 };
 
-export function GenerationProgress({
-  tr,
-  track,
-  view,
-  elapsedMs,
-  onCancel,
-}: GenerationProgressProps) {
+export function GenerationProgress({ tr, track, view, elapsedMs, onCancel }: GenerationProgressProps) {
   const percent = generationPercent(view);
   const elapsed = formatSpan(elapsedMs / 1000);
   const remaining = view.etaMs !== undefined ? formatSpan(view.etaMs / 1000) : '--';
@@ -67,8 +61,8 @@ export function GenerationProgress({
           </div>
           <div className="mt-1 text-[22px] font-bold tracking-tight">{track.settings.title}</div>
           <div className="mt-1.5 font-mono text-[11px] text-muted">
-            Seed {track.settings.seed} · {track.settings.mode === 'fine' ? tr.fineTab : tr.rawTab} ·{' '}
-            {tr.target} {track.settings.durationSeconds}s
+            Seed {track.settings.seed} · {track.settings.mode === 'fine' ? tr.fineTab : tr.rawTab} · {tr.target}{' '}
+            {track.settings.durationSeconds}s
           </div>
         </div>
         <button
@@ -104,11 +98,7 @@ export function GenerationProgress({
         {stats.map((cell) => (
           <div key={cell.key} className="rounded-[10px] border border-line bg-panel px-3 py-2.5">
             <div className="font-mono text-[8.5px] tracking-[.1em] text-muted2">{cell.key}</div>
-            <div
-              className={`mt-[5px] whitespace-nowrap font-mono text-sm ${
-                cell.accent ? 'text-accent' : 'text-ink'
-              }`}
-            >
+            <div className={`mt-[5px] whitespace-nowrap font-mono text-sm ${cell.accent ? 'text-accent' : 'text-ink'}`}>
               {cell.value}
             </div>
           </div>
@@ -120,10 +110,7 @@ export function GenerationProgress({
           const active = index === view.stageIndex;
           const finished = index < view.stageIndex;
           return (
-            <div
-              key={name}
-              className={`rounded-lg px-3 py-[9px] ${active ? 'bg-accent-soft' : ''}`}
-            >
+            <div key={name} className={`rounded-lg px-3 py-[9px] ${active ? 'bg-accent-soft' : ''}`}>
               <div className="flex items-center gap-3">
                 <div
                   className={`w-[18px] font-mono text-[10px] ${
@@ -140,11 +127,7 @@ export function GenerationProgress({
                   {name}
                 </div>
                 <div className={`font-mono text-[10.5px] ${finished ? 'text-good' : 'text-muted'}`}>
-                  {finished
-                    ? tr.done
-                    : active && !view.indeterminate
-                      ? `${Math.round(view.stageFraction * 100)}%`
-                      : ''}
+                  {finished ? tr.done : active && !view.indeterminate ? `${Math.round(view.stageFraction * 100)}%` : ''}
                 </div>
               </div>
               {active && (
@@ -154,9 +137,7 @@ export function GenerationProgress({
                       view.indeterminate ? 'animate-[pulse_1.4s_ease-in-out_infinite]' : ''
                     }`}
                     style={{
-                      width: view.indeterminate
-                        ? '100%'
-                        : `${Math.round(view.stageFraction * 100)}%`,
+                      width: view.indeterminate ? '100%' : `${Math.round(view.stageFraction * 100)}%`,
                     }}
                   />
                 </div>
@@ -169,9 +150,7 @@ export function GenerationProgress({
       {flowCellCount > 0 && (
         <div className="rounded-xl border border-line bg-panel px-4 py-3.5">
           <div className="mb-2.5 flex items-baseline">
-            <div className="font-mono text-[9px] tracking-[.12em] text-muted2">
-              {tr.flowStepsLabel}
-            </div>
+            <div className="font-mono text-[9px] tracking-[.12em] text-muted2">{tr.flowStepsLabel}</div>
             <div className="flex-1" />
             <div className="font-mono text-[10px] text-muted">
               {view.flow!.completed} / {view.flow!.total}

@@ -87,12 +87,8 @@ export function Header({
     <header className="flex h-[52px] flex-none items-center gap-3.5 border-b border-line bg-panel px-4">
       <div className="size-2.5 flex-none rotate-45 rounded-[2px] bg-accent" />
       <div className="flex min-w-0 items-baseline gap-2.5">
-        <div className="whitespace-nowrap text-[15px] font-bold tracking-tight">
-          MiniMax Music 3
-        </div>
-        <div className="whitespace-nowrap font-mono text-[10px] tracking-[.1em] text-muted">
-          WEBGPU
-        </div>
+        <div className="whitespace-nowrap text-[15px] font-bold tracking-tight">MiniMax Music 3</div>
+        <div className="whitespace-nowrap font-mono text-[10px] tracking-[.1em] text-muted">WEBGPU</div>
         {!isMid && <div className="whitespace-nowrap text-[11px] text-muted2">{tr.tagline}</div>}
       </div>
       <div className="flex-1" />

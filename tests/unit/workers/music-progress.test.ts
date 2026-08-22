@@ -65,7 +65,10 @@ describe('music generation progress', () => {
     const flow = events.filter((event) => event.stage === 'flow');
     expect(flow[0]).not.toHaveProperty('etaMs');
     expect(flow[2]).toMatchObject({ completed: 33, total: 60, stepMs: 600, etaMs: 16_200 });
-    expect(events.find((event) => event.stage === 'acoustic')).toMatchObject({ completed: 1, total: 2 });
+    expect(events.find((event) => event.stage === 'acoustic')).toMatchObject({
+      completed: 1,
+      total: 2,
+    });
     expect(events.filter((event) => event.stage === 'vocoder')).toEqual([
       expect.objectContaining({ completed: 1, total: 4 }),
       expect.objectContaining({ completed: 4, total: 4 }),
@@ -163,16 +166,33 @@ describe('music generation progress', () => {
     expect(progressView(session).value).toBeUndefined();
     expect(progressView(flow)).toMatchObject({ indeterminate: false, value: 4, max: 30 });
     expect(formatProgress(flow)).toContain('4/30');
-    expect(formatProgress({
-      type: 'progress', stage: 'acoustic', detail: '', completed: 1, total: 2,
-    })).toBe('Acoustic chunks 1/2');
-    expect(formatProgress({
-      type: 'progress', stage: 'vocoder', detail: '', completed: 3, total: 4,
-    })).toBe('Vocoder channel runs 3/4');
-    expect(formatProgress({
-      type: 'progress', stage: 'complete', detail: 'Music generation complete',
-      wavBytes: 1_417_260, totalElapsedMs: 2_000,
-    })).toBe('Complete: 1417260 WAV bytes in 2.0s');
+    expect(
+      formatProgress({
+        type: 'progress',
+        stage: 'acoustic',
+        detail: '',
+        completed: 1,
+        total: 2,
+      }),
+    ).toBe('Acoustic chunks 1/2');
+    expect(
+      formatProgress({
+        type: 'progress',
+        stage: 'vocoder',
+        detail: '',
+        completed: 3,
+        total: 4,
+      }),
+    ).toBe('Vocoder channel runs 3/4');
+    expect(
+      formatProgress({
+        type: 'progress',
+        stage: 'complete',
+        detail: 'Music generation complete',
+        wavBytes: 1_417_260,
+        totalElapsedMs: 2_000,
+      }),
+    ).toBe('Complete: 1417260 WAV bytes in 2.0s');
     expect(cancelProgress(initialProgressView())).toEqual({
       status: 'cancelled',
       text: 'Music generation cancelled',
@@ -184,7 +204,11 @@ describe('music generation progress', () => {
     let terminated = false;
 
     const cancelled = cancelWorker(
-      { terminate: () => { terminated = true; } },
+      {
+        terminate: () => {
+          terminated = true;
+        },
+      },
       { status: 'running', text: 'Flow steps 3/30', indeterminate: false, value: 3, max: 30 },
     );
 

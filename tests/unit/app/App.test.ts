@@ -58,12 +58,26 @@ describe('model file controls', () => {
       [
         createArtifactCacheUiState(status({ state: 'partial', projectCacheCount: 1 })),
         false,
-        { canDownload: true, canRetry: false, canRefresh: true, canDelete: true, canCancel: false, canGenerate: false },
+        {
+          canDownload: true,
+          canRetry: false,
+          canRefresh: true,
+          canDelete: true,
+          canCancel: false,
+          canGenerate: false,
+        },
       ],
       [
         { ...createArtifactCacheUiState(status({ state: 'partial' })), lastError: retryError },
         false,
-        { canDownload: false, canRetry: true, canRefresh: true, canDelete: false, canCancel: false, canGenerate: false },
+        {
+          canDownload: false,
+          canRetry: true,
+          canRefresh: true,
+          canDelete: false,
+          canCancel: false,
+          canGenerate: false,
+        },
       ],
       [
         {
@@ -71,27 +85,62 @@ describe('model file controls', () => {
           lastError: { ...retryError, retryable: false },
         },
         false,
-        { canDownload: false, canRetry: false, canRefresh: true, canDelete: false, canCancel: false, canGenerate: false },
+        {
+          canDownload: false,
+          canRetry: false,
+          canRefresh: true,
+          canDelete: false,
+          canCancel: false,
+          canGenerate: false,
+        },
       ],
       [
         createArtifactCacheUiState(status({ state: 'ready', completeArtifactCount: 4, completeArtifactBytes: 4_096 })),
         false,
-        { canDownload: false, canRetry: false, canRefresh: true, canDelete: false, canCancel: false, canGenerate: true },
+        {
+          canDownload: false,
+          canRetry: false,
+          canRefresh: true,
+          canDelete: false,
+          canCancel: false,
+          canGenerate: true,
+        },
       ],
       [
         { ...createArtifactCacheUiState(status()), operation: 'download' as const },
         false,
-        { canDownload: false, canRetry: false, canRefresh: false, canDelete: false, canCancel: true, canGenerate: false },
+        {
+          canDownload: false,
+          canRetry: false,
+          canRefresh: false,
+          canDelete: false,
+          canCancel: true,
+          canGenerate: false,
+        },
       ],
       [
         createArtifactCacheUiState(status({ sufficient: false })),
         false,
-        { canDownload: false, canRetry: false, canRefresh: true, canDelete: false, canCancel: false, canGenerate: false },
+        {
+          canDownload: false,
+          canRetry: false,
+          canRefresh: true,
+          canDelete: false,
+          canCancel: false,
+          canGenerate: false,
+        },
       ],
       [
         createArtifactCacheUiState(status({ state: 'partial', projectCacheCount: 1 })),
         true,
-        { canDownload: false, canRetry: false, canRefresh: true, canDelete: false, canCancel: false, canGenerate: false },
+        {
+          canDownload: false,
+          canRetry: false,
+          canRefresh: true,
+          canDelete: false,
+          canCancel: false,
+          canGenerate: false,
+        },
       ],
     ] as const;
 
@@ -101,28 +150,30 @@ describe('model file controls', () => {
   });
 
   it('provides the exact download action labels', () => {
-    expect(artifactDownloadActionLabel(createArtifactCacheUiState(status())))
-      .toBe('Download Model');
-    expect(artifactDownloadActionLabel(createArtifactCacheUiState(status({ state: 'partial' }))))
-      .toBe('Resume Download');
-    expect(artifactDownloadActionLabel({
-      ...createArtifactCacheUiState(status({ state: 'partial' })),
-      lastError: {
-        message: 'Download failed',
-        operation: 'download-artifacts',
-        retryable: true,
-        retryTarget: 'download',
-      },
-    })).toBe('Retry Download');
+    expect(artifactDownloadActionLabel(createArtifactCacheUiState(status()))).toBe('Download Model');
+    expect(artifactDownloadActionLabel(createArtifactCacheUiState(status({ state: 'partial' })))).toBe(
+      'Resume Download',
+    );
+    expect(
+      artifactDownloadActionLabel({
+        ...createArtifactCacheUiState(status({ state: 'partial' })),
+        lastError: {
+          message: 'Download failed',
+          operation: 'download-artifacts',
+          retryable: true,
+          retryTarget: 'download',
+        },
+      }),
+    ).toBe('Retry Download');
   });
 });
 
 describe('model file state transitions', () => {
   it('keeps a persistence warning while proceeding to a download', () => {
-    const requesting = artifactCacheUiReducer(
-      createArtifactCacheUiState(status()),
-      { type: 'operation-started', operation: 'request-persistence' },
-    );
+    const requesting = artifactCacheUiReducer(createArtifactCacheUiState(status()), {
+      type: 'operation-started',
+      operation: 'request-persistence',
+    });
     const warned = artifactCacheUiReducer(requesting, {
       type: 'persistence-resolved',
       warning: 'Persistent storage was denied.',
@@ -231,9 +282,7 @@ describe('model file state transitions', () => {
     };
     const interruption = (retryTarget: 'download' | 'delete') => ({
       message: `${retryTarget} failed`,
-      operation: retryTarget === 'download'
-        ? 'download-artifacts' as const
-        : 'delete-artifact-caches' as const,
+      operation: retryTarget === 'download' ? ('download-artifacts' as const) : ('delete-artifact-caches' as const),
       retryable: true,
       retryTarget,
     });
@@ -248,10 +297,12 @@ describe('model file state transitions', () => {
         operation: 'inspect',
       });
 
-      expect(artifactCacheUiReducer(inspecting, {
-        type: 'operation-failed',
-        error: inspectError,
-      })).toMatchObject({ operation: null, lastError: error, notice: null });
+      expect(
+        artifactCacheUiReducer(inspecting, {
+          type: 'operation-failed',
+          error: inspectError,
+        }),
+      ).toMatchObject({ operation: null, lastError: error, notice: null });
     }
 
     const cancelled = artifactCacheUiReducer(createArtifactCacheUiState(status()), {
@@ -261,10 +312,12 @@ describe('model file state transitions', () => {
       type: 'operation-started',
       operation: 'inspect',
     });
-    expect(artifactCacheUiReducer(inspecting, {
-      type: 'operation-failed',
-      error: inspectError,
-    })).toMatchObject({
+    expect(
+      artifactCacheUiReducer(inspecting, {
+        type: 'operation-failed',
+        error: inspectError,
+      }),
+    ).toMatchObject({
       operation: null,
       lastError: null,
       notice: 'Download cancelled. Partial model files were kept.',
@@ -275,52 +328,70 @@ describe('model file state transitions', () => {
 describe('model file presentation', () => {
   it('shows missing verified bytes, sufficient headroom, and the best-effort warning', () => {
     expect(describeArtifactCacheStatus(createArtifactCacheUiState(status()))).toBe(
-      'Model files are not downloaded (0 B of 4.0 KiB verified). '
-      + 'Storage capacity is sufficient (19.5 KiB available, 6.0 KiB required headroom). '
-      + 'Storage is best-effort and may be evicted.',
+      'Model files are not downloaded (0 B of 4.0 KiB verified). ' +
+        'Storage capacity is sufficient (19.5 KiB available, 6.0 KiB required headroom). ' +
+        'Storage is best-effort and may be evicted.',
     );
   });
 
   it('shows available versus required headroom when capacity is insufficient', () => {
-    expect(describeArtifactCacheStatus(createArtifactCacheUiState(status({
-      state: 'partial',
-      completeArtifactBytes: 1_024,
-      availableBytes: 5_120,
-      sufficient: false,
-    })))).toBe(
-      'Model files are partially downloaded (1.0 KiB of 4.0 KiB verified). '
-      + 'Storage capacity is insufficient (5.0 KiB available, 6.0 KiB required headroom). '
-      + 'Storage is best-effort and may be evicted.',
+    expect(
+      describeArtifactCacheStatus(
+        createArtifactCacheUiState(
+          status({
+            state: 'partial',
+            completeArtifactBytes: 1_024,
+            availableBytes: 5_120,
+            sufficient: false,
+          }),
+        ),
+      ),
+    ).toBe(
+      'Model files are partially downloaded (1.0 KiB of 4.0 KiB verified). ' +
+        'Storage capacity is insufficient (5.0 KiB available, 6.0 KiB required headroom). ' +
+        'Storage is best-effort and may be evicted.',
     );
   });
 
   it('shows required headroom and persistence when the estimate is unavailable', () => {
-    expect(describeArtifactCacheStatus(createArtifactCacheUiState(status({
-      state: 'partial',
-      completeArtifactBytes: 1_024,
-      availableBytes: undefined,
-      sufficient: undefined,
-      persistence: 'persistent',
-    })))).toBe(
-      'Model files are partially downloaded (1.0 KiB of 4.0 KiB verified). '
-      + 'Available storage is unavailable (6.0 KiB required headroom). '
-      + 'Storage is persistent.',
+    expect(
+      describeArtifactCacheStatus(
+        createArtifactCacheUiState(
+          status({
+            state: 'partial',
+            completeArtifactBytes: 1_024,
+            availableBytes: undefined,
+            sufficient: undefined,
+            persistence: 'persistent',
+          }),
+        ),
+      ),
+    ).toBe(
+      'Model files are partially downloaded (1.0 KiB of 4.0 KiB verified). ' +
+        'Available storage is unavailable (6.0 KiB required headroom). ' +
+        'Storage is persistent.',
     );
   });
 
   it('shows a ready cache and unavailable persistence status', () => {
-    expect(describeArtifactCacheStatus(createArtifactCacheUiState(status({
-      state: 'ready',
-      completeArtifactCount: 4,
-      completeArtifactBytes: 4_096,
-      additionalBytesNeeded: 0,
-      largestPendingArtifactBytes: 0,
-      requiredHeadroomBytes: 0,
-      persistence: 'unavailable',
-    })))).toBe(
-      'Model files are ready (4.0 KiB of 4.0 KiB verified). '
-      + 'Storage capacity is sufficient (19.5 KiB available, 0 B required headroom). '
-      + 'Persistence status is unavailable.',
+    expect(
+      describeArtifactCacheStatus(
+        createArtifactCacheUiState(
+          status({
+            state: 'ready',
+            completeArtifactCount: 4,
+            completeArtifactBytes: 4_096,
+            additionalBytesNeeded: 0,
+            largestPendingArtifactBytes: 0,
+            requiredHeadroomBytes: 0,
+            persistence: 'unavailable',
+          }),
+        ),
+      ),
+    ).toBe(
+      'Model files are ready (4.0 KiB of 4.0 KiB verified). ' +
+        'Storage capacity is sufficient (19.5 KiB available, 0 B required headroom). ' +
+        'Persistence status is unavailable.',
     );
   });
 

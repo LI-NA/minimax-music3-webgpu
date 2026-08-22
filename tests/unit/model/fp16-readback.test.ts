@@ -8,12 +8,16 @@ describe('GPU FP16 readback', () => {
     const decoded = new Float16Array(expected.buffer.slice(0));
     const getData = vi.fn(async () => decoded);
 
-    const result = await readGpuFp16Bits({
-      type: 'float16',
-      location: 'gpu-buffer',
-      dims: [1, 2, 2],
-      getData,
-    } as never, [1, 2, 2], 'fixture');
+    const result = await readGpuFp16Bits(
+      {
+        type: 'float16',
+        location: 'gpu-buffer',
+        dims: [1, 2, 2],
+        getData,
+      } as never,
+      [1, 2, 2],
+      'fixture',
+    );
 
     expect(getData).toHaveBeenCalledOnce();
     expect(result).toBeInstanceOf(Uint16Array);
@@ -23,23 +27,33 @@ describe('GPU FP16 readback', () => {
 
   it('clones legacy Uint16Array data after the ORT downloader completes', async () => {
     const downloaded = new Uint16Array([0x0000, 0x3c00]);
-    const result = await readGpuFp16Bits({
-      type: 'float16',
-      location: 'gpu-buffer',
-      dims: [1, 2],
-      getData: async () => downloaded,
-    } as never, [1, 2], 'fixture');
+    const result = await readGpuFp16Bits(
+      {
+        type: 'float16',
+        location: 'gpu-buffer',
+        dims: [1, 2],
+        getData: async () => downloaded,
+      } as never,
+      [1, 2],
+      'fixture',
+    );
 
     downloaded.fill(0);
     expect(Array.from(result)).toEqual([0x0000, 0x3c00]);
   });
 
   it('rejects unrelated downloaded storage types', async () => {
-    await expect(readGpuFp16Bits({
-      type: 'float16',
-      location: 'gpu-buffer',
-      dims: [1],
-      getData: async () => new Float32Array([1]),
-    } as never, [1], 'fixture')).rejects.toThrow('fixture downloader did not return FP16 storage');
+    await expect(
+      readGpuFp16Bits(
+        {
+          type: 'float16',
+          location: 'gpu-buffer',
+          dims: [1],
+          getData: async () => new Float32Array([1]),
+        } as never,
+        [1],
+        'fixture',
+      ),
+    ).rejects.toThrow('fixture downloader did not return FP16 storage');
   });
 });

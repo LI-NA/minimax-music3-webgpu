@@ -57,9 +57,7 @@ function FieldLabel({ label, tag }: { label: string; tag?: string }) {
   return (
     <div className="mb-1.5 flex items-baseline gap-2">
       <div className="text-xs font-bold">{label}</div>
-      {tag && (
-        <div className="font-mono text-[9.5px] uppercase tracking-[.08em] text-muted2">{tag}</div>
-      )}
+      {tag && <div className="font-mono text-[9.5px] uppercase tracking-[.08em] text-muted2">{tag}</div>}
     </div>
   );
 }
@@ -167,8 +165,7 @@ export function Composer({
   };
 
   const toggleInstrumental = () => {
-    if (composer.instrumental)
-      onPatch({ instrumental: false, lyrics: composer.savedLyrics || EXAMPLES.lyrics });
+    if (composer.instrumental) onPatch({ instrumental: false, lyrics: composer.savedLyrics || EXAMPLES.lyrics });
     else
       onPatch({
         instrumental: true,
@@ -247,9 +244,7 @@ export function Composer({
             <div className={dimmed}>
               <div className="mb-1.5 flex items-baseline gap-2">
                 <div className="text-xs font-bold">{tr.vocalLabel}</div>
-                <div className="font-mono text-[9.5px] uppercase tracking-[.08em] text-muted2">
-                  {tr.vocalTag}
-                </div>
+                <div className="font-mono text-[9.5px] uppercase tracking-[.08em] text-muted2">{tr.vocalTag}</div>
                 {composer.instrumental && (
                   <div className="rounded-full bg-accent-soft px-[7px] py-[2px] font-mono text-[9px] text-accent">
                     {tr.instBadge}
@@ -401,9 +396,7 @@ export function Composer({
         >
           <div className="whitespace-nowrap text-xs font-bold">{tr.advanced}</div>
           <div className="h-px flex-1 bg-line" />
-          <div className="font-mono text-[11px] text-muted">
-            {composer.advancedOpen ? '▾' : '▸'}
-          </div>
+          <div className="font-mono text-[11px] text-muted">{composer.advancedOpen ? '▾' : '▸'}</div>
         </button>
         {composer.advancedOpen && (
           <div className="mt-3.5 flex flex-col gap-3.5">

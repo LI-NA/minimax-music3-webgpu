@@ -10,45 +10,60 @@ import {
 describe('duration planning', () => {
   it('matches the hand-derived official plans', () => {
     for (const entry of fixture.cases) {
-      expect(JSON.stringify(planDuration({
-        durationSeconds: entry.durationSeconds,
-        promptTokens: entry.promptTokens,
-      }))).toBe(JSON.stringify(entry.plan));
+      expect(
+        JSON.stringify(
+          planDuration({
+            durationSeconds: entry.durationSeconds,
+            promptTokens: entry.promptTokens,
+          }),
+        ),
+      ).toBe(JSON.stringify(entry.plan));
     }
   });
 
   it('plans actual retained frames independently of the requested duration', () => {
     for (const entry of fixture.retainedFrameCases) {
-      expect(JSON.stringify(planRetainedFrames({ ...entry, termination: entry.termination as Termination }))).toBe(JSON.stringify(entry.plan));
+      expect(JSON.stringify(planRetainedFrames({ ...entry, termination: entry.termination as Termination }))).toBe(
+        JSON.stringify(entry.plan),
+      );
     }
   });
 
   it('exposes max-frame counts separately from a natural end', () => {
     expect(planRetainedFrames({ retainedFrames: 201, promptTokens: 40, termination: 'max-frames' })).toMatchObject({
-      termination: 'max-frames', semanticDecisions: 202, rvqCalls: 1414, feedbackCalls: 201,
+      termination: 'max-frames',
+      semanticDecisions: 202,
+      rvqCalls: 1414,
+      feedbackCalls: 201,
     });
   });
 
   it('uses an explicit flow step count while preserving the 30-step default', () => {
-    expect(planRetainedFrames({
-      retainedFrames: 201,
-      promptTokens: 40,
-      termination: 'max-frames',
-      flowSteps: 12,
-    }).flowCalls).toBe(24);
+    expect(
+      planRetainedFrames({
+        retainedFrames: 201,
+        promptTokens: 40,
+        termination: 'max-frames',
+        flowSteps: 12,
+      }).flowCalls,
+    ).toBe(24);
     expect(planDuration({ durationSeconds: 10, promptTokens: 40, flowSteps: 12 }).flowCalls).toBe(24);
     expect(planDuration({ durationSeconds: 10, promptTokens: 40 }).flowCalls).toBe(60);
   });
 
   it('rejects flow step counts that are not positive safe integers', () => {
     for (const flowSteps of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.POSITIVE_INFINITY]) {
-      expect(() => planDuration({ durationSeconds: 5, promptTokens: 0, flowSteps } as never)).toThrow('positive safe integer');
-      expect(() => planRetainedFrames({
-        retainedFrames: 1,
-        promptTokens: 0,
-        termination: 'max-frames',
-        flowSteps,
-      } as never)).toThrow('positive safe integer');
+      expect(() => planDuration({ durationSeconds: 5, promptTokens: 0, flowSteps } as never)).toThrow(
+        'positive safe integer',
+      );
+      expect(() =>
+        planRetainedFrames({
+          retainedFrames: 1,
+          promptTokens: 0,
+          termination: 'max-frames',
+          flowSteps,
+        } as never),
+      ).toThrow('positive safe integer');
     }
   });
 
@@ -82,8 +97,12 @@ describe('duration planning', () => {
 
   it('rejects requests that exceed the language-model context', () => {
     expect(() => planDuration({ durationSeconds: 300, promptTokens: 2741 })).toThrow('10240');
-    expect(planRetainedFrames({ retainedFrames: 7500, promptTokens: 2740, termination: 'max-frames' }).retainedFrames).toBe(7500);
-    expect(() => planRetainedFrames({ retainedFrames: 7500, promptTokens: 2741, termination: 'max-frames' })).toThrow('10240');
+    expect(
+      planRetainedFrames({ retainedFrames: 7500, promptTokens: 2740, termination: 'max-frames' }).retainedFrames,
+    ).toBe(7500);
+    expect(() => planRetainedFrames({ retainedFrames: 7500, promptTokens: 2741, termination: 'max-frames' })).toThrow(
+      '10240',
+    );
   });
 
   it('accepts every product duration step', () => {
@@ -109,10 +128,18 @@ describe('duration planning', () => {
     ]) {
       expect(() => planRetainedFrames(request as never)).toThrow('integers');
     }
-    expect(() => planRetainedFrames({ retainedFrames: 0, promptTokens: 0, termination: 'max-frames' })).toThrow('between 1 and 7500');
-    expect(() => planRetainedFrames({ retainedFrames: 7501, promptTokens: 0, termination: 'max-frames' })).toThrow('between 1 and 7500');
+    expect(() => planRetainedFrames({ retainedFrames: 0, promptTokens: 0, termination: 'max-frames' })).toThrow(
+      'between 1 and 7500',
+    );
+    expect(() => planRetainedFrames({ retainedFrames: 7501, promptTokens: 0, termination: 'max-frames' })).toThrow(
+      'between 1 and 7500',
+    );
     expect(() => planRetainedFrames({ retainedFrames: 1, promptTokens: 0 } as never)).toThrow('termination');
-    expect(() => planRetainedFrames({ retainedFrames: 1, promptTokens: 0, termination: 1 } as never)).toThrow('termination');
-    expect(() => planRetainedFrames({ retainedFrames: 1, promptTokens: 0, termination: 'other' } as never)).toThrow('termination');
+    expect(() => planRetainedFrames({ retainedFrames: 1, promptTokens: 0, termination: 1 } as never)).toThrow(
+      'termination',
+    );
+    expect(() => planRetainedFrames({ retainedFrames: 1, promptTokens: 0, termination: 'other' } as never)).toThrow(
+      'termination',
+    );
   });
 });

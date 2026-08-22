@@ -40,15 +40,9 @@ describe('reference capture paths', () => {
     const root = path.resolve('synthetic-checkout');
     const layout = resolveCaptureLayout(root, 'ten-seconds-20260821');
 
-    expect(layout.captureDirectory).toBe(path.join(
-      root, 'artifacts', 'reference', 'captures', 'ten-seconds-20260821',
-    ));
-    expect(layout.caseDirectory).toBe(path.join(
-      root, 'artifacts', 'reference', 'cases', 'ten-seconds-20260821',
-    ));
-    expect(layout.profile).toBe(path.join(
-      root, 'artifacts', 'browser-profiles', 'variable-duration', 'task11',
-    ));
+    expect(layout.captureDirectory).toBe(path.join(root, 'artifacts', 'reference', 'captures', 'ten-seconds-20260821'));
+    expect(layout.caseDirectory).toBe(path.join(root, 'artifacts', 'reference', 'cases', 'ten-seconds-20260821'));
+    expect(layout.profile).toBe(path.join(root, 'artifacts', 'browser-profiles', 'variable-duration', 'task11'));
     expect(() => assertFreshCaptureLayout(layout, () => false)).not.toThrow();
   });
 
@@ -58,14 +52,15 @@ describe('reference capture paths', () => {
 
   it('rejects an external profile and any existing capture or case', () => {
     const root = path.resolve('synthetic-checkout');
-    expect(() => resolveCaptureLayout(root, 'valid', path.resolve('outside-profile')))
-      .toThrow('profile');
+    expect(() => resolveCaptureLayout(root, 'valid', path.resolve('outside-profile'))).toThrow('profile');
 
     const layout = resolveCaptureLayout(root, 'valid');
-    expect(() => assertFreshCaptureLayout(layout, (candidate) => candidate === layout.captureDirectory))
-      .toThrow('already exists');
-    expect(() => assertFreshCaptureLayout(layout, (candidate) => candidate === layout.caseDirectory))
-      .toThrow('already exists');
+    expect(() => assertFreshCaptureLayout(layout, (candidate) => candidate === layout.captureDirectory)).toThrow(
+      'already exists',
+    );
+    expect(() => assertFreshCaptureLayout(layout, (candidate) => candidate === layout.caseDirectory)).toThrow(
+      'already exists',
+    );
   });
 
   it('rejects a profile below an existing link that escapes its allowed root', ({ skip }) => {
@@ -91,11 +86,7 @@ describe('reference capture paths', () => {
         throw error;
       }
 
-      expect(() => resolveCaptureLayout(
-        checkout,
-        'valid',
-        path.join(escape, 'profile'),
-      )).toThrow('profile');
+      expect(() => resolveCaptureLayout(checkout, 'valid', path.join(escape, 'profile'))).toThrow('profile');
     } finally {
       if (linked && existsSync(escape)) unlinkSync(escape);
       rmSync(sandbox, { recursive: true, force: true });
@@ -105,34 +96,37 @@ describe('reference capture paths', () => {
   it('requires an explicit worktree profile for linked checkouts', () => {
     const root = path.resolve('synthetic-checkout');
     expect(() => resolveCaptureLayout(root, 'valid', undefined, true)).toThrow('explicit');
-    const profile = path.join(
-      root,
-      'artifacts',
-      'worktree-profiles',
-      'feature-name',
-      'reference',
-    );
+    const profile = path.join(root, 'artifacts', 'worktree-profiles', 'feature-name', 'reference');
     const layout = resolveCaptureLayout(root, 'valid', profile, true);
     expect(layout.profileRoot).toBe(path.join(root, 'artifacts', 'worktree-profiles'));
     expect(layout.profile).toBe(profile);
-    expect(() => resolveCaptureLayout(
-      root,
-      'valid',
-      path.join(root, 'artifacts', 'browser-profiles', 'variable-duration', 'task11'),
-      true,
-    )).toThrow('worktree-profiles');
+    expect(() =>
+      resolveCaptureLayout(
+        root,
+        'valid',
+        path.join(root, 'artifacts', 'browser-profiles', 'variable-duration', 'task11'),
+        true,
+      ),
+    ).toThrow('worktree-profiles');
   });
 });
 
 describe('reference capture WAV inspection', () => {
   it('requires both fixed runs to produce the same WAV bytes', () => {
     expect(() => assertMatchingWavSha256('a'.repeat(64), 'a'.repeat(64))).not.toThrow();
-    expect(() => assertMatchingWavSha256('a'.repeat(64), 'b'.repeat(64)))
-      .toThrow('not byte reproducible');
+    expect(() => assertMatchingWavSha256('a'.repeat(64), 'b'.repeat(64))).toThrow('not byte reproducible');
   });
 
   it('reports canonical stereo structure and simple health evidence', () => {
-    expect(analyzeCanonicalPcm16Wav(wav([[1, 2], [2, 4], [3, 6]]))).toEqual({
+    expect(
+      analyzeCanonicalPcm16Wav(
+        wav([
+          [1, 2],
+          [2, 4],
+          [3, 6],
+        ]),
+      ),
+    ).toEqual({
       structure: {
         riff: 'RIFF',
         wave: 'WAVE',

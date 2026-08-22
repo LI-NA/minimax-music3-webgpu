@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  OpfsFp16EmbeddingTable,
-  type SyncFileHandle,
-} from '../../../src/runtime/model/embedding-table';
+import { OpfsFp16EmbeddingTable, type SyncFileHandle } from '../../../src/runtime/model/embedding-table';
 
 function bytes(values: number[]) {
   return new Uint8Array(new Uint16Array(values).buffer);

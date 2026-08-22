@@ -25,10 +25,7 @@ describe('artifact cache worker protocol', () => {
       | { type: 'delete-artifact-caches'; manifestUrl: string }
     >();
     expectTypeOf<ArtifactOperation>().toEqualTypeOf<
-      | 'inspect-artifact-cache'
-      | 'download-artifacts'
-      | 'delete-artifact-caches'
-      | 'generate-music'
+      'inspect-artifact-cache' | 'download-artifacts' | 'delete-artifact-caches' | 'generate-music'
     >();
     expectTypeOf<ArtifactErrorCode>().toEqualTypeOf<
       | 'manifest-unavailable'
@@ -73,24 +70,26 @@ describe('artifact cache worker protocol', () => {
     expect(responses).toHaveLength(4);
   });
 
-  it.each([
-    'inspect-artifact-cache',
-    'download-artifacts',
-    'delete-artifact-caches',
-  ] as const)('accepts an exact %s request', (type) => {
-    const request = { type, manifestUrl: '/music/manifest.json' };
+  it.each(['inspect-artifact-cache', 'download-artifacts', 'delete-artifact-caches'] as const)(
+    'accepts an exact %s request',
+    (type) => {
+      const request = { type, manifestUrl: '/music/manifest.json' };
 
-    expect(validateArtifactCacheRequest(request)).toEqual(request);
-  });
+      expect(validateArtifactCacheRequest(request)).toEqual(request);
+    },
+  );
 
   it.each([
     ['missing manifest URL', { type: 'inspect-artifact-cache' }],
     ['extra field', { type: 'download-artifacts', manifestUrl: '/music/manifest.json', extra: true }],
     ['empty manifest URL', { type: 'delete-artifact-caches', manifestUrl: '' }],
-    ['decorated array', Object.assign([], {
-      type: 'inspect-artifact-cache',
-      manifestUrl: '/music/manifest.json',
-    })],
+    [
+      'decorated array',
+      Object.assign([], {
+        type: 'inspect-artifact-cache',
+        manifestUrl: '/music/manifest.json',
+      }),
+    ],
   ])('rejects a request with an %s', (_label, request) => {
     expect(() => validateArtifactCacheRequest(request)).toThrow();
   });
@@ -137,16 +136,22 @@ describe('music generation worker protocol', () => {
 
   it.each([
     ['unknown top-level field', { type: 'generate-music', ...input, promptTokens: 40 }],
-    ['unknown sampling field', {
-      type: 'generate-music',
-      ...input,
-      sampling: { ...input.sampling, topK: 50 },
-    }],
-    ['missing sampling field', {
-      type: 'generate-music',
-      ...input,
-      sampling: { ...input.sampling, flowSteps: undefined },
-    }],
+    [
+      'unknown sampling field',
+      {
+        type: 'generate-music',
+        ...input,
+        sampling: { ...input.sampling, topK: 50 },
+      },
+    ],
+    [
+      'missing sampling field',
+      {
+        type: 'generate-music',
+        ...input,
+        sampling: { ...input.sampling, flowSteps: undefined },
+      },
+    ],
   ])('rejects a product request with an %s', (_label, raw) => {
     expect(() => validateMusicGenerationRequest(raw)).toThrow('invalid');
   });
@@ -171,10 +176,7 @@ describe('music generation worker protocol', () => {
   });
 
   it('derives frame totals only after prepared prompt tokens are supplied internally', () => {
-    const request = createResolvedMusicGenerationRequest(
-      createMusicGenerationRequest(input),
-      40,
-    );
+    const request = createResolvedMusicGenerationRequest(createMusicGenerationRequest(input), 40);
 
     expect(request).toMatchObject({
       type: 'generate-music',
@@ -203,10 +205,7 @@ describe('music generation worker protocol', () => {
   });
 
   it('derives result totals from the actual retained frames', () => {
-    const request = createResolvedMusicGenerationRequest(
-      createMusicGenerationRequest(input),
-      40,
-    );
+    const request = createResolvedMusicGenerationRequest(createMusicGenerationRequest(input), 40);
 
     expect(createMusicGenerationResultPlan(request, 201, 'natural-end')).toEqual({
       durationSeconds: 10,
@@ -240,8 +239,7 @@ describe('music generation worker protocol', () => {
       rvqCalls: 1_414,
       feedbackCalls: 202,
     });
-    expect(() => createMusicGenerationResultPlan(request, 251, 'natural-end'))
-      .toThrow('requested frames');
+    expect(() => createMusicGenerationResultPlan(request, 251, 'natural-end')).toThrow('requested frames');
   });
 
   it('derives flow totals from the requested flow step count', () => {
@@ -292,8 +290,7 @@ describe('music generation worker protocol', () => {
       40,
     );
 
-    expect(createMusicGenerationResultPlan(request, request.requestedFrames, 'max-frames'))
-      .toMatchObject(expected);
+    expect(createMusicGenerationResultPlan(request, request.requestedFrames, 'max-frames')).toMatchObject(expected);
   });
 
   it('accepts only the explicit five-minute capacity diagnostic contract', () => {
@@ -316,6 +313,7 @@ describe('music generation worker protocol', () => {
       { ...request, requestedFrames: 7_499 },
       { ...request, seed: -1 },
       { ...request, seed: 4_294_967_296 },
-    ]) expect(() => validateMusicCapacityDiagnosticRequest(invalid)).toThrow();
+    ])
+      expect(() => validateMusicCapacityDiagnosticRequest(invalid)).toThrow();
   });
 });

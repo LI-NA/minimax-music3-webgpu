@@ -54,7 +54,8 @@ export function flattenFrameHiddens(frames: readonly GeneratedFrame[]) {
       if (
         frame.hiddenGroups.buffer !== generated.hiddenGroups!.buffer ||
         frame.hiddenGroups.byteOffset !== generated.hiddenGroups!.byteOffset + index * valuesPerFrame * 2
-      ) throw new Error('retained frame hidden groups must be contiguous views of the flat buffer');
+      )
+        throw new Error('retained frame hidden groups must be contiguous views of the flat buffer');
     });
     return generated.hiddenGroups;
   }
@@ -76,11 +77,7 @@ export function deterministicGaussianFp16(seed: number, length: number) {
   return values;
 }
 
-export async function readExactGpuFp16(
-  tensor: ort.Tensor,
-  dims: readonly number[],
-  name: string,
-) {
+export async function readExactGpuFp16(tensor: ort.Tensor, dims: readonly number[], name: string) {
   return readGpuFp16Bits(tensor, dims, name);
 }
 
@@ -99,22 +96,19 @@ export async function generateFiveSecondMusic(
       const candidate = await stages.autoregressive(selectedSeed);
       const candidateTermination = (candidate as Partial<GeneratedFrames>).termination;
       if (candidate.length !== 125 || candidateTermination === 'natural-end') {
-        if (attempt === 1)
-          throw new Error(`audio end sampled early for seeds ${attemptedSeeds.join(', ')}`);
+        if (attempt === 1) throw new Error(`audio end sampled early for seeds ${attemptedSeeds.join(', ')}`);
         continue;
       }
       frames = candidate;
       break;
     } catch (error) {
       if (!(error instanceof EarlyAudioEndError)) throw error;
-      if (attempt === 1)
-        throw new Error(`audio end sampled early for seeds ${attemptedSeeds.join(', ')}`);
+      if (attempt === 1) throw new Error(`audio end sampled early for seeds ${attemptedSeeds.join(', ')}`);
     }
   }
   if (!frames) throw new Error('autoregressive generation did not return frames');
-  const termination: Termination = (frames as Partial<GeneratedFrames>).termination === 'natural-end'
-    ? 'natural-end'
-    : 'max-frames';
+  const termination: Termination =
+    (frames as Partial<GeneratedFrames>).termination === 'natural-end' ? 'natural-end' : 'max-frames';
   onProgress?.({ stage: 'autoregressive', retainedFrames: frames.length });
   const frameBits = flattenFrameHiddens(frames);
   onProgress?.({ stage: 'condition' });

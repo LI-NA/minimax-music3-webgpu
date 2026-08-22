@@ -35,12 +35,7 @@ import {
   type GenerationView,
 } from './generation-view';
 import { detectLanguage, messages, type Language } from './i18n';
-import {
-  deleteStoredTrack,
-  listStoredTracks,
-  saveStoredTrack,
-  type TrackSettings,
-} from './track-store';
+import { deleteStoredTrack, listStoredTracks, saveStoredTrack, type TrackSettings } from './track-store';
 import {
   INSTRUMENTAL_LYRICS,
   lyricsFromSettings,
@@ -86,9 +81,7 @@ function errorMessage(error: unknown, fallback: string): string {
 
 export function App() {
   const [lang, setLang] = useState<Language>(() => detectLanguage(readStorage('mm3-lang')));
-  const [theme, setTheme] = useState<'dark' | 'light'>(() =>
-    readStorage('mm3-theme') === 'light' ? 'light' : 'dark',
-  );
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => (readStorage('mm3-theme') === 'light' ? 'light' : 'dark'));
   const tr = messages[lang];
 
   const [vw, setVw] = useState(() => window.innerWidth);
@@ -98,11 +91,7 @@ export function App() {
   const isMid = vw < 1180;
 
   const [capability, setCapability] = useState<WebGpuCapability | null>(null);
-  const [cacheState, dispatchCache] = useReducer(
-    artifactCacheUiReducer,
-    null,
-    createArtifactCacheUiState,
-  );
+  const [cacheState, dispatchCache] = useReducer(artifactCacheUiReducer, null, createArtifactCacheUiState);
 
   const [composer, setComposer] = useState<ComposerState>(createComposerState);
   const [notice, setNotice] = useState<string | null>(null);
@@ -389,9 +378,7 @@ export function App() {
   const failGeneration = (trackId: string, message: string) => {
     setGeneration((previous) => (previous?.trackId === trackId ? null : previous));
     setTracks((previous) =>
-      previous.map((track) =>
-        track.id === trackId ? { ...track, status: 'error', error: message } : track,
-      ),
+      previous.map((track) => (track.id === trackId ? { ...track, status: 'error', error: message } : track)),
     );
   };
 
@@ -477,10 +464,7 @@ export function App() {
       if (musicWorker.current !== worker) return;
       event.preventDefault();
       finishMusicWorker(worker);
-      failGeneration(
-        pending.id,
-        errorMessage(event.error ?? new Error(event.message), 'Inference worker failed'),
-      );
+      failGeneration(pending.id, errorMessage(event.error ?? new Error(event.message), 'Inference worker failed'));
     };
     try {
       worker.postMessage(request);
@@ -496,9 +480,7 @@ export function App() {
     musicWorker.current = null;
     const trackId = generation.trackId;
     setGeneration(null);
-    setTracks((previous) =>
-      previous.map((track) => (track.id === trackId ? { ...track, status: 'canceled' } : track)),
-    );
+    setTracks((previous) => previous.map((track) => (track.id === trackId ? { ...track, status: 'canceled' } : track)));
   };
 
   const modelReady = cacheState.status?.state === 'ready';
@@ -584,8 +566,7 @@ export function App() {
       setGeneration(null);
     }
     setTracks((previous) => previous.filter((item) => item.id !== track.id));
-    if (selectedId === track.id)
-      setSelectedId(tracks.find((item) => item.id !== track.id)?.id ?? null);
+    if (selectedId === track.id) setSelectedId(tracks.find((item) => item.id !== track.id)?.id ?? null);
     if (currentId === track.id) {
       setCurrentId(null);
       setPlaying(false);
@@ -647,8 +628,7 @@ export function App() {
     const startX = event.clientX;
     const startWidth = leftWidth;
     const max = Math.max(280, vw - (isMid ? 260 : 296) - 6 - 380);
-    const move = (ev: PointerEvent) =>
-      setLeftWidth(Math.min(max, Math.max(280, startWidth + ev.clientX - startX)));
+    const move = (ev: PointerEvent) => setLeftWidth(Math.min(max, Math.max(280, startWidth + ev.clientX - startX)));
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
@@ -673,11 +653,8 @@ export function App() {
           : tr.sModelMissing,
   ].join(' · ');
 
-  const generatingTrack = generation
-    ? (tracks.find((track) => track.id === generation.trackId) ?? null)
-    : null;
-  const positionFraction =
-    currentTrack && currentTrack.actualSeconds > 0 ? position / currentTrack.actualSeconds : 0;
+  const generatingTrack = generation ? (tracks.find((track) => track.id === generation.trackId) ?? null) : null;
+  const positionFraction = currentTrack && currentTrack.actualSeconds > 0 ? position / currentTrack.actualSeconds : 0;
 
   let main: ReactNode;
   if (generation && generatingTrack) {
@@ -701,9 +678,7 @@ export function App() {
         posFraction={selectedTrack.id === currentId ? positionFraction : 0}
         canVariation={canGenerate}
         onWaveClick={waveClick}
-        onTogglePlay={() =>
-          selectedTrack.id === currentId ? togglePlayback() : playToggleTrack(selectedTrack)
-        }
+        onTogglePlay={() => (selectedTrack.id === currentId ? togglePlayback() : playToggleTrack(selectedTrack))}
         onDownload={() => downloadTrack(selectedTrack)}
         onReuse={() => restoreSettings(selectedTrack.settings)}
         onVariation={() => generateVariation(selectedTrack)}
@@ -728,9 +703,7 @@ export function App() {
     );
   }
 
-  const gridColumns = isMobile
-    ? 'minmax(0,1fr)'
-    : `${leftWidth}px 6px minmax(0,1fr) ${isMid ? 260 : 296}px`;
+  const gridColumns = isMobile ? 'minmax(0,1fr)' : `${leftWidth}px 6px minmax(0,1fr) ${isMid ? 260 : 296}px`;
 
   return (
     <div className="flex h-dvh flex-col bg-bg font-sans text-ink">
@@ -768,11 +741,7 @@ export function App() {
           onPointerDown={startResize}
           className={`-ml-px cursor-col-resize hover:bg-accent-soft ${isMobile ? 'hidden' : ''}`}
         />
-        <main
-          className={`min-h-0 overflow-y-auto p-6 pb-10 ${
-            !isMobile || mobileView === 'studio' ? '' : 'hidden'
-          }`}
-        >
+        <main className={`min-h-0 overflow-y-auto p-6 pb-10 ${!isMobile || mobileView === 'studio' ? '' : 'hidden'}`}>
           {main}
         </main>
         <aside
@@ -819,8 +788,7 @@ export function App() {
         onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)}
         onLoadedMetadata={(event) => {
           if (pendingSeek.current === null) return;
-          event.currentTarget.currentTime =
-            pendingSeek.current * (event.currentTarget.duration || 0);
+          event.currentTarget.currentTime = pendingSeek.current * (event.currentTarget.duration || 0);
           pendingSeek.current = null;
         }}
       />

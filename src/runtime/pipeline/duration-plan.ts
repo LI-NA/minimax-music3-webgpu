@@ -51,11 +51,14 @@ function validateFlowSteps(value: unknown): asserts value is number {
 
 function validateDuration({ durationSeconds, promptTokens }: DurationPlanRequest): void {
   validateNonNegativeInteger(promptTokens, 'Prompt tokens');
-  if (typeof durationSeconds !== 'number' || !Number.isFinite(durationSeconds)
-    || durationSeconds <= 0 || durationSeconds > MAX_PRODUCT_DURATION_SECONDS)
+  if (
+    typeof durationSeconds !== 'number' ||
+    !Number.isFinite(durationSeconds) ||
+    durationSeconds <= 0 ||
+    durationSeconds > MAX_PRODUCT_DURATION_SECONDS
+  )
     throw new Error('Duration seconds must be a finite number greater than zero and at most 300');
-  if (Math.floor(durationSeconds * FRAMES_PER_SECOND) < 1)
-    throw new Error('Duration must produce at least one frame');
+  if (Math.floor(durationSeconds * FRAMES_PER_SECOND) < 1) throw new Error('Duration must produce at least one frame');
 }
 
 export function planRetainedFrames({
@@ -76,7 +79,7 @@ export function planRetainedFrames({
   const chunks = Array.from({ length: chunkCount }, (_, index) => {
     const startFrame = index * CHUNK_HOP_FRAMES;
     const frameLength = Math.min(CHUNK_FRAMES, retainedFrames - startFrame);
-    const latentLength = Math.floor(frameLength * 441 / 128);
+    const latentLength = Math.floor((frameLength * 441) / 128);
     const cropLeftLatents = index === 0 ? 0 : 86;
     const cropRightLatents = index === chunkCount - 1 ? 0 : 258;
     return {

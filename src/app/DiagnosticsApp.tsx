@@ -1,14 +1,8 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import './diagnostics.css';
-import {
-  requestPersistentStorage,
-} from '../runtime/model/artifact-cache-management';
+import { requestPersistentStorage } from '../runtime/model/artifact-cache-management';
 import { inspectWebGpu, type WebGpuCapability } from '../runtime/model/webgpu-device';
-import {
-  cancelWorker,
-  progressView,
-  type ProgressView,
-} from '../workers/music-progress';
+import { cancelWorker, progressView, type ProgressView } from '../workers/music-progress';
 import type {
   ConditionSmokeResult,
   FlowSmokeResult,
@@ -20,9 +14,7 @@ import type {
   WorkerResponse,
 } from '../workers/protocol';
 import type { ArtifactCacheRequest, ArtifactOperation } from '../workers/protocol';
-import {
-  createMusicGenerationRequest,
-} from '../workers/protocol';
+import { createMusicGenerationRequest } from '../workers/protocol';
 import { FIXED_COMPARISON_CASE } from '../runtime/reference/fixed-comparison';
 import {
   artifactCacheUiReducer,
@@ -76,11 +68,7 @@ export function DiagnosticsApp() {
   const [durationSeconds, setDurationSeconds] = useState(5);
   const [musicIsRunning, setMusicIsRunning] = useState(false);
   const [musicUrl, setMusicUrl] = useState<string | null>(null);
-  const [cacheState, dispatchCache] = useReducer(
-    artifactCacheUiReducer,
-    null,
-    createArtifactCacheUiState,
-  );
+  const [cacheState, dispatchCache] = useReducer(artifactCacheUiReducer, null, createArtifactCacheUiState);
   const musicUrlRef = useRef<string | null>(null);
   const worker = useRef<Worker | null>(null);
   const cacheWorker = useRef<Worker | null>(null);
@@ -106,19 +94,18 @@ export function DiagnosticsApp() {
 
   const protocolOperation = (
     operation: Exclude<ArtifactCacheUiOperation, null | 'request-persistence'>,
-  ): ArtifactOperation => operation === 'download'
-    ? 'download-artifacts'
-    : operation === 'delete'
-      ? 'delete-artifact-caches'
-      : 'inspect-artifact-cache';
+  ): ArtifactOperation =>
+    operation === 'download'
+      ? 'download-artifacts'
+      : operation === 'delete'
+        ? 'delete-artifact-caches'
+        : 'inspect-artifact-cache';
 
   const runtimeCacheError = (
     operation: Exclude<ArtifactCacheUiOperation, null | 'request-persistence'>,
     error: unknown,
   ) => ({
-    message: error instanceof Error && error.message
-      ? error.message
-      : 'Model file worker failed',
+    message: error instanceof Error && error.message ? error.message : 'Model file worker failed',
     operation: protocolOperation(operation),
     retryable: true,
     retryTarget: retryTarget(operation),
@@ -160,37 +147,38 @@ export function DiagnosticsApp() {
         return;
       }
       if (
-        data.type === 'artifact-cache-status'
-        || data.type === 'artifact-download-complete'
-        || data.type === 'artifact-cache-deleted'
+        data.type === 'artifact-cache-status' ||
+        data.type === 'artifact-download-complete' ||
+        data.type === 'artifact-cache-deleted'
       ) {
-        const source = data.type === 'artifact-cache-status'
-          ? 'inspect'
-          : data.type === 'artifact-download-complete'
-            ? 'download'
-            : 'delete';
+        const source =
+          data.type === 'artifact-cache-status'
+            ? 'inspect'
+            : data.type === 'artifact-download-complete'
+              ? 'download'
+              : 'delete';
         dispatchCache({ type: 'status-received', source, status: data.status });
         finishCacheWorker(next);
         return;
       }
       if (data.type === 'error') {
-        failCacheOperation(operation, {
-          message: data.message,
-          code: data.code,
-          operation: data.operation,
-          retryable: data.retryable === true,
-          retryTarget: retryTarget(operation, data.operation),
-        }, next);
+        failCacheOperation(
+          operation,
+          {
+            message: data.message,
+            code: data.code,
+            operation: data.operation,
+            retryable: data.retryable === true,
+            retryTarget: retryTarget(operation, data.operation),
+          },
+          next,
+        );
       }
     };
     next.onerror = (event) => {
       if (cacheWorker.current !== next) return;
       event.preventDefault();
-      failCacheOperation(
-        operation,
-        runtimeCacheError(operation, event.error ?? new Error(event.message)),
-        next,
-      );
+      failCacheOperation(operation, runtimeCacheError(operation, event.error ?? new Error(event.message)), next);
     };
     try {
       next.postMessage(request);
@@ -202,10 +190,13 @@ export function DiagnosticsApp() {
   const inspectCache = () => {
     persistenceGeneration.current++;
     dispatchCache({ type: 'operation-started', operation: 'inspect' });
-    runCacheWorker({
-      type: 'inspect-artifact-cache',
-      manifestUrl: PRODUCT_MANIFEST_URL,
-    }, 'inspect');
+    runCacheWorker(
+      {
+        type: 'inspect-artifact-cache',
+        manifestUrl: PRODUCT_MANIFEST_URL,
+      },
+      'inspect',
+    );
   };
 
   useEffect(() => {
@@ -235,9 +226,8 @@ export function DiagnosticsApp() {
     return true;
   };
 
-  const workerFailureMessage = (error: unknown) => error instanceof Error && error.message
-    ? error.message
-    : 'Inference worker failed';
+  const workerFailureMessage = (error: unknown) =>
+    error instanceof Error && error.message ? error.message : 'Inference worker failed';
 
   const createInferenceWorker = (onFailure?: () => void): Worker | null => {
     let next: Worker;
@@ -266,11 +256,14 @@ export function DiagnosticsApp() {
     musicRunning.current = false;
     setMusicIsRunning(false);
     if (wasMusicRunning) {
-      const cancelled = cancelWorker(worker.current, musicProgress ?? {
-        status: 'running',
-        text: 'Music generation running',
-        indeterminate: true,
-      });
+      const cancelled = cancelWorker(
+        worker.current,
+        musicProgress ?? {
+          status: 'running',
+          text: 'Music generation running',
+          indeterminate: true,
+        },
+      );
       setMusicProgress(cancelled);
       setProgress(cancelled.text);
       if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
@@ -431,8 +424,7 @@ export function DiagnosticsApp() {
         const view = progressView(data);
         setMusicProgress(view);
         setProgress(view.text);
-      }
-      else if (data.type === 'music-result') {
+      } else if (data.type === 'music-result') {
         const url = URL.createObjectURL(new Blob([data.result.wav], { type: 'audio/wav' }));
         musicUrlRef.current = url;
         setMusicUrl(url);
@@ -456,10 +448,13 @@ export function DiagnosticsApp() {
     if (!mounted.current || persistenceGeneration.current !== requestGeneration) return;
     dispatchCache({ type: 'persistence-resolved', warning: persistence.warning });
     dispatchCache({ type: 'download-started' });
-    runCacheWorker({
-      type: 'download-artifacts',
-      manifestUrl: PRODUCT_MANIFEST_URL,
-    }, 'download');
+    runCacheWorker(
+      {
+        type: 'download-artifacts',
+        manifestUrl: PRODUCT_MANIFEST_URL,
+      },
+      'download',
+    );
   };
 
   const cancelArtifactDownload = () => {
@@ -474,10 +469,13 @@ export function DiagnosticsApp() {
     if (!window.confirm('Delete all downloaded MiniMax Music 3 model files?')) return;
     persistenceGeneration.current++;
     dispatchCache({ type: 'operation-started', operation: 'delete' });
-    runCacheWorker({
-      type: 'delete-artifact-caches',
-      manifestUrl: PRODUCT_MANIFEST_URL,
-    }, 'delete');
+    runCacheWorker(
+      {
+        type: 'delete-artifact-caches',
+        manifestUrl: PRODUCT_MANIFEST_URL,
+      },
+      'delete',
+    );
   };
 
   const cacheControls = deriveArtifactCacheControls(cacheState, musicIsRunning);
@@ -503,14 +501,16 @@ export function DiagnosticsApp() {
           <p aria-live="polite" className="cache-status">
             {describeArtifactCacheStatus(cacheState)}
           </p>
-          {cacheState.persistenceWarning && (
-            <p className="cache-warning">{cacheState.persistenceWarning}</p>
-          )}
+          {cacheState.persistenceWarning && <p className="cache-warning">{cacheState.persistenceWarning}</p>}
           {cacheState.lastError && (
-            <p role="alert" className="cache-error">{cacheState.lastError.message}</p>
+            <p role="alert" className="cache-error">
+              {cacheState.lastError.message}
+            </p>
           )}
           {cacheState.notice && (
-            <p aria-live="polite" className="cache-warning">{cacheState.notice}</p>
+            <p aria-live="polite" className="cache-warning">
+              {cacheState.notice}
+            </p>
           )}
           <div className="cache-actions">
             <button
@@ -523,10 +523,20 @@ export function DiagnosticsApp() {
             <button type="button" className="secondary" disabled={!cacheControls.canRefresh} onClick={inspectCache}>
               Refresh Status
             </button>
-            <button type="button" className="secondary" disabled={!cacheControls.canDelete} onClick={deleteArtifactCaches}>
+            <button
+              type="button"
+              className="secondary"
+              disabled={!cacheControls.canDelete}
+              onClick={deleteArtifactCaches}
+            >
               Remove Cached Model
             </button>
-            <button type="button" className="secondary" disabled={!cacheControls.canCancel} onClick={cancelArtifactDownload}>
+            <button
+              type="button"
+              className="secondary"
+              disabled={!cacheControls.canCancel}
+              onClick={cancelArtifactDownload}
+            >
               Cancel Download
             </button>
           </div>
@@ -535,9 +545,7 @@ export function DiagnosticsApp() {
           )}
           {cacheState.downloadProgress && (
             <div className="cache-progress">
-              <p id="model-download-current-file">
-                Current file: {cacheState.downloadProgress.currentFile}
-              </p>
+              <p id="model-download-current-file">Current file: {cacheState.downloadProgress.currentFile}</p>
               <progress
                 aria-label="Model download progress"
                 aria-describedby="model-download-current-file"
@@ -584,15 +592,13 @@ export function DiagnosticsApp() {
               onChange={(event) => setDurationSeconds(Number(event.target.value))}
             >
               {PRODUCT_DURATIONS.map((duration) => (
-                <option key={duration} value={duration}>{duration} seconds</option>
+                <option key={duration} value={duration}>
+                  {duration} seconds
+                </option>
               ))}
             </select>
           </label>
-          <button
-            type="button"
-            disabled={!capability?.supported || !cacheControls.canGenerate}
-            onClick={generateMusic}
-          >
+          <button type="button" disabled={!capability?.supported || !cacheControls.canGenerate} onClick={generateMusic}>
             Generate {durationLabel(durationSeconds)} music
           </button>
           <button type="button" className="secondary" disabled={!worker.current} onClick={cancel}>

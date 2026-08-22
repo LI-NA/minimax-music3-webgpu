@@ -11,9 +11,7 @@ export const appBuildDefines = {
 };
 
 const readLocalJspiAsset = (name: string) => {
-  const source = readFileSync(
-    new URL(`./node_modules/onnxruntime-web/dist/${name}`, import.meta.url),
-  );
+  const source = readFileSync(new URL(`./node_modules/onnxruntime-web/dist/${name}`, import.meta.url));
   return name.endsWith('.wasm') ? patchOrtWebGpuConvTransposeCoordinates(source) : source;
 };
 
@@ -24,10 +22,7 @@ function localJspiWasm(): Plugin {
       server.middlewares.use('/ort/', (request, response, next) => {
         const name = localJspiAssetName(request.url);
         if (!name) return next();
-        response.setHeader(
-          'Content-Type',
-          name.endsWith('.wasm') ? 'application/wasm' : 'text/javascript',
-        );
+        response.setHeader('Content-Type', name.endsWith('.wasm') ? 'application/wasm' : 'text/javascript');
         response.end(readLocalJspiAsset(name));
       });
     },

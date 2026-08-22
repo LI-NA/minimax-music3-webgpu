@@ -5,9 +5,7 @@ test.setTimeout(30 * 60_000);
 
 test('generates a canonical stereo WAV with the exact vocoder on WebGPU and reuses its release', async () => {
   const context = await chromium.launchPersistentContext(
-    path.resolve(
-      process.env.MINIMAX_VOCODER_CHROME_PROFILE ?? 'artifacts/browser-profile-vocoder',
-    ),
+    path.resolve(process.env.MINIMAX_VOCODER_CHROME_PROFILE ?? 'artifacts/browser-profile-vocoder'),
     { channel: 'chrome', headless: false },
   );
   const page = context.pages()[0] ?? (await context.newPage());
@@ -19,8 +17,8 @@ test('generates a canonical stereo WAV with the exact vocoder on WebGPU and reus
     const progress = page.locator('output');
     await page.waitForFunction(
       () =>
-        document.querySelector('[data-testid="vocoder-smoke-result"]')
-        || document.querySelector('output')?.textContent?.startsWith('Error:'),
+        document.querySelector('[data-testid="vocoder-smoke-result"]') ||
+        document.querySelector('output')?.textContent?.startsWith('Error:'),
       undefined,
       { timeout: 30 * 60_000 },
     );

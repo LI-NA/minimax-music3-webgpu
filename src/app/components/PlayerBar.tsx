@@ -88,9 +88,7 @@ export function PlayerBar({
         </div>
       </div>
       <div className="flex min-w-0 flex-1 items-center gap-2.5">
-        <div className="flex-none font-mono text-[10.5px] text-muted">
-          {formatClock(Math.min(position, total))}
-        </div>
+        <div className="flex-none font-mono text-[10.5px] text-muted">{formatClock(Math.min(position, total))}</div>
         <div onClick={handleSeek} className="flex h-5 flex-1 cursor-pointer items-center">
           <div className="h-1 flex-1 overflow-hidden rounded-sm bg-panel2">
             <div className="h-full rounded-sm bg-accent" style={{ width: `${fraction * 100}%` }} />
@@ -114,9 +112,7 @@ export function PlayerBar({
             type="button"
             onClick={onToggleLoop}
             className={`rounded-[7px] border px-2.5 py-[5px] font-mono text-[10px] ${
-              loop
-                ? 'border-accent bg-accent-soft text-accent'
-                : 'border-line bg-transparent text-muted2'
+              loop ? 'border-accent bg-accent-soft text-accent' : 'border-line bg-transparent text-muted2'
             }`}
           >
             LOOP

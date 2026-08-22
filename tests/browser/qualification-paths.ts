@@ -24,22 +24,14 @@ export const canonicalContainedChild = (root: string, candidate: string) => {
 
 export function resolveQualificationCapture(checkoutRoot: string, requested: string | undefined) {
   if (!requested) throw new Error('qualification capture path is required');
-  const root = path.resolve(
-    checkoutRoot,
-    'artifacts',
-    'diagnostics',
-    'variable-duration',
-  );
+  const root = path.resolve(checkoutRoot, 'artifacts', 'diagnostics', 'variable-duration');
   const capture = path.resolve(checkoutRoot, requested);
   if (!canonicalContainedChild(root, capture))
     throw new Error('qualification capture must be a contained nonempty child');
   return capture;
 }
 
-export function assertFreshQualificationCapture(
-  capture: string,
-  exists: (candidate: string) => boolean,
-) {
+export function assertFreshQualificationCapture(capture: string, exists: (candidate: string) => boolean) {
   if (exists(capture)) throw new Error(`qualification capture already exists: ${capture}`);
 }
 
@@ -53,12 +45,8 @@ export function resolveQualificationProfile(
     'artifacts',
     linkedWorktree ? 'worktree-profiles' : 'browser-profiles',
   );
-  if (linkedWorktree && !requested)
-    throw new Error('linked worktrees require an explicit Chrome profile');
-  const profile = path.resolve(
-    checkoutRoot,
-    requested ?? 'artifacts/browser-profiles/variable-duration/task11',
-  );
+  if (linkedWorktree && !requested) throw new Error('linked worktrees require an explicit Chrome profile');
+  const profile = path.resolve(checkoutRoot, requested ?? 'artifacts/browser-profiles/variable-duration/task11');
   if (!canonicalContainedChild(profileRoot, profile)) {
     const rootName = linkedWorktree ? 'worktree-profiles' : 'browser-profiles';
     throw new Error(`Chrome profile must be a nonempty child of artifacts/${rootName}`);

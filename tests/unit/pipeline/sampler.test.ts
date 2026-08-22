@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  sampleResidual,
-  sampleSemantic,
-  sampleSemanticExcludingAudioEnd,
-} from '../../../src/runtime/pipeline/sampler';
+import { sampleResidual, sampleSemantic, sampleSemanticExcludingAudioEnd } from '../../../src/runtime/pipeline/sampler';
 
-const sampling = (overrides: Partial<{ guidance: number; topK: number; temperature: number; draw: () => number }> = {}) => ({
+const sampling = (
+  overrides: Partial<{
+    guidance: number;
+    topK: number;
+    temperature: number;
+    draw: () => number;
+  }> = {},
+) => ({
   guidance: 1.5,
   topK: 50,
   temperature: 1,
@@ -29,11 +32,17 @@ describe('semantic sampler', () => {
     conditional[0] = 10;
     unconditional[0] = 1e9;
 
-    expect(sampleSemantic(conditional, unconditional, sampling({
-      guidance: 3,
-      topK: 1,
-      draw: () => 0,
-    }))).toBe(0);
+    expect(
+      sampleSemantic(
+        conditional,
+        unconditional,
+        sampling({
+          guidance: 3,
+          topK: 1,
+          draw: () => 0,
+        }),
+      ),
+    ).toBe(0);
   });
 
   it('keeps every conditional candidate tied at the semantic preselection kth threshold', () => {
@@ -85,7 +94,9 @@ describe('residual sampler', () => {
     const unconditional = new Float32Array(1_024).fill(-100);
     conditional.set([2.833_797_693_252_563_5, 13.935_146_331_787_11]);
     unconditional.set([-2.788_192_033_767_7, -5.052_731_990_814_209]);
-    expect(sampleResidual(conditional, unconditional, sampling({ topK: 2, draw: () => 1.889_640_444_119_322_6e-8 }))).toBe(1);
+    expect(
+      sampleResidual(conditional, unconditional, sampling({ topK: 2, draw: () => 1.889_640_444_119_322_6e-8 })),
+    ).toBe(1);
   });
 
   it('rounds exponential weights to float32', () => {
@@ -93,7 +104,9 @@ describe('residual sampler', () => {
     const unconditional = new Float32Array(1_024).fill(-100);
     conditional.set([-5.953_262_805_938_721, -3.805_346_727_371_216]);
     unconditional.set([-4.551_779_270_172_119, -9.676_701_545_715_332]);
-    expect(sampleResidual(conditional, unconditional, sampling({ topK: 2, draw: () => 0.003_065_924_160_182_476 }))).toBe(1);
+    expect(
+      sampleResidual(conditional, unconditional, sampling({ topK: 2, draw: () => 0.003_065_924_160_182_476 })),
+    ).toBe(1);
   });
 
   it('rounds cumulative probability additions to float32', () => {
@@ -109,7 +122,9 @@ describe('residual sampler', () => {
     const unconditional = new Float32Array(1_024).fill(-100);
     conditional.set([-5.161_171_913_146_973, -7.631_301_879_882_812_5]);
     unconditional.set([10.720_241_546_630_86, 6.320_966_243_743_8965]);
-    expect(sampleResidual(conditional, unconditional, sampling({ topK: 2, draw: () => 0.818_401_634_693_145_8 }))).toBe(1);
+    expect(sampleResidual(conditional, unconditional, sampling({ topK: 2, draw: () => 0.818_401_634_693_145_8 }))).toBe(
+      1,
+    );
   });
 
   it('rounds inverse-CDF subtraction to float32', () => {
@@ -135,7 +150,9 @@ describe('residual sampler', () => {
     unconditional.set([0, 1]);
 
     expect(sampleResidual(conditional, unconditional, sampling({ topK: 2, temperature: 1, draw: () => 0.1 }))).toBe(0);
-    expect(sampleResidual(conditional, unconditional, sampling({ topK: 2, temperature: 0.1, draw: () => 0.1 }))).toBe(1);
+    expect(sampleResidual(conditional, unconditional, sampling({ topK: 2, temperature: 0.1, draw: () => 0.1 }))).toBe(
+      1,
+    );
   });
 
   it.each([0, -1, Number.NaN, Infinity])('rejects invalid temperature %s', (temperature) => {

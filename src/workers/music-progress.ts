@@ -64,10 +64,7 @@ export function cancelProgress(previous: ProgressView): ProgressView {
   return { status: 'cancelled', text: 'Music generation cancelled', indeterminate: false };
 }
 
-export function cancelWorker(
-  worker: { terminate(): void } | null,
-  previous: ProgressView,
-) {
+export function cancelWorker(worker: { terminate(): void } | null, previous: ProgressView) {
   worker?.terminate();
   return cancelProgress(previous);
 }
@@ -86,9 +83,7 @@ export function createMusicProgressTracker(
   requestOrNow: DurationPlanRequest | Now = { durationSeconds: 5, promptTokens: 0 },
   suppliedNow: Now = () => performance.now(),
 ) {
-  const request = typeof requestOrNow === 'function'
-    ? { durationSeconds: 5, promptTokens: 0 }
-    : requestOrNow;
+  const request = typeof requestOrNow === 'function' ? { durationSeconds: 5, promptTokens: 0 } : requestOrNow;
   const now = typeof requestOrNow === 'function' ? requestOrNow : suppliedNow;
   const requestedPlan = planDuration(request);
   const flowSteps = request.flowSteps ?? 30;
@@ -182,10 +177,8 @@ export function createMusicProgressTracker(
     startFlowChunk(completedSteps: number) {
       requireActive();
       requireProgressCounter(completedSteps, flowCompleted, retainedPlan.flowCalls);
-      if (completedSteps !== flowCompleted)
-        throw new Error('flow chunk must start at the current completed step');
-      if (completedSteps % flowSteps !== 0)
-        throw new Error('flow chunk must start at a flow-step boundary');
+      if (completedSteps !== flowCompleted) throw new Error('flow chunk must start at the current completed step');
+      if (completedSteps % flowSteps !== 0) throw new Error('flow chunk must start at a flow-step boundary');
       const current = now();
       flowStarted ??= current;
       flowPrevious = current;
