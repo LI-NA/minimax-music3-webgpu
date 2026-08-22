@@ -28,6 +28,8 @@ const state = vi.hoisted(() => ({
   ortWebgpu: {} as { device?: unknown },
   cacheState: 'ready' as 'missing' | 'partial' | 'ready',
   ensureError: undefined as Error | undefined,
+  activeEnsureCount: 0,
+  peakEnsureCount: 0,
   inspectionError: undefined as Error | undefined,
   deleteError: undefined as Error | undefined,
   storageEstimate: { usage: 10, quota: 100 } as { usage?: number; quota?: number } | undefined,
@@ -117,8 +119,16 @@ vi.mock('../../../src/runtime/model/artifact-cache', () => ({
   },
   ensureArtifact: vi.fn(async (artifact: { path: string }) => {
     state.events.push(`artifact:${artifact.path}`);
-    if (state.ensureError) throw state.ensureError;
-    state.cacheState = 'ready';
+    state.activeEnsureCount++;
+    state.peakEnsureCount = Math.max(state.peakEnsureCount, state.activeEnsureCount);
+    try {
+      // Yield so overlapping transfers are observable; a synchronous body could never overlap.
+      await Promise.resolve();
+      if (state.ensureError) throw state.ensureError;
+      state.cacheState = 'ready';
+    } finally {
+      state.activeEnsureCount--;
+    }
   }),
 }));
 vi.mock('../../../src/runtime/model/artifact-cache-management', () => {
@@ -477,6 +487,8 @@ describe('variable inference worker lifecycle', () => {
     state.preflightGate = undefined;
     state.cacheState = 'ready';
     state.ensureError = undefined;
+    state.activeEnsureCount = 0;
+    state.peakEnsureCount = 0;
     state.inspectionError = undefined;
     state.deleteError = undefined;
     state.storageEstimate = { usage: 10, quota: 100 };
@@ -650,8 +662,9 @@ describe('variable inference worker lifecycle', () => {
       manifestUrl: 'http://worker.test/music-variable/manifest.json',
     });
 
+    // Transfers overlap, so the set matters and the order does not.
     const downloads = state.events.filter((event) => event.startsWith('artifact:'));
-    expect(downloads).toEqual(expectedVariableArtifactPaths.map((path) => `artifact:${path}`));
+    expect([...downloads].sort()).toEqual(expectedVariableArtifactPaths.map((path) => `artifact:${path}`).sort());
     expect(state.cacheOpenCalls).toEqual([{ hash: emptyObjectManifestHash, root: opfsRoot }]);
     expect(state.cacheOpenExistingCalls).toEqual([
       { hash: emptyObjectManifestHash, root: opfsRoot },
@@ -666,6 +679,39 @@ describe('variable inference worker lifecycle', () => {
       type: 'artifact-download-complete',
       status: { state: 'ready', persistence: 'best-effort' },
     });
+  });
+
+  it('overlaps transfers so a stalled file does not idle the connection', async () => {
+    state.cacheState = 'missing';
+
+    await runWorkerRequest({
+      type: 'download-artifacts',
+      manifestUrl: 'http://worker.test/music-variable/manifest.json',
+    });
+
+    expect(state.peakEnsureCount).toBe(4);
+    expect(state.activeEnsureCount).toBe(0);
+    expect(state.events.filter((event) => event.startsWith('artifact:'))).toHaveLength(
+      expectedVariableArtifactPaths.length,
+    );
+  });
+
+  it('stops starting transfers once one has failed', async () => {
+    state.cacheState = 'missing';
+    state.ensureError = new Error('artifact request failed: shared.bin');
+
+    await expect(
+      runWorkerRequest({
+        type: 'download-artifacts',
+        manifestUrl: 'http://worker.test/music-variable/manifest.json',
+      }),
+    ).rejects.toMatchObject({ code: 'download-failed' });
+
+    // Only the transfers already in flight run; the remaining seven are never handed out.
+    const started = state.events.filter((event) => event.startsWith('artifact:'));
+    expect(started).toHaveLength(4);
+    expect(expectedVariableArtifactPaths.length).toBeGreaterThan(started.length);
+    expect(state.activeEnsureCount).toBe(0);
   });
 
   it('preserves persistent storage in the final download status', async () => {

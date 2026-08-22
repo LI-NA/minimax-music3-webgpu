@@ -624,6 +624,14 @@ async function runArtifactCacheDeletion(request: Extract<ArtifactCacheRequest, {
   }
 }
 
+/**
+ * A single transfer leaves the connection idle through per-file work: opening OPFS handles,
+ * verifying an already-stored file, and hashing the tail after the last byte arrives. Overlapping
+ * a few files keeps bytes moving through those gaps. It matters most against a hosted release,
+ * where one HTTPS stream rarely saturates a link.
+ */
+const ARTIFACT_DOWNLOAD_CONCURRENCY = 4;
+
 async function cacheArtifacts(
   artifacts: readonly { path: string; bytes: number; sha256: string }[],
   base: URL,
@@ -632,19 +640,49 @@ async function cacheArtifacts(
   let fetches = 0;
   let completedBytes = 0;
   let transferredBytes = 0;
+  let failure: unknown;
+  let nextIndex = 0;
   const totalBytes = artifacts.reduce((total, artifact) => total + artifact.bytes, 0);
   const reporter = createArtifactProgressReporter({ totalBytes, send });
-  for (const artifact of artifacts) {
+  const active = new Map<number, { loaded: number; transferred: number }>();
+
+  const total = (pick: (entry: { loaded: number; transferred: number }) => number) => {
+    let sum = 0;
+    for (const entry of active.values()) sum += pick(entry);
+    return sum;
+  };
+
+  // The reported file follows the earliest transfer still running rather than whichever one
+  // happened to make progress. A label that flips between transfers would both read as noise and
+  // defeat the reporter's interval throttle, which always emits when the file changes.
+  const report = () => {
+    const running = [...active.keys()];
+    if (running.length === 0) return;
+    const index = Math.min(...running);
+    const labelled = active.get(index)!;
+    reporter.report(
+      artifacts[index]!.path,
+      labelled.loaded,
+      artifacts[index]!.bytes,
+      completedBytes + total((entry) => entry.loaded) - labelled.loaded,
+      transferredBytes + total((entry) => entry.transferred),
+    );
+  };
+
+  const cacheOne = async (index: number) => {
+    const artifact = artifacts[index]!;
+    const entry = { loaded: 0, transferred: 0 };
+    active.set(index, entry);
     let fetched = false;
-    let artifactTransferredBytes = 0;
     try {
       await ensureArtifact(
         artifact,
         new URL(artifact.path, base),
         cache,
-        ({ path, loaded, total, transferred }) => {
-          artifactTransferredBytes = Math.max(artifactTransferredBytes, transferred);
-          reporter.report(path, loaded, total, completedBytes, transferredBytes + artifactTransferredBytes);
+        ({ loaded, transferred }) => {
+          entry.loaded = loaded;
+          entry.transferred = Math.max(entry.transferred, transferred);
+          report();
         },
         async (input, init) => {
           fetched = true;
@@ -652,13 +690,33 @@ async function cacheArtifacts(
           return fetch(input, init);
         },
       );
-    } catch (error) {
-      reporter.discard();
-      throw error;
+    } finally {
+      active.delete(index);
     }
-    transferredBytes += artifactTransferredBytes;
+    transferredBytes += entry.transferred;
     completedBytes += artifact.bytes;
     reporter.complete(artifact.path, artifact.bytes, completedBytes, !fetched, transferredBytes);
+  };
+
+  // Stop handing out work on the first failure and let the running transfers settle, so nothing
+  // keeps writing to the cache after the operation has already reported an error.
+  const drain = async () => {
+    while (failure === undefined) {
+      const index = nextIndex++;
+      if (index >= artifacts.length) return;
+      try {
+        await cacheOne(index);
+      } catch (error) {
+        failure ??= error;
+        return;
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(ARTIFACT_DOWNLOAD_CONCURRENCY, artifacts.length) }, drain));
+  if (failure !== undefined) {
+    reporter.discard();
+    throw failure;
   }
   return fetches;
 }
