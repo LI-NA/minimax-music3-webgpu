@@ -22,6 +22,59 @@ export interface OpfsSyncFileHandle {
 }
 export type Fetcher = (input: URL, init?: RequestInit) => Promise<Response>;
 
+/**
+ * Chrome hands network response bodies to a reader in units of roughly 8 KiB, and that size is set
+ * by the transport rather than by the server or by how fast the reader drains: a 16 MB body written
+ * in a single server call arrives the same way, and pausing the reader for half a second still
+ * yields a 16 KiB chunk. A same-origin release is the worst case, because a remote CDN has enough
+ * latency to make each delivery larger.
+ *
+ * Every FileSystemWritableFileStream.write is an asynchronous round trip through a swap file, so
+ * writing once per delivered chunk means one round trip per 8 KiB and pins throughput near
+ * 20 MB/s regardless of disk or server speed. Batching into 1 MiB writes measured 109 MB/s against
+ * the same release, which is the transfer's own limit.
+ */
+export const ARTIFACT_WRITE_BUFFER_BYTES = 1 << 20;
+
+/** The sink underneath the buffer. It only ever receives buffers this module owns outright. */
+export interface ArtifactWriteTarget {
+  write(data: Uint8Array<ArrayBuffer>): Promise<void>;
+  close(): Promise<void>;
+}
+
+export function createBufferedArtifactWriter(target: ArtifactWriteTarget, capacity: number): ArtifactWriter {
+  if (!Number.isSafeInteger(capacity) || capacity <= 0) throw new Error('artifact write buffer must be positive');
+  const buffer = new Uint8Array(capacity);
+  let filled = 0;
+  const flush = async () => {
+    if (filled === 0) return;
+    // Awaited before `filled` resets, so the buffer is never reused while a write is in flight.
+    await target.write(buffer.subarray(0, filled));
+    filled = 0;
+  };
+  return {
+    async write(data: Uint8Array) {
+      if (data.byteLength >= capacity) {
+        await flush();
+        await target.write(data.slice());
+        return;
+      }
+      let offset = 0;
+      while (offset < data.byteLength) {
+        const take = Math.min(capacity - filled, data.byteLength - offset);
+        buffer.set(data.subarray(offset, offset + take), filled);
+        filled += take;
+        offset += take;
+        if (filled === capacity) await flush();
+      }
+    },
+    async close() {
+      await flush();
+      await target.close();
+    },
+  };
+}
+
 export async function ensureArtifact(
   file: ArtifactFile,
   source: URL,
@@ -147,10 +200,13 @@ export class OpfsArtifactStore implements ArtifactStore {
   async writer(path: string, append: boolean) {
     const writable = await (await this.handle(path, true)).createWritable({ keepExistingData: append });
     if (append) await writable.seek(await this.size(path));
-    return {
-      write: (data: Uint8Array) => writable.write(data.slice()),
-      close: () => writable.close(),
-    };
+    return createBufferedArtifactWriter(
+      {
+        write: (data) => writable.write(data),
+        close: () => writable.close(),
+      },
+      ARTIFACT_WRITE_BUFFER_BYTES,
+    );
   }
   async remove(path: string) {
     const removeEntry = async (entryPath: string) => {

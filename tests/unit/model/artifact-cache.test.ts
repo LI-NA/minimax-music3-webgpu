@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createBufferedArtifactWriter,
   ensureArtifact,
   OpfsArtifactStore,
   type ArtifactStore,
+  type ArtifactWriteTarget,
   type ArtifactWriter,
 } from '../../../src/runtime/model/artifact-cache';
 
@@ -365,5 +367,73 @@ describe('ensureArtifact', () => {
       },
     );
     expect(calls).toBe(2);
+  });
+});
+
+describe('createBufferedArtifactWriter', () => {
+  const recorder = () => {
+    const writes: number[] = [];
+    const bytes: number[] = [];
+    let closed = false;
+    let inFlight = 0;
+    const target: ArtifactWriteTarget = {
+      async write(data) {
+        inFlight++;
+        // A view of the shared buffer must not be handed over while a write is still pending.
+        if (inFlight > 1) throw new Error('overlapping write');
+        await Promise.resolve();
+        writes.push(data.byteLength);
+        bytes.push(...data);
+        inFlight--;
+      },
+      async close() {
+        closed = true;
+      },
+    };
+    return { target, writes, bytes, closed: () => closed };
+  };
+
+  it('coalesces small chunks into one write per buffer', async () => {
+    const sink = recorder();
+    const writer = createBufferedArtifactWriter(sink.target, 8);
+    for (let i = 0; i < 6; i++) await writer.write(new Uint8Array([i, i]));
+    expect(sink.writes).toEqual([8]);
+    await writer.close();
+    expect(sink.writes).toEqual([8, 4]);
+    expect(sink.bytes).toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5]);
+    expect(sink.closed()).toBe(true);
+  });
+
+  it('splits a chunk that straddles the buffer boundary without reordering bytes', async () => {
+    const sink = recorder();
+    const writer = createBufferedArtifactWriter(sink.target, 4);
+    await writer.write(new Uint8Array([1, 2, 3]));
+    await writer.write(new Uint8Array([4, 5]));
+    expect(sink.writes).toEqual([4]);
+    await writer.close();
+    expect(sink.writes).toEqual([4, 1]);
+    expect(sink.bytes).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('passes a chunk at or above the buffer size straight through, after the pending bytes', async () => {
+    const sink = recorder();
+    const writer = createBufferedArtifactWriter(sink.target, 4);
+    await writer.write(new Uint8Array([1]));
+    await writer.write(new Uint8Array([2, 3, 4, 5, 6, 7]));
+    await writer.close();
+    expect(sink.writes).toEqual([1, 6]);
+    expect(sink.bytes).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it('closes without writing when nothing was buffered', async () => {
+    const sink = recorder();
+    await createBufferedArtifactWriter(sink.target, 4).close();
+    expect(sink.writes).toEqual([]);
+    expect(sink.closed()).toBe(true);
+  });
+
+  it('rejects a buffer size that cannot hold anything', () => {
+    const sink = recorder();
+    expect(() => createBufferedArtifactWriter(sink.target, 0)).toThrow('artifact write buffer must be positive');
   });
 });
