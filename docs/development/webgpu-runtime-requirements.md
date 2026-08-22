@@ -22,24 +22,24 @@ Separate low-memory and faster profiles are not justified by the measurements. T
 
 All gates used headed Chrome 151 on a 16 GiB RTX 4080. `nvidia-smi` sampled total dedicated GPU memory, including Windows and Chromium background use. The 12,288 MiB limit is the project increase above the sample taken immediately before Chrome starts. It is not a 12 GiB cap on total device use. A separate physical guard stops at 512 MiB below adapter capacity.
 
-| Release evidence | Workload | Outcome | Baseline MiB | Raw peak MiB | Increase MiB |
-| --- | --- | --- | ---: | ---: | ---: |
-| Active `730293...` | Combined 6 s and 10 s | Both maxima reached with raw programmatic inputs | 2,987 | 8,800 | 5,813 |
-| Archived `12fe28...` | Fixed 5 s warm baseline | Maximum reached | 1,704 | 6,834 | 5,130 |
-| Archived `12fe28...` | Combined 6 s and 10 s | Both maxima reached | 2,977 | 8,502 | 5,525 |
-| Archived `12fe28...` | 30 s | Maximum reached | 2,898 | 8,600 | 5,702 |
-| Archived `12fe28...` | 60 s | Maximum reached | 3,128 | 9,872 | 6,744 |
-| Archived `12fe28...` | 120 s request | Natural end at 1,743 frames, about 69.8 s | 2,975 | 10,188 | 7,213 |
-| Archived `12fe28...` | 300 s capacity diagnostic | Full workload, synthetic after native audio-end | 3,168 | 13,892 | 10,724 |
+| Release evidence     | Workload                  | Outcome                                          | Baseline MiB | Raw peak MiB | Increase MiB |
+| -------------------- | ------------------------- | ------------------------------------------------ | -----------: | -----------: | -----------: |
+| Active `730293...`   | Combined 6 s and 10 s     | Both maxima reached with raw programmatic inputs |        2,987 |        8,800 |        5,813 |
+| Archived `12fe28...` | Fixed 5 s warm baseline   | Maximum reached                                  |        1,704 |        6,834 |        5,130 |
+| Archived `12fe28...` | Combined 6 s and 10 s     | Both maxima reached                              |        2,977 |        8,502 |        5,525 |
+| Archived `12fe28...` | 30 s                      | Maximum reached                                  |        2,898 |        8,600 |        5,702 |
+| Archived `12fe28...` | 60 s                      | Maximum reached                                  |        3,128 |        9,872 |        6,744 |
+| Archived `12fe28...` | 120 s request             | Natural end at 1,743 frames, about 69.8 s        |        2,975 |       10,188 |        7,213 |
+| Archived `12fe28...` | 300 s capacity diagnostic | Full workload, synthetic after native audio-end  |        3,168 |       13,892 |       10,724 |
 
 Practical physical-memory recommendations are:
 
-| Tier | Guidance |
-| --- | --- |
-| 8 GiB | Not recommended. The active short variable gate reached 8,800 MiB total, and no 8 GiB adapter has been tested. |
-| 10 GiB | Reasonable short-generation target based on the active 6 and 10-second peak of 8,800 MiB, but not a certified minimum. |
+| Tier   | Guidance                                                                                                                                                                    |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 8 GiB  | Not recommended. The active short variable gate reached 8,800 MiB total, and no 8 GiB adapter has been tested.                                                              |
+| 10 GiB | Reasonable short-generation target based on the active 6 and 10-second peak of 8,800 MiB, but not a certified minimum.                                                      |
 | 12 GiB | Recommended for the measured product workload through one minute, with more than 2 GiB between the 60-second peak and physical capacity. No 12 GiB adapter has been tested. |
-| 16 GiB | Tested recommendation for the complete five-minute capacity workload. The measured raw peak was 13,892 MiB and retained the 512 MiB physical reserve. |
+| 16 GiB | Tested recommendation for the complete five-minute capacity workload. The measured raw peak was 13,892 MiB and retained the 512 MiB physical reserve.                       |
 
 Adapter limits, driver behavior, and Chromium allocation can differ even when nominal VRAM matches. Only the RTX 4080 is verified. Before a long generation, wait for Android emulators, virtual machines, or other applications that materially consume GPU memory. Ordinary baseline use is included in the spawn-adjacent measurement and is not subtracted twice.
 
@@ -49,12 +49,12 @@ The WebGPU adapter must expose a 128 MiB storage-buffer binding and at least nin
 
 Autoregressive generation is the limiting stage and grows with retained duration. The five-second application-owned GPU tensor payloads are small relative to ONNX Runtime weights, activations, and buffer buckets:
 
-| Stage | Exact peak application-owned GPU bytes |
-| --- | ---: |
-| Autoregressive and RVQ | 97,058,816 |
-| Condition output | 1,761,280 |
-| Flow current and next tensors | 220,160 |
-| Vocoder | 0 |
+| Stage                         | Exact peak application-owned GPU bytes |
+| ----------------------------- | -------------------------------------: |
+| Autoregressive and RVQ        |                             97,058,816 |
+| Condition output              |                              1,761,280 |
+| Flow current and next tensors |                                220,160 |
+| Vocoder                       |                                      0 |
 
 The five-second autoregressive figure includes the old and new KV sets at the final decode boundary. Final live KV data is 48,660,480 bytes. At 300 seconds, the exact old-plus-new KV payload reaches 4,447,010,816 bytes and the flat FP16 retained-hidden handoff reaches 491,520,000 bytes. The actual capacity measurement supersedes the earlier 10,982 MiB analytical total projection: raw total-system use reached 13,892 MiB.
 
@@ -68,13 +68,18 @@ Standalone total-system measurements provide supporting context only. Condition 
 
 The pre-change warm baseline used the same persistent profile, seed 7, one headed Chrome worker, and zero artifact fetches across three runs. It averaged 104,956 ms of browser wall time. Autoregressive inference averaged 15,077.2 ms with a 0.16% coefficient of variation, and flow inference averaged 5,795.4 ms with a 0.62% coefficient of variation.
 
-| Candidate | Result | Decision |
-| --- | --- | --- |
-| Simple storage-buffer cache | GPU peak increased from 6,835 to 12,074 MiB and AR inference slowed by 2.38% to 2.79% | Rejected and reverted |
-| Decoder prepacking | GPU peak was 6,836 MiB, AR inference slowed by 0.46%, and AR stage time slowed by 0.79% | Rejected and reverted |
-| Manifest-scoped completed-artifact receipts | Warm artifact validation fell from 76,282.1 to 223.5 ms on average | Retained |
-| Sequential stage devices, flat FP16 retained hiddens, reused acoustic sessions, symbolic mono vocoder, and direct PCM16 output | Completed the 300-second capacity workload with a 10,724 MiB project increase | Retained |
-| Artifact progress coalescing | Replaced per-16-KiB message floods with immediate, at-most-100-ms intermediate, and exact completion events | Retained |
+| Candidate                                                                                                                      | Result                                                                                                      | Decision              |
+| ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- | --------------------- |
+| Simple storage-buffer cache                                                                                                    | GPU peak increased from 6,835 to 12,074 MiB and AR inference slowed by 2.38% to 2.79%                       | Rejected and reverted |
+| Decoder prepacking                                                                                                             | GPU peak was 6,836 MiB, AR inference slowed by 0.46%, and AR stage time slowed by 0.79%                     | Rejected and reverted |
+| Manifest-scoped completed-artifact receipts                                                                                    | Warm artifact validation fell from 76,282.1 to 223.5 ms on average                                          | Retained              |
+| Sequential stage devices, flat FP16 retained hiddens, reused acoustic sessions, symbolic mono vocoder, and direct PCM16 output | Completed the 300-second capacity workload with a 10,724 MiB project increase                               | Retained              |
+| Artifact progress coalescing                                                                                                   | Replaced per-16-KiB message floods with immediate, at-most-100-ms intermediate, and exact completion events | Retained              |
+| Buffered artifact writes and overlapped transfers                                                                              | Cold download of the variable release rose from 5-10 MB/s to a sustained 93-152 MiB/s                       | Retained              |
+
+The download rate was pinned by write granularity rather than by disk or server speed. Chrome hands a network response body to a reader in units of roughly 8 KiB, set by the transport and not by the server: the dev server's `/ort/` handler writes a 16 MB body in a single call and it still arrives that way, and pausing the reader for 500 ms still yields a 16 KiB chunk. A same-origin release is the worst case, because a remote CDN has enough latency to make each delivery larger, and Hugging Face measured a 16 KiB median against 8 KiB for localhost. Since every `FileSystemWritableFileStream.write` is an asynchronous round trip through a swap file, one write per delivered chunk meant one round trip per 8 KiB.
+
+Measured in a worker against the same release, 32 MiB per run: per-chunk `createWritable` reached 19.9 MB/s, 1 MiB batches reached 109.4 MB/s, and `createSyncAccessHandle` reached 90.0 MB/s per chunk. Batching alone recovers the transfer's own limit, so the write API is unchanged. Four concurrent transfers then cover the per-file gaps, which matters most against a hosted release where one HTTPS stream rarely saturates a link.
 
 The retained cache change trusts a completion receipt only inside the directory keyed by the complete manifest text hash and only when the artifact still has the declared byte length. Initial downloads and marker-less files remain SHA-256 verified. A size-mismatched completed artifact and its receipt are removed before a clean download, while ordinary partial downloads remain resumable.
 
