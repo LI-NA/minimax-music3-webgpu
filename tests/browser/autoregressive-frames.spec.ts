@@ -11,7 +11,7 @@ test('generates two exact-checkpoint RVQ frames with WebGPU-resident autoregress
   );
   const page = context.pages()[0] ?? (await context.newPage());
   try {
-    await page.goto(`http://127.0.0.1:5173/?frames=${frameCount}`);
+    await page.goto(`http://127.0.0.1:5173/diagnostics.html?release=global&frames=${frameCount}`);
     await page.getByRole('button', { name: 'Generate RVQ frames' }).click();
     await page.waitForFunction(
       () =>

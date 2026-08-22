@@ -15,7 +15,7 @@ test('generates and decodes the fixed five-second WAV and reuses the combined re
   });
   const page = context.pages()[0] ?? (await context.newPage());
   try {
-    await page.goto('http://127.0.0.1:5173/diagnostics');
+    await page.goto('http://127.0.0.1:5173/diagnostics.html?release=music-variable');
     const generate = page.getByRole('button', { name: 'Generate five-second music' });
     await generate.click();
     const progress = page.getByTestId('music-progress');

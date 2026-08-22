@@ -9,8 +9,9 @@ export function localJspiAssetName(url: string | undefined): string | undefined 
 
 export const localJspiFilesList = [...localJspiFiles];
 
-export function localJspiWasmPaths(origin: string) {
-  const path = (name: string) => new URL(`/ort/${name}?v=${patchVersion}`, origin).toString();
+/** `base` is the deployed base path and always ends with a slash, matching `import.meta.env.BASE_URL`. */
+export function localJspiWasmPaths(origin: string, base: string) {
+  const path = (name: string) => new URL(`${base}ort/${name}?v=${patchVersion}`, origin).toString();
   return {
     mjs: path('ort-wasm-simd-threaded.jspi.mjs'),
     wasm: path('ort-wasm-simd-threaded.jspi.wasm'),

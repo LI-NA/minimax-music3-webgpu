@@ -26,6 +26,7 @@ import {
   type GenerationView,
 } from './generation-view';
 import { detectLanguage, messages, type Language } from './i18n';
+import { resolveManifestUrl } from './manifest-url';
 import { deleteStoredTrack, listStoredTracks, saveStoredTrack, type TrackSettings } from './track-store';
 import {
   INSTRUMENTAL_LYRICS,
@@ -38,7 +39,7 @@ import {
 } from './tracks';
 import { pseudoBars, wavBars } from './waveform';
 
-const MANIFEST_URL = 'http://127.0.0.1:5174/manifest.json';
+const MANIFEST_URL = resolveManifestUrl();
 const WAVEFORM_BARS = 88;
 const SAMPLE_RATE = 44_100;
 

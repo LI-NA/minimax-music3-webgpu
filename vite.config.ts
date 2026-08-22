@@ -4,6 +4,11 @@ import { defineConfig, type Plugin } from 'vite';
 import { localJspiAssetName, localJspiFilesList } from './src/runtime/model/local-jspi-path.ts';
 import { patchOrtWebGpuConvTransposeCoordinates } from './src/runtime/model/ort-wasm-patch.ts';
 import { APP_VERSION, workingSourceRevision } from './tools/app-revision.ts';
+import { createArtifactMiddleware } from './tools/artifact-middleware.ts';
+
+// GitHub Pages project sites live under `/<repo>/`. Everything that builds an absolute runtime
+// URL derives it from `import.meta.env.BASE_URL`, so the deployment shape is a build input.
+const base = process.env.MINIMAX_BASE ?? '/';
 
 export const appBuildDefines = {
   __MINIMAX_APP_VERSION__: JSON.stringify(APP_VERSION),
@@ -19,7 +24,7 @@ function localJspiWasm(): Plugin {
   return {
     name: 'local-jspi-wasm',
     configureServer(server) {
-      server.middlewares.use('/ort/', (request, response, next) => {
+      server.middlewares.use(`${base}ort/`, (request, response, next) => {
         const name = localJspiAssetName(request.url);
         if (!name) return next();
         response.setHeader('Content-Type', name.endsWith('.wasm') ? 'application/wasm' : 'text/javascript');
@@ -37,7 +42,23 @@ function localJspiWasm(): Plugin {
   };
 }
 
+/**
+ * Serves converted releases same-origin during development. Registering only `configureServer`
+ * keeps the multi-gigabyte release tree out of `dist/`, and same-origin means no CORS to
+ * misconfigure.
+ */
+function localArtifacts(): Plugin {
+  return {
+    name: 'local-artifacts',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use(`${base}artifacts`, createArtifactMiddleware());
+    },
+  };
+}
+
 export default defineConfig({
+  base,
   define: appBuildDefines,
-  plugins: [tailwindcss(), localJspiWasm()],
+  plugins: [tailwindcss(), localJspiWasm(), localArtifacts()],
 });

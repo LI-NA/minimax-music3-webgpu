@@ -25,14 +25,17 @@ import {
   formatEta,
   formatRate,
 } from './artifact-cache-ui';
+import { localReleaseManifestUrl, selectedRelease } from './manifest-url';
 
 type CapabilityState = WebGpuCapability | null;
 const PRODUCT_DURATIONS = Array.from({ length: 60 }, (_, index) => (index + 1) * 5);
-const PRODUCT_MANIFEST_URL = 'http://127.0.0.1:5174/manifest.json';
-const RVQ_MANIFEST_URL = 'http://127.0.0.1:5175/manifest.json';
-const CONDITION_MANIFEST_URL = 'http://127.0.0.1:5176/manifest.json';
-const FLOW_MANIFEST_URL = 'http://127.0.0.1:5177/manifest.json';
-const VOCODER_MANIFEST_URL = 'http://127.0.0.1:5178/manifest.json';
+// The stage releases are fixed; the primary release varies per gate and is selected with
+// `?release=<name>` so no environment variable decides what a diagnostic actually loads.
+const PRODUCT_MANIFEST_URL = localReleaseManifestUrl(selectedRelease());
+const RVQ_MANIFEST_URL = localReleaseManifestUrl('rvq');
+const CONDITION_MANIFEST_URL = localReleaseManifestUrl('condition');
+const FLOW_MANIFEST_URL = localReleaseManifestUrl('flow');
+const VOCODER_MANIFEST_URL = localReleaseManifestUrl('vocoder');
 
 const createModuleWorker = () =>
   new Worker(new URL('../workers/inference.worker.ts', import.meta.url), { type: 'module' });

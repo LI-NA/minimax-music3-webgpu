@@ -64,7 +64,6 @@ function writeJsonExclusive(name: string, value: unknown) {
 }
 
 test(`qualifies one isolated ${durationSeconds}-second ${mode} generation`, async () => {
-  expect(process.env.MINIMAX_RELEASE).toBe('music-variable');
   expect(process.env.MINIMAX_VARIABLE_GATE).toBe('long-duration');
   expect(test.info().config.workers).toBe(1);
   assertFreshQualificationCapture(captureDirectory, existsSync);
@@ -102,7 +101,7 @@ test(`qualifies one isolated ${durationSeconds}-second ${mode} generation`, asyn
         ? {
             type: 'diagnose-music-capacity',
             diagnostic: 'continue-after-audio-end',
-            manifestUrl: 'http://127.0.0.1:5174/manifest.json',
+            manifestUrl: '/artifacts/music-variable/manifest.json',
             seed: 7,
             durationSeconds: 300,
             promptTokens: 40,
@@ -110,7 +109,7 @@ test(`qualifies one isolated ${durationSeconds}-second ${mode} generation`, asyn
           }
         : {
             type: 'generate-music',
-            manifestUrl: 'http://127.0.0.1:5174/manifest.json',
+            manifestUrl: '/artifacts/music-variable/manifest.json',
             prompt: fixedInput.prompt,
             lyrics: fixedInput.lyrics,
             seed: 7,

@@ -43,7 +43,7 @@ const captureDirectory = resolveQualificationCapture(checkoutRoot, process.env.M
 function request(durationSeconds: GateDuration): MusicGenerationRequest {
   return {
     type: 'generate-music',
-    manifestUrl: 'http://127.0.0.1:5174/manifest.json',
+    manifestUrl: '/artifacts/music-variable/manifest.json',
     prompt: fixedInput.prompt,
     lyrics: fixedInput.lyrics,
     seed: 7,
@@ -340,7 +340,6 @@ function assertSecondFlowCancellation(progress: CapturedProgress[]) {
 }
 
 test('qualifies fallback-disabled six and ten second generation with practical cancellation', async () => {
-  expect(process.env.MINIMAX_RELEASE).toBe('music-variable');
   expect(test.info().config.workers).toBe(1);
   assertFreshQualificationCapture(captureDirectory, existsSync);
   mkdirSync(captureDirectory, { recursive: true });

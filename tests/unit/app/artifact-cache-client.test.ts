@@ -3,7 +3,7 @@ import { createArtifactCacheClient } from '../../../src/app/artifact-cache-clien
 import type { ArtifactCacheUiAction } from '../../../src/app/artifact-cache-ui';
 import type { ArtifactCacheStatus, WorkerResponse } from '../../../src/workers/protocol';
 
-const MANIFEST_URL = 'http://127.0.0.1:5174/manifest.json';
+const MANIFEST_URL = '/artifacts/music-variable/manifest.json';
 
 const status = (): ArtifactCacheStatus => ({
   manifestHash: 'release',

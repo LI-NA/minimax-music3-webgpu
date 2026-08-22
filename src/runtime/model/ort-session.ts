@@ -6,7 +6,7 @@ import type { OnnxGraphArtifact } from './manifest';
 export async function createOrtSession(graph: OnnxGraphArtifact, cache: ArtifactStore): Promise<ort.InferenceSession> {
   ort.env.wasm.proxy = false;
   ort.env.wasm.numThreads = 1;
-  ort.env.wasm.wasmPaths = localJspiWasmPaths(self.location.origin);
+  ort.env.wasm.wasmPaths = localJspiWasmPaths(self.location.origin, import.meta.env.BASE_URL);
   ort.env.webgpu.powerPreference = 'high-performance';
   const model = new Uint8Array(await (await cache.file(graph.path)).arrayBuffer());
   const externalData = await Promise.all(

@@ -412,7 +412,7 @@ describe('music generation UI request', () => {
   it('uses the variable music route for the five-second product duration', () => {
     expect(createProductMusicRequest(5)).toEqual({
       type: 'generate-music',
-      manifestUrl: 'http://127.0.0.1:5174/manifest.json',
+      manifestUrl: '/artifacts/music-variable/manifest.json',
       prompt: FIXED_COMPARISON_CASE.input.prompt,
       lyrics: FIXED_COMPARISON_CASE.input.lyrics,
       seed: 7,

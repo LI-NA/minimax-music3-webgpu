@@ -12,7 +12,7 @@ async function device() {
 function configure(next: GPUDevice) {
   ort.env.wasm.proxy = false;
   ort.env.wasm.numThreads = 1;
-  ort.env.wasm.wasmPaths = localJspiWasmPaths(location.origin);
+  ort.env.wasm.wasmPaths = localJspiWasmPaths(location.origin, import.meta.env.BASE_URL);
   ort.env.webgpu.device = next;
 }
 export async function runExternalDataOpfsSmoke() {
@@ -21,7 +21,7 @@ export async function runExternalDataOpfsSmoke() {
     create: true,
   });
   for (const path of ['external-add.onnx', 'external-add.bin']) {
-    const data = await (await fetch(`/test-fixtures/${path}`)).arrayBuffer();
+    const data = await (await fetch(`${import.meta.env.BASE_URL}test-fixtures/${path}`)).arrayBuffer();
     const writable = await (await directory.getFileHandle(path, { create: true })).createWritable();
     await writable.write(data);
     await writable.close();

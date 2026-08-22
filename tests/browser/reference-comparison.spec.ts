@@ -202,7 +202,6 @@ async function captureRun(page: Page, layout: ReferenceCaptureLayout, runNumber:
 test('captures two fixed ten-second WebGPU runs and publishes a verified cloud receipt', async () => {
   const captureId = process.env.MINIMAX_REFERENCE_CAPTURE_ID;
   if (!captureId) throw new Error('MINIMAX_REFERENCE_CAPTURE_ID is required');
-  if (process.env.MINIMAX_RELEASE !== 'music-variable') throw new Error('MINIMAX_RELEASE must be music-variable');
   expect(test.info().config.workers).toBe(1);
 
   const checkoutRoot = path.resolve('.');
@@ -229,7 +228,7 @@ test('captures two fixed ten-second WebGPU runs and publishes a verified cloud r
   let first!: CapturedRun;
   let second!: CapturedRun;
   try {
-    await page.goto('http://127.0.0.1:5173/diagnostics');
+    await page.goto('http://127.0.0.1:5173/diagnostics.html?release=music-variable');
     await page.getByLabel('Music duration').selectOption('10');
     first = await captureRun(page, layout, 1);
     second = await captureRun(page, layout, 2);

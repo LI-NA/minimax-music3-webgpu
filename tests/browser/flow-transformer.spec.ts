@@ -10,7 +10,7 @@ test('runs one and 30 fixed flow steps on WebGPU and reuses its OPFS release', a
   );
   const page = context.pages()[0] ?? (await context.newPage());
   try {
-    await page.goto('http://127.0.0.1:5173/diagnostics/flow');
+    await page.goto('http://127.0.0.1:5173/diagnostics.html');
     await page.getByRole('button', { name: 'Run flow transformer smoke' }).click({ timeout: 5_000 });
 
     const result = page.getByTestId('flow-smoke-result');

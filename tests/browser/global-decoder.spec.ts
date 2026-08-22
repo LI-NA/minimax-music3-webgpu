@@ -10,7 +10,7 @@ test('prefills and performs ten GPU-resident cached decodes', async () => {
   );
   const page = context.pages()[0] ?? (await context.newPage());
   try {
-    await page.goto('http://127.0.0.1:5173/diagnostics');
+    await page.goto('http://127.0.0.1:5173/diagnostics.html?release=global');
     await page.getByRole('button', { name: 'Run Global LLM smoke' }).click();
 
     const result = page.getByTestId('global-smoke-result');

@@ -54,7 +54,7 @@ test('resumes an interrupted artifact download in OPFS and deletes only project 
         throw new Error('browser context contains a test-owned directory before setup');
       }
 
-      const manifestResponse = await fetch('http://127.0.0.1:5174/manifest.json');
+      const manifestResponse = await fetch('/artifacts/music-variable/manifest.json');
       if (!manifestResponse.ok) throw new Error('active manifest is unavailable');
       const manifestText = await manifestResponse.text();
       const activeManifestHash = Array.from(

@@ -153,7 +153,6 @@ function spawnGate(captureDirectory: string, chromeProfile: string) {
   const { spec } = selectBrowserGate(process.env.MINIMAX_VARIABLE_GATE);
   const environment = {
     ...process.env,
-    MINIMAX_RELEASE: 'music-variable',
     MINIMAX_VARIABLE_CAPTURE_DIR: captureDirectory,
     MINIMAX_VARIABLE_CHROME_PROFILE: chromeProfile,
   };

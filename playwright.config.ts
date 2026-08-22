@@ -3,40 +3,13 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests/browser',
   workers: 1,
+  // Releases are served same-origin by the dev server, so one web server replaces the former
+  // per-release artifact servers on ports 5174 through 5178.
   webServer: [
     {
       command: 'npm run dev -- --host 127.0.0.1',
       url: 'http://127.0.0.1:5173',
       reuseExistingServer: false,
-    },
-    {
-      command: 'node tools/serve-artifacts.mjs',
-      url: 'http://127.0.0.1:5174/manifest.json',
-      reuseExistingServer: false,
-    },
-    {
-      command: 'node tools/serve-artifacts.mjs',
-      url: 'http://127.0.0.1:5175/manifest.json',
-      reuseExistingServer: false,
-      env: { ...process.env, MINIMAX_RELEASE: 'rvq', MINIMAX_ARTIFACT_PORT: '5175' },
-    },
-    {
-      command: 'node tools/serve-artifacts.mjs',
-      url: 'http://127.0.0.1:5176/manifest.json',
-      reuseExistingServer: false,
-      env: { ...process.env, MINIMAX_RELEASE: 'condition', MINIMAX_ARTIFACT_PORT: '5176' },
-    },
-    {
-      command: 'node tools/serve-artifacts.mjs',
-      url: 'http://127.0.0.1:5177/manifest.json',
-      reuseExistingServer: false,
-      env: { ...process.env, MINIMAX_RELEASE: 'flow', MINIMAX_ARTIFACT_PORT: '5177' },
-    },
-    {
-      command: 'node tools/serve-artifacts.mjs',
-      url: 'http://127.0.0.1:5178/manifest.json',
-      reuseExistingServer: false,
-      env: { ...process.env, MINIMAX_RELEASE: 'vocoder', MINIMAX_ARTIFACT_PORT: '5178' },
     },
   ],
   use: {

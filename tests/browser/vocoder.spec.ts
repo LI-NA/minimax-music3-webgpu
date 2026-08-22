@@ -10,7 +10,7 @@ test('generates a canonical stereo WAV with the exact vocoder on WebGPU and reus
   );
   const page = context.pages()[0] ?? (await context.newPage());
   try {
-    await page.goto('http://127.0.0.1:5173/diagnostics/vocoder');
+    await page.goto('http://127.0.0.1:5173/diagnostics.html');
     await page.getByRole('button', { name: 'Run vocoder smoke' }).click({ timeout: 5_000 });
 
     const result = page.getByTestId('vocoder-smoke-result');
