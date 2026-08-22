@@ -44,20 +44,20 @@ export function createComposerState(): ComposerState {
 const QUICK_DURATIONS = [10, 30, 60, 120, 300];
 
 const inputClass =
-  'w-full rounded-lg border border-line bg-input px-2.5 py-2 text-[12.5px] text-ink ' +
+  'w-full rounded-lg border border-line bg-input px-2.5 py-2 text-sm text-ink ' +
   'placeholder:text-muted2 focus:border-muted2 focus:outline-none';
 const textareaClass =
-  'w-full resize-y rounded-lg border border-line bg-input px-2.5 py-2 text-xs leading-relaxed ' +
+  'w-full resize-y rounded-lg border border-line bg-input px-2.5 py-2 text-sm leading-relaxed ' +
   'text-ink placeholder:text-muted2 focus:border-muted2 focus:outline-none';
 const numberClass =
-  'w-full rounded-[7px] border border-line bg-input px-2 py-[7px] font-mono text-[11.5px] ' +
+  'w-full rounded-[7px] border border-line bg-input px-2 py-[7px] font-mono text-sm ' +
   'text-ink focus:border-muted2 focus:outline-none';
 
 function FieldLabel({ label, tag }: { label: string; tag?: string }) {
   return (
     <div className="mb-1.5 flex items-baseline gap-2">
-      <div className="text-xs font-bold">{label}</div>
-      {tag && <div className="font-mono text-[9.5px] uppercase tracking-[.08em] text-muted2">{tag}</div>}
+      <div className="text-sm font-bold">{label}</div>
+      {tag && <div className="font-mono text-xs uppercase tracking-[.08em] text-muted2">{tag}</div>}
     </div>
   );
 }
@@ -80,9 +80,9 @@ function AdvancedSlider({
   return (
     <div>
       <div className="mb-1 flex items-baseline">
-        <div className="font-mono text-[10px] tracking-[.06em] text-muted">{label}</div>
+        <div className="font-mono text-xs tracking-[.06em] text-muted">{label}</div>
         <div className="flex-1" />
-        <div className="font-mono text-[11.5px]">{value}</div>
+        <div className="font-mono text-sm">{value}</div>
       </div>
       <input
         type="range"
@@ -116,7 +116,7 @@ function AdvancedNumber({
 }) {
   return (
     <div>
-      <div className="mb-1 font-mono text-[10px] tracking-[.06em] text-muted">{label}</div>
+      <div className="mb-1 font-mono text-xs tracking-[.06em] text-muted">{label}</div>
       <input
         type="number"
         min={min}
@@ -205,10 +205,8 @@ export function Composer({
 
       <div>
         <div className="mb-2 flex items-baseline gap-2">
-          <div className="text-xs font-bold">Prompt</div>
-          <div className="font-mono text-[9.5px] text-muted2">
-            {composer.mode === 'fine' ? tr.activeFine : tr.activeRaw}
-          </div>
+          <div className="text-sm font-bold">Prompt</div>
+          <div className="font-mono text-xs text-muted2">{composer.mode === 'fine' ? tr.activeFine : tr.activeRaw}</div>
         </div>
         <div className="flex gap-[3px] rounded-[9px] border border-line bg-input p-[3px]">
           {(
@@ -221,7 +219,7 @@ export function Composer({
               key={mode}
               type="button"
               onClick={onClick}
-              className={`flex-1 rounded-[7px] border-none py-[7px] text-xs font-semibold ${
+              className={`flex-1 rounded-[7px] border-none py-[7px] text-sm font-semibold ${
                 composer.mode === mode ? 'bg-panel2 text-ink' : 'bg-transparent text-muted'
               }`}
             >
@@ -243,10 +241,10 @@ export function Composer({
             </div>
             <div className={dimmed}>
               <div className="mb-1.5 flex items-baseline gap-2">
-                <div className="text-xs font-bold">{tr.vocalLabel}</div>
-                <div className="font-mono text-[9.5px] uppercase tracking-[.08em] text-muted2">{tr.vocalTag}</div>
+                <div className="text-sm font-bold">{tr.vocalLabel}</div>
+                <div className="font-mono text-xs uppercase tracking-[.08em] text-muted2">{tr.vocalTag}</div>
                 {composer.instrumental && (
-                  <div className="rounded-full bg-accent-soft px-[7px] py-[2px] font-mono text-[9px] text-accent">
+                  <div className="rounded-full bg-accent-soft px-[7px] py-[2px] font-mono text-xs text-accent">
                     {tr.instBadge}
                   </div>
                 )}
@@ -268,7 +266,7 @@ export function Composer({
                 className={`${textareaClass} h-[88px]`}
               />
             </div>
-            <div className="text-[10.5px] leading-normal text-muted2">{tr.fineNote}</div>
+            <div className="text-xs leading-normal text-muted2">{tr.fineNote}</div>
           </div>
         ) : (
           <div className="mt-3">
@@ -278,7 +276,7 @@ export function Composer({
               placeholder={tr.rawPh}
               className={`${textareaClass} h-[220px]`}
             />
-            <div className="mt-1.5 text-[10.5px] leading-normal text-muted2">{tr.rawNote}</div>
+            <div className="mt-1.5 text-xs leading-normal text-muted2">{tr.rawNote}</div>
           </div>
         )}
       </div>
@@ -287,7 +285,7 @@ export function Composer({
 
       <div className={dimmed}>
         <div className="mb-2 flex items-center gap-2">
-          <div className="text-xs font-bold">{tr.lyricsTitle}</div>
+          <div className="text-sm font-bold">{tr.lyricsTitle}</div>
           <div className="flex-1" />
           <button
             type="button"
@@ -304,7 +302,7 @@ export function Composer({
                 style={{ left: composer.instrumental ? 15 : 3 }}
               />
             </div>
-            <div className="text-[11.5px] text-muted">{tr.instrumental}</div>
+            <div className="text-sm text-muted">{tr.instrumental}</div>
           </button>
         </div>
         <div className="mb-2 flex flex-wrap gap-1">
@@ -314,7 +312,7 @@ export function Composer({
               type="button"
               onClick={() => insertTag(tag)}
               disabled={composer.instrumental}
-              className="rounded-md border border-line bg-panel2 px-2 py-[3px] font-mono text-[9.5px] text-muted"
+              className="rounded-md border border-line bg-panel2 px-2 py-[3px] font-mono text-xs text-muted"
             >
               {tag}
             </button>
@@ -326,18 +324,18 @@ export function Composer({
           onChange={(event) => onPatch({ lyrics: event.target.value })}
           disabled={composer.instrumental}
           placeholder={tr.lyricsPh}
-          className={`${textareaClass} h-[150px] font-mono text-[11.5px] leading-[1.7]`}
+          className={`${textareaClass} h-[150px] font-mono text-sm leading-[1.7]`}
         />
-        <div className="mt-1.5 text-[10.5px] text-muted2">{tr.lyricsNote}</div>
+        <div className="mt-1.5 text-xs text-muted2">{tr.lyricsNote}</div>
       </div>
 
       <div className="h-px bg-line" />
 
       <div>
         <div className="mb-2 flex items-baseline">
-          <div className="text-xs font-bold">{tr.maxDur}</div>
+          <div className="text-sm font-bold">{tr.maxDur}</div>
           <div className="flex-1" />
-          <div className="font-mono text-xs text-accent">{composer.durationSeconds}s</div>
+          <div className="font-mono text-sm text-accent">{composer.durationSeconds}s</div>
         </div>
         <input
           type="range"
@@ -355,7 +353,7 @@ export function Composer({
               key={value}
               type="button"
               onClick={() => onPatch({ durationSeconds: value })}
-              className={`flex-1 rounded-md border py-1 font-mono text-[10px] ${
+              className={`flex-1 rounded-md border py-1 font-mono text-xs ${
                 composer.durationSeconds === value
                   ? 'border-accent bg-accent-soft text-accent'
                   : 'border-line bg-transparent text-muted'
@@ -369,9 +367,9 @@ export function Composer({
 
       <div>
         <div className="mb-2 flex items-baseline gap-2">
-          <div className="text-xs font-bold">{tr.seedTitle}</div>
+          <div className="text-sm font-bold">{tr.seedTitle}</div>
           <div
-            className={`rounded-full px-[7px] py-[2px] font-mono text-[9px] tracking-[.08em] ${
+            className={`rounded-full px-[7px] py-[2px] font-mono text-xs tracking-[.08em] ${
               seedFixed ? 'bg-accent-soft text-accent' : 'bg-panel2 text-muted'
             }`}
           >
@@ -383,9 +381,9 @@ export function Composer({
           onChange={(event) => onPatch({ seedInput: event.target.value.replace(/[^0-9]/g, '') })}
           inputMode="numeric"
           placeholder={tr.seedPh}
-          className={`${inputClass} font-mono text-xs`}
+          className={`${inputClass} font-mono text-sm`}
         />
-        <div className="mt-1.5 text-[10.5px] leading-normal text-muted2">{tr.seedNote}</div>
+        <div className="mt-1.5 text-xs leading-normal text-muted2">{tr.seedNote}</div>
       </div>
 
       <div>
@@ -394,9 +392,9 @@ export function Composer({
           onClick={() => onPatch({ advancedOpen: !composer.advancedOpen })}
           className="flex w-full items-center gap-2.5 border-none bg-transparent p-0 text-ink"
         >
-          <div className="whitespace-nowrap text-xs font-bold">{tr.advanced}</div>
+          <div className="whitespace-nowrap text-sm font-bold">{tr.advanced}</div>
           <div className="h-px flex-1 bg-line" />
-          <div className="font-mono text-[11px] text-muted">{composer.advancedOpen ? '▾' : '▸'}</div>
+          <div className="font-mono text-xs text-muted">{composer.advancedOpen ? '▾' : '▸'}</div>
         </button>
         {composer.advancedOpen && (
           <div className="mt-3.5 flex flex-col gap-3.5">
@@ -453,7 +451,7 @@ export function Composer({
             <button
               type="button"
               onClick={() => onPatch({ sampling: { ...DEFAULT_SAMPLING } })}
-              className="self-start rounded-[7px] border border-line bg-transparent px-3 py-[5px] text-[11px] text-muted"
+              className="self-start rounded-[7px] border border-line bg-transparent px-3 py-[5px] text-sm text-muted"
             >
               {tr.reset}
             </button>
@@ -466,7 +464,7 @@ export function Composer({
           type="button"
           onClick={onGenerate}
           disabled={!generating && !canGenerate}
-          className={`w-full rounded-[10px] border-none py-[13px] text-sm font-bold disabled:cursor-not-allowed ${
+          className={`w-full rounded-[10px] border-none py-[13px] text-base font-bold disabled:cursor-not-allowed ${
             generating
               ? 'bg-transparent text-danger outline outline-1 outline-line'
               : canGenerate
@@ -477,11 +475,11 @@ export function Composer({
           {generating ? tr.cancelGen : tr.generate}
         </button>
         {notice && (
-          <div role="alert" className="mt-2 text-center text-[11px] text-danger">
+          <div role="alert" className="mt-2 text-center text-sm text-danger">
             {notice}
           </div>
         )}
-        <div className="mt-2 text-center font-mono text-[10px] text-muted2">{summary}</div>
+        <div className="mt-2 text-center font-mono text-xs text-muted2">{summary}</div>
       </div>
     </div>
   );

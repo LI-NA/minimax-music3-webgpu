@@ -42,8 +42,8 @@ export function Library({
   return (
     <>
       <div className="sticky top-0 z-[2] flex items-center gap-2 border-b border-line bg-panel px-3.5 py-3">
-        <div className="text-[13px] font-bold">{tr.histTitle}</div>
-        <div className="font-mono text-[10.5px] text-muted2">
+        <div className="text-base font-bold">{tr.histTitle}</div>
+        <div className="font-mono text-xs text-muted2">
           {tracks.length}
           {tr.tracksSuffix}
         </div>
@@ -51,7 +51,7 @@ export function Library({
         <button
           type="button"
           onClick={onNew}
-          className="rounded-[7px] border border-line bg-accent-soft px-2.5 py-1 text-[11px] font-bold text-accent"
+          className="rounded-[7px] border border-line bg-accent-soft px-2.5 py-1 text-sm font-bold text-accent"
         >
           {tr.newBtn}
         </button>
@@ -87,24 +87,24 @@ export function Library({
               </button>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                  <div className="overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px] font-semibold">
+                  <div className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-semibold">
                     {track.settings.title}
                   </div>
                   {nowPlaying && <EqBars />}
                 </div>
                 <div
-                  className={`mt-[3px] overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[10px] ${sub.tone}`}
+                  className={`mt-[3px] overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs ${sub.tone}`}
                 >
                   {sub.text}
                 </div>
               </div>
               <div className="flex flex-none flex-col items-end gap-1">
-                <div className="font-mono text-[9.5px] text-muted2">{formatTimeOfDay(track.createdAt)}</div>
+                <div className="font-mono text-xs text-muted2">{formatTimeOfDay(track.createdAt)}</div>
                 <button
                   type="button"
                   onClick={stopThen(() => onDelete(track))}
                   title={tr.delTitle}
-                  className="border-none bg-transparent px-1 py-0.5 text-sm leading-none text-muted2 hover:text-danger"
+                  className="border-none bg-transparent px-1 py-0.5 text-base leading-none text-muted2 hover:text-danger"
                 >
                   ×
                 </button>

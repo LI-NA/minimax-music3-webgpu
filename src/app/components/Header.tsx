@@ -87,9 +87,9 @@ export function Header({
     <header className="flex h-[52px] flex-none items-center gap-3.5 border-b border-line bg-panel px-4">
       <div className="size-2.5 flex-none rotate-45 rounded-[2px] bg-accent" />
       <div className="flex min-w-0 items-baseline gap-2.5">
-        <div className="whitespace-nowrap text-[15px] font-bold tracking-tight">MiniMax Music 3</div>
-        <div className="whitespace-nowrap font-mono text-[10px] tracking-[.1em] text-muted">WEBGPU</div>
-        {!isMid && <div className="whitespace-nowrap text-[11px] text-muted2">{tr.tagline}</div>}
+        <div className="whitespace-nowrap text-base font-bold tracking-tight">MiniMax Music 3</div>
+        <div className="whitespace-nowrap font-mono text-xs tracking-[.1em] text-muted">WEBGPU</div>
+        {!isMid && <div className="whitespace-nowrap text-xs text-muted2">{tr.tagline}</div>}
       </div>
       <div className="flex-1" />
       <div className="flex items-center gap-1.5">
@@ -104,20 +104,20 @@ export function Header({
                 pill.pulse ? 'animate-[pulse_1.4s_ease-in-out_infinite]' : ''
               }`}
             />
-            <div className="whitespace-nowrap font-mono text-[10px] text-muted">{pill.text}</div>
+            <div className="whitespace-nowrap font-mono text-xs text-muted">{pill.text}</div>
           </div>
         ))}
         <button
           type="button"
           onClick={onToggleLang}
-          className="ml-1.5 rounded-full border border-line px-3 py-[5px] font-mono text-[10px] font-semibold text-muted"
+          className="ml-1.5 rounded-full border border-line px-3 py-[5px] font-mono text-xs font-semibold text-muted"
         >
           {lang === 'ko' ? 'EN' : 'KO'}
         </button>
         <button
           type="button"
           onClick={onToggleTheme}
-          className="rounded-full border border-line px-3 py-[5px] text-[11px] font-semibold text-muted"
+          className="rounded-full border border-line px-3 py-[5px] text-xs font-semibold text-muted"
         >
           {theme === 'dark' ? 'Light' : 'Dark'}
         </button>
@@ -149,7 +149,7 @@ export function MobileTabs({
           key={key}
           type="button"
           onClick={() => onChange(key)}
-          className={`flex-1 rounded-lg border border-line py-[7px] text-xs font-semibold ${
+          className={`flex-1 rounded-lg border border-line py-[7px] text-sm font-semibold ${
             view === key ? 'bg-panel2 text-ink' : 'bg-transparent text-muted'
           }`}
         >

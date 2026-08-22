@@ -5,7 +5,7 @@ import { lyricsFromSettings, promptFromSettings, type Track } from '../tracks';
 import { PauseIcon, PlayIcon } from './icons';
 
 const actionButton =
-  'rounded-[9px] border border-line bg-panel px-4 py-[9px] text-[12.5px] font-semibold text-ink ' +
+  'rounded-[9px] border border-line bg-panel px-4 py-[9px] text-sm font-semibold text-ink ' +
   'disabled:cursor-not-allowed disabled:opacity-45';
 
 export type ResultViewProps = {
@@ -68,15 +68,15 @@ export function ResultView({
     <div className="mx-auto flex max-w-[640px] flex-col gap-[18px]">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="font-mono text-[10px] tracking-[.12em] text-muted">{tr.resultLabel}</div>
+          <div className="font-mono text-xs tracking-[.12em] text-muted">{tr.resultLabel}</div>
           <div className="mt-1 text-2xl font-bold tracking-tight">{settings.title}</div>
-          <div className="mt-1.5 font-mono text-[11px] text-muted">
+          <div className="mt-1.5 font-mono text-xs text-muted">
             Seed {settings.seed} · {settings.mode === 'fine' ? tr.fineTab : tr.rawTab} ·{' '}
             {settings.instrumental ? tr.inst : tr.vocal}
           </div>
         </div>
         <div
-          className={`mt-1 whitespace-nowrap rounded-full px-2.5 py-1 font-mono text-[9.5px] tracking-[.08em] ${
+          className={`mt-1 whitespace-nowrap rounded-full px-2.5 py-1 font-mono text-xs tracking-[.08em] ${
             canceled || failed ? 'bg-danger/15 text-danger' : 'bg-accent-soft text-accent'
           }`}
         >
@@ -85,7 +85,7 @@ export function ResultView({
       </div>
 
       {failed && track.error && (
-        <div role="alert" className="text-xs leading-normal text-danger">
+        <div role="alert" className="text-sm leading-normal text-danger">
           {track.error}
         </div>
       )}
@@ -112,7 +112,7 @@ export function ResultView({
           type="button"
           onClick={onTogglePlay}
           disabled={!ready}
-          className="flex items-center gap-2 rounded-[9px] border-none bg-accent px-5 py-[9px] text-[12.5px] font-bold text-accent-fg disabled:cursor-not-allowed disabled:opacity-45"
+          className="flex items-center gap-2 rounded-[9px] border-none bg-accent px-5 py-[9px] text-sm font-bold text-accent-fg disabled:cursor-not-allowed disabled:opacity-45"
         >
           {selPlaying ? <PauseIcon size={11} /> : <PlayIcon size={11} />}
           {selPlaying ? tr.pause : tr.play}
@@ -129,7 +129,7 @@ export function ResultView({
         <button
           type="button"
           onClick={onDelete}
-          className="rounded-[9px] border border-line bg-transparent px-4 py-[9px] text-[12.5px] font-semibold text-danger"
+          className="rounded-[9px] border border-line bg-transparent px-4 py-[9px] text-sm font-semibold text-danger"
         >
           {tr.del}
         </button>
@@ -138,29 +138,29 @@ export function ResultView({
       <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2">
         {metaCells.map((cell) => (
           <div key={cell.key} className="rounded-[10px] border border-line bg-panel px-3 py-2.5">
-            <div className="font-mono text-[9px] uppercase tracking-[.1em] text-muted2">{cell.key}</div>
-            <div className="mt-[5px] font-mono text-[13px] text-ink">{cell.value}</div>
+            <div className="font-mono text-xs uppercase tracking-[.1em] text-muted2">{cell.key}</div>
+            <div className="mt-[5px] font-mono text-base text-ink">{cell.value}</div>
           </div>
         ))}
       </div>
 
       <div>
-        <div className="mb-2 font-mono text-[10px] tracking-[.12em] text-muted">{tr.modelSettings}</div>
-        <div className="whitespace-pre-wrap rounded-[10px] border border-line bg-input px-4 py-3 font-mono text-[11px] leading-loose text-muted">
+        <div className="mb-2 font-mono text-xs tracking-[.12em] text-muted">{tr.modelSettings}</div>
+        <div className="whitespace-pre-wrap rounded-[10px] border border-line bg-input px-4 py-3 font-mono text-xs leading-loose text-muted">
           {settingsText}
         </div>
       </div>
 
       <div>
-        <div className="mb-2 font-mono text-[10px] tracking-[.12em] text-muted">{tr.promptLabel}</div>
-        <div className="whitespace-pre-wrap rounded-[10px] border border-line bg-panel px-4 py-3.5 text-xs leading-[1.7] text-ink">
+        <div className="mb-2 font-mono text-xs tracking-[.12em] text-muted">{tr.promptLabel}</div>
+        <div className="whitespace-pre-wrap rounded-[10px] border border-line bg-panel px-4 py-3.5 text-sm leading-[1.7] text-ink">
           {promptFromSettings(settings)}
         </div>
       </div>
 
       <div>
-        <div className="mb-2 font-mono text-[10px] tracking-[.12em] text-muted">{tr.lyricsLabel}</div>
-        <div className="whitespace-pre-wrap rounded-[10px] border border-line bg-panel px-4 py-3.5 font-mono text-[11.5px] leading-[1.8] text-muted">
+        <div className="mb-2 font-mono text-xs tracking-[.12em] text-muted">{tr.lyricsLabel}</div>
+        <div className="whitespace-pre-wrap rounded-[10px] border border-line bg-panel px-4 py-3.5 font-mono text-sm leading-[1.8] text-muted">
           {lyricsFromSettings(settings)}
         </div>
       </div>

@@ -57,11 +57,11 @@ export function GenerationProgress({ tr, track, view, elapsedMs, onCancel }: Gen
     <div className="mx-auto flex max-w-[600px] flex-col gap-4">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="animate-[pulse_1.6s_ease-in-out_infinite] font-mono text-[10px] tracking-[.12em] text-accent">
+          <div className="animate-[pulse_1.6s_ease-in-out_infinite] font-mono text-xs tracking-[.12em] text-accent">
             {tr.generating}
           </div>
-          <div className="mt-1 text-[22px] font-bold tracking-tight">{track.settings.title}</div>
-          <div className="mt-1.5 font-mono text-[11px] text-muted">
+          <div className="mt-1 text-2xl font-bold tracking-tight">{track.settings.title}</div>
+          <div className="mt-1.5 font-mono text-xs text-muted">
             Seed {track.settings.seed} · {track.settings.mode === 'fine' ? tr.fineTab : tr.rawTab} · {tr.target}{' '}
             {track.settings.durationSeconds}s
           </div>
@@ -69,7 +69,7 @@ export function GenerationProgress({ tr, track, view, elapsedMs, onCancel }: Gen
         <button
           type="button"
           onClick={onCancel}
-          className="flex-none rounded-[9px] border border-line bg-transparent px-4 py-[7px] text-xs font-semibold text-danger"
+          className="flex-none rounded-[9px] border border-line bg-transparent px-4 py-[7px] text-sm font-semibold text-danger"
         >
           {tr.cancel}
         </button>
@@ -82,7 +82,7 @@ export function GenerationProgress({ tr, track, view, elapsedMs, onCancel }: Gen
             style={{ width: `${percent}%` }}
           />
         </div>
-        <div className="mt-2 flex font-mono text-[10.5px] text-muted">
+        <div className="mt-2 flex font-mono text-xs text-muted">
           <div>
             {tr.elapsed} {elapsed}
           </div>
@@ -98,8 +98,10 @@ export function GenerationProgress({ tr, track, view, elapsedMs, onCancel }: Gen
       <div className="grid grid-cols-[repeat(auto-fit,minmax(110px,1fr))] gap-2">
         {stats.map((cell) => (
           <div key={cell.key} className="rounded-[10px] border border-line bg-panel px-3 py-2.5">
-            <div className="font-mono text-[8.5px] tracking-[.1em] text-muted2">{cell.key}</div>
-            <div className={`mt-[5px] whitespace-nowrap font-mono text-sm ${cell.accent ? 'text-accent' : 'text-ink'}`}>
+            <div className="font-mono text-xs tracking-[.1em] text-muted2">{cell.key}</div>
+            <div
+              className={`mt-[5px] whitespace-nowrap font-mono text-base ${cell.accent ? 'text-accent' : 'text-ink'}`}
+            >
               {cell.value}
             </div>
           </div>
@@ -114,20 +116,20 @@ export function GenerationProgress({ tr, track, view, elapsedMs, onCancel }: Gen
             <div key={name} className={`rounded-lg px-3 py-[9px] ${active ? 'bg-accent-soft' : ''}`}>
               <div className="flex items-center gap-3">
                 <div
-                  className={`w-[18px] font-mono text-[10px] ${
+                  className={`w-[18px] font-mono text-xs ${
                     active ? 'text-accent' : finished ? 'text-good' : 'text-muted2'
                   }`}
                 >
                   0{index + 1}
                 </div>
                 <div
-                  className={`flex-1 text-[13px] ${
+                  className={`flex-1 text-base ${
                     active ? 'font-semibold text-ink' : finished ? 'text-ink' : 'text-muted2'
                   }`}
                 >
                   {name}
                 </div>
-                <div className={`font-mono text-[10.5px] ${finished ? 'text-good' : 'text-muted'}`}>
+                <div className={`font-mono text-xs ${finished ? 'text-good' : 'text-muted'}`}>
                   {finished ? tr.done : active && !view.indeterminate ? `${Math.round(view.stageFraction * 100)}%` : ''}
                 </div>
               </div>
@@ -151,9 +153,9 @@ export function GenerationProgress({ tr, track, view, elapsedMs, onCancel }: Gen
       {flow && flowCellCount > 0 && (
         <div className="rounded-xl border border-line bg-panel px-4 py-3.5">
           <div className="mb-2.5 flex items-baseline">
-            <div className="font-mono text-[9px] tracking-[.12em] text-muted2">{tr.flowStepsLabel}</div>
+            <div className="font-mono text-xs tracking-[.12em] text-muted2">{tr.flowStepsLabel}</div>
             <div className="flex-1" />
-            <div className="font-mono text-[10px] text-muted">
+            <div className="font-mono text-xs text-muted">
               {flow.completed} / {flow.total}
             </div>
           </div>
@@ -173,10 +175,10 @@ export function GenerationProgress({ tr, track, view, elapsedMs, onCancel }: Gen
       )}
 
       <div className="rounded-xl border border-line bg-input px-4 py-3">
-        <div className="mb-2 font-mono text-[9px] tracking-[.12em] text-muted2">{tr.logLabel}</div>
+        <div className="mb-2 font-mono text-xs tracking-[.12em] text-muted2">{tr.logLabel}</div>
         <output
           aria-live="polite"
-          className="block whitespace-pre-wrap break-all font-mono text-[10.5px] leading-[1.9] text-muted"
+          className="block whitespace-pre-wrap break-all font-mono text-xs leading-[1.9] text-muted"
         >
           {view.log.join('\n')}
         </output>

@@ -80,25 +80,25 @@ export function PlayerBar({
         </button>
       </div>
       <div className="w-[150px] min-w-0">
-        <div className="overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px] font-semibold">
+        <div className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-semibold">
           {track ? track.settings.title : tr.npNone}
         </div>
-        <div className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[9.5px] text-muted2">
+        <div className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs text-muted2">
           {track ? `Seed ${track.settings.seed} · WAV 44.1 kHz` : ''}
         </div>
       </div>
       <div className="flex min-w-0 flex-1 items-center gap-2.5">
-        <div className="flex-none font-mono text-[10.5px] text-muted">{formatClock(Math.min(position, total))}</div>
+        <div className="flex-none font-mono text-xs text-muted">{formatClock(Math.min(position, total))}</div>
         <div onClick={handleSeek} className="flex h-5 flex-1 cursor-pointer items-center">
           <div className="h-1 flex-1 overflow-hidden rounded-sm bg-panel2">
             <div className="h-full rounded-sm bg-accent" style={{ width: `${fraction * 100}%` }} />
           </div>
         </div>
-        <div className="flex-none font-mono text-[10.5px] text-muted">{formatClock(total)}</div>
+        <div className="flex-none font-mono text-xs text-muted">{formatClock(total)}</div>
       </div>
       {!isMobile && (
         <div className="flex items-center gap-2.5">
-          <div className="font-mono text-[9.5px] text-muted2">VOL</div>
+          <div className="font-mono text-xs text-muted2">VOL</div>
           <input
             type="range"
             min={0}
@@ -111,7 +111,7 @@ export function PlayerBar({
           <button
             type="button"
             onClick={onToggleLoop}
-            className={`rounded-[7px] border px-2.5 py-[5px] font-mono text-[10px] ${
+            className={`rounded-[7px] border px-2.5 py-[5px] font-mono text-xs ${
               loop ? 'border-accent bg-accent-soft text-accent' : 'border-line bg-transparent text-muted2'
             }`}
           >
@@ -121,7 +121,7 @@ export function PlayerBar({
             type="button"
             onClick={onDownload}
             disabled={!track || track.status !== 'ready'}
-            className="rounded-[7px] border border-line bg-transparent px-2.5 py-[5px] font-mono text-[10px] text-muted disabled:opacity-45"
+            className="rounded-[7px] border border-line bg-transparent px-2.5 py-[5px] font-mono text-xs text-muted disabled:opacity-45"
           >
             WAV
           </button>
