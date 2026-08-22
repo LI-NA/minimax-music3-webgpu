@@ -51,3 +51,42 @@ The initial development and browser-validation machine has:
 - Python managed through `uv`.
 
 CUDA is available through the installed NVIDIA driver on Windows and WSL2. A standalone CUDA toolkit is not currently required.
+
+## Running locally
+
+```bash
+npm install
+npm run dev
+```
+
+The dev server serves converted releases from `artifacts/release/<release>` at
+`/artifacts/<release>/`, same-origin with the application. There is no separate artifact server
+and no origin to configure, so `localhost` and `127.0.0.1` both work.
+
+The product page loads `artifacts/release/music-variable` by default. `?manifest=<url>` points it
+at a different release or a hosted mirror without rebuilding; the override is removed from
+production builds, where an arbitrary manifest would be arbitrary model injection.
+
+`/diagnostics.html` runs the per-stage smoke panels. Its primary release is selected with
+`?release=<name>`, for example `/diagnostics.html?release=global`. The page is a separate entry
+point and is not part of the production build.
+
+## Public release
+
+The production build has no artifact server, so the manifest must be hosted. Hugging Face serves
+byte ranges with permissive CORS across its CDN redirect, so the resume and per-file SHA-256
+verification in the browser cache work unchanged.
+
+Two build inputs configure a deployment:
+
+| Variable                    | Purpose                                                                                                   |
+| --------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `VITE_MINIMAX_MANIFEST_URL` | Hosted manifest, pinned to a commit. Manifest entries are relative, so the artifact base follows it.      |
+| `MINIMAX_BASE`              | Deployment base path. GitHub Pages project sites need `/<repo>/`; a user site or custom domain needs `/`. |
+
+Set them in `.env.production` or in the deployment environment. `.github/workflows/pages.yml`
+reads them from the `MINIMAX_MANIFEST_URL` and `MINIMAX_BASE` repository variables and fails the
+build if the manifest URL is missing, rather than shipping a site whose download cannot start.
+
+Pin a commit rather than a branch. The manifest hash keys the browser cache, so a moving reference
+would silently invalidate what a returning visitor already downloaded.

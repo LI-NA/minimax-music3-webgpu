@@ -102,7 +102,6 @@ ONNX Runtime does not expose granular session-compilation progress, so the UI do
 Run the short variable-duration fallback-disabled gate with one worker and a persistent browser profile:
 
 ```powershell
-$env:MINIMAX_RELEASE = 'music-variable'
 $env:MINIMAX_VARIABLE_CHROME_PROFILE = 'artifacts/browser-profiles/variable-duration/local'
 npx playwright test tests/browser/variable-duration.spec.ts --project=chrome --workers=1
 ```

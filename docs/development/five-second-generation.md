@@ -5,10 +5,13 @@ This is the historical fixed-slice benchmark. The current product release suppor
 Run the exact combined release in headed branded Chrome with one worker and a persistent profile:
 
 ```powershell
-$env:MINIMAX_RELEASE = 'music-5s'
 $env:MINIMAX_MUSIC_CHROME_PROFILE = 'artifacts/music-browser-profile'
 npx playwright test tests/browser/music-generation.spec.ts --project=chrome --workers=1
 ```
+
+The measurements below came from the `music-5s` fixed-slice release. The diagnostics button now
+dispatches the variable route, which rejects that release's manifest, so the gate opens
+`/diagnostics.html?release=music-variable` and reproduces the same 125 frames and 880,684-byte WAV.
 
 The worker runs the stages sequentially. Autoregressive and RVQ sessions share one device, retain 125 frames as 8,192,000 bytes of raw FP16, then release every session and destroy that device. Condition uses a new device and returns 1,761,280 raw FP16 bytes. Flow uses another new device, deterministic standard-normal seed 7 latents, and 30 GPU steps before returning 110,080 raw FP16 bytes. Vocoder uses a final new device and produces the WAV before its session and device are released. Only the final WAV `ArrayBuffer` crosses back to the UI. No GPU tensor crosses a stage boundary.
 

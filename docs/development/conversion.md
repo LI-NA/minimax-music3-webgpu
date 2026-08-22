@@ -13,9 +13,12 @@ The downloader intentionally selects only `LICENSE`, `modular_model_index.json`,
 Run a headed browser gate against the selected release with:
 
 ```powershell
-$env:MINIMAX_RELEASE = 'global-one-layer' # or global
 npx playwright test tests/browser/global-decoder.spec.ts --project=chrome
 ```
+
+The gate opens `/diagnostics.html?release=global`. Change the `release` query to `global-one-layer`
+to exercise the reduced conversion. The dev server serves `artifacts/release/<release>` same-origin,
+so no separate artifact server or environment variable selects the release.
 
 The real-model test launches branded Chrome with a persistent profile at `artifacts/browser-profile`. This keeps multi-gigabyte OPFS artifacts across test processes and exercises download resume and cache reuse. Set `MINIMAX_CHROME_PROFILE` to an alternate ignored profile path when isolation is required.
 

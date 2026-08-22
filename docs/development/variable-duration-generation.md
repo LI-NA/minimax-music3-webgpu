@@ -106,6 +106,6 @@ All fields are required. The worker loads the verified release tokenizer from OP
 
 ## Reproduction
 
-The variable release is selected with `MINIMAX_RELEASE=music-variable`. The short headed gate is `tests/browser/variable-duration.spec.ts`. Long product and capacity measurements use `tests/browser/long-duration.spec.ts` through `tests/browser/variable-duration-telemetry-runner.ts` with a persistent profile and a unique ignored capture directory.
+The variable release is the default, so the product page needs no selection; diagnostics gates pass `?release=music-variable`. The short headed gate is `tests/browser/variable-duration.spec.ts`. Long product and capacity measurements use `tests/browser/long-duration.spec.ts` through `tests/browser/variable-duration-telemetry-runner.ts` with a persistent profile and a unique ignored capture directory.
 
 Capacity mode is diagnostic-only and must be explicitly selected. It is intentionally separate from the normal request protocol and must not be exposed as an exact-duration music option.

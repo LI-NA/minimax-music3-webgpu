@@ -40,9 +40,10 @@ The final headed Chrome run passed with `session.disable_cpu_ep_fallback=1`. It 
 The verification command was:
 
 ```powershell
-$env:MINIMAX_RELEASE = 'global-one-layer'
 npx playwright test tests/browser/global-decoder.spec.ts --project=chrome
 ```
+
+The run used `/diagnostics.html?release=global-one-layer`.
 
 Playwright reported `1 passed (1.4m)`. Most elapsed time was OPFS integrity verification across two workers. Session creation and inference timings are reported separately above. `nvidia-smi` sampled total device usage every 0.5 to 2 seconds. Those numbers include Windows and other applications, so the 248 MiB delta is the useful one-layer diagnostic measurement.
 
