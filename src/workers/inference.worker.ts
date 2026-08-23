@@ -652,6 +652,12 @@ async function cacheArtifacts(
     return sum;
   };
 
+  // Every report has to count the transfers still running as well as the finished ones. Counting
+  // only the finished ones on a per-file completion would make the aggregate fall back by whatever
+  // the other three connections have already pulled, and the reporter reads a fall-back as no
+  // measurable rate at all, blanking the speed and remaining-time rows.
+  const transferredTotal = () => transferredBytes + total((entry) => entry.transferred);
+
   // The reported file follows the earliest transfer still running rather than whichever one
   // happened to make progress. A label that flips between transfers would both read as noise and
   // defeat the reporter's interval throttle, which always emits when the file changes.
@@ -665,7 +671,7 @@ async function cacheArtifacts(
       labelled.loaded,
       artifacts[index]!.bytes,
       completedBytes + total((entry) => entry.loaded) - labelled.loaded,
-      transferredBytes + total((entry) => entry.transferred),
+      transferredTotal(),
     );
   };
 
@@ -695,7 +701,7 @@ async function cacheArtifacts(
     }
     transferredBytes += entry.transferred;
     completedBytes += artifact.bytes;
-    reporter.complete(artifact.path, artifact.bytes, completedBytes, !fetched, transferredBytes);
+    reporter.complete(artifact.path, artifact.bytes, completedBytes, !fetched, transferredTotal());
   };
 
   // Stop handing out work on the first failure and let the running transfers settle, so nothing

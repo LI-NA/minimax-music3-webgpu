@@ -1,3 +1,4 @@
+import type { ArtifactErrorCode } from '../workers/protocol';
 import type { StoredTrack, TrackSettings } from './track-store';
 
 export type TrackStatus = 'generating' | 'ready' | 'canceled' | 'error';
@@ -9,7 +10,9 @@ export type Track = {
   actualSeconds: number;
   settings: TrackSettings;
   wav?: Blob;
+  /** Untranslated detail from the worker. Only stored on a failed track, never persisted. */
   error?: string;
+  errorCode?: ArtifactErrorCode;
 };
 
 export const INSTRUMENTAL_LYRICS = '[instrumental]';

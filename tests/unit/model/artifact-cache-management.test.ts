@@ -214,16 +214,16 @@ describe('requestPersistentStorage', () => {
       persisted: vi.fn().mockResolvedValue(false),
       persist: vi.fn().mockResolvedValue(false),
     };
-    await expect(requestPersistentStorage(storage)).resolves.toMatchObject({
+    await expect(requestPersistentStorage(storage)).resolves.toEqual({
       state: 'best-effort',
-      warning: expect.any(String),
+      warning: 'denied',
     });
   });
 
   it('reports best effort with a warning when persistence is unsupported', async () => {
-    await expect(requestPersistentStorage(undefined)).resolves.toMatchObject({
+    await expect(requestPersistentStorage(undefined)).resolves.toEqual({
       state: 'best-effort',
-      warning: expect.any(String),
+      warning: 'unsupported',
     });
   });
 
@@ -232,9 +232,9 @@ describe('requestPersistentStorage', () => {
       persisted: vi.fn().mockResolvedValue(false),
       persist: vi.fn().mockRejectedValue(new Error('not allowed')),
     };
-    await expect(requestPersistentStorage(storage)).resolves.toMatchObject({
+    await expect(requestPersistentStorage(storage)).resolves.toEqual({
       state: 'best-effort',
-      warning: expect.any(String),
+      warning: 'failed',
     });
   });
 });

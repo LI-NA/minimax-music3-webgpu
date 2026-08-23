@@ -1,4 +1,6 @@
+import type { PersistenceWarning } from '../runtime/model/artifact-cache-management';
 import type { ArtifactCacheStatus, ArtifactErrorCode, ArtifactOperation, WorkerProgress } from '../workers/protocol';
+import type { Messages } from './i18n';
 
 export type ArtifactCacheUiOperation = null | 'inspect' | 'request-persistence' | 'download' | 'delete';
 
@@ -20,13 +22,16 @@ export interface ArtifactDownloadProgress {
   etaMs?: number;
 }
 
+/** Interruptions worth reporting once the operation has already stopped. */
+export type ArtifactCacheNotice = 'download-cancelled';
+
 export interface ArtifactCacheUiState {
   status: ArtifactCacheStatus | null;
   operation: ArtifactCacheUiOperation;
   lastError: ArtifactCacheUiError | null;
-  persistenceWarning: string | null;
+  persistenceWarning: PersistenceWarning | null;
   downloadProgress: ArtifactDownloadProgress | null;
-  notice: string | null;
+  notice: ArtifactCacheNotice | null;
 }
 
 export interface ArtifactCacheControls {
@@ -74,7 +79,7 @@ export function artifactDownloadActionLabel(state: ArtifactCacheUiState): string
 
 export type ArtifactCacheUiAction =
   | { type: 'operation-started'; operation: Exclude<ArtifactCacheUiOperation, null> }
-  | { type: 'persistence-resolved'; warning?: string }
+  | { type: 'persistence-resolved'; warning?: PersistenceWarning }
   | { type: 'download-started' }
   | { type: 'progress-received'; progress: WorkerProgress }
   | {
@@ -117,14 +122,16 @@ export function artifactCacheUiReducer(
       action.progress.totalBytes === undefined
     )
       return state;
+    // A report that carries no transfer metrics (a cache hit, the first chunk of a file) keeps the
+    // last known rate and ETA instead of dropping them, so those rows never blink out mid-download.
     return {
       ...state,
       downloadProgress: {
         currentFile: action.progress.currentFile,
         completedBytes: action.progress.completedBytes,
         totalBytes: action.progress.totalBytes,
-        rate: action.progress.rate,
-        etaMs: action.progress.etaMs,
+        rate: action.progress.rate ?? state.downloadProgress?.rate,
+        etaMs: action.progress.etaMs ?? state.downloadProgress?.etaMs,
       },
     };
   }
@@ -157,9 +164,44 @@ export function artifactCacheUiReducer(
     ...state,
     operation: null,
     lastError: null,
-    notice: 'Download cancelled. Partial model files were kept.',
+    notice: 'download-cancelled',
     downloadProgress: null,
   };
+}
+
+export function persistenceWarningMessage(tr: Messages, warning: PersistenceWarning): string {
+  const wording: Record<PersistenceWarning, string> = {
+    unsupported: tr.dlPersistUnsupported,
+    denied: tr.dlPersistDenied,
+    failed: tr.dlPersistFailed,
+  };
+  return wording[warning];
+}
+
+export function artifactCacheNoticeMessage(tr: Messages, notice: ArtifactCacheNotice): string {
+  const wording: Record<ArtifactCacheNotice, string> = { 'download-cancelled': tr.dlCancelled };
+  return wording[notice];
+}
+
+/**
+ * Says what went wrong in the reader's language. Only the failure code is a closed set the app can
+ * word itself; the message the worker attached stays as untranslated detail beside it, because it
+ * carries whatever the network, the storage layer or the runtime reported.
+ */
+export function artifactErrorMessage(tr: Messages, code: ArtifactErrorCode | undefined, fallback: string): string {
+  if (code === undefined) return fallback;
+  const wording: Record<ArtifactErrorCode, string> = {
+    'manifest-unavailable': tr.errManifestUnavailable,
+    'manifest-invalid': tr.errManifestInvalid,
+    'storage-estimate-unavailable': tr.errStorageEstimate,
+    'quota-insufficient': tr.errQuotaInsufficient,
+    'cache-not-ready': tr.errCacheNotReady,
+    'download-failed': tr.errDownloadFailed,
+    'quota-exceeded': tr.errQuotaExceeded,
+    'cache-inspection-failed': tr.errCacheInspection,
+    'cache-delete-failed': tr.errCacheDelete,
+  };
+  return wording[code];
 }
 
 export function formatBytes(bytes: number): string {

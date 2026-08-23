@@ -4,6 +4,7 @@ import { inspectWebGpu, type WebGpuCapability } from '../runtime/model/webgpu-de
 import {
   createMusicGenerationRequest,
   type AnyMusicGenerationWorkerResult,
+  type ArtifactErrorCode,
   type MusicGenerationRequest,
   type WorkerResponse,
 } from '../workers/protocol';
@@ -255,10 +256,12 @@ export function App() {
     active.terminate();
   };
 
-  const failGeneration = (trackId: string, message: string) => {
+  const failGeneration = (trackId: string, detail: string, code?: ArtifactErrorCode) => {
     setGeneration((previous) => (previous?.trackId === trackId ? null : previous));
     setTracks((previous) =>
-      previous.map((track) => (track.id === trackId ? { ...track, status: 'error', error: message } : track)),
+      previous.map((track) =>
+        track.id === trackId ? { ...track, status: 'error', error: detail, errorCode: code } : track,
+      ),
     );
   };
 
@@ -296,8 +299,8 @@ export function App() {
         durationSeconds: settings.durationSeconds,
         sampling: settings.sampling,
       });
-    } catch (error) {
-      setNotice(errorMessage(error, 'Invalid generation request'));
+    } catch {
+      setNotice(tr.errRequest);
       return;
     }
     musicWorker.current?.terminate();
@@ -305,8 +308,8 @@ export function App() {
     let worker: Worker;
     try {
       worker = createInferenceWorker();
-    } catch (error) {
-      setNotice(errorMessage(error, 'Inference worker failed'));
+    } catch {
+      setNotice(tr.errWorker);
       return;
     }
     const pending: Track = {
@@ -335,7 +338,7 @@ export function App() {
         completeGeneration(pending, data.result);
       } else if (data.type === 'error') {
         finishMusicWorker(worker);
-        failGeneration(pending.id, data.message);
+        failGeneration(pending.id, data.message, data.code);
       }
     };
     worker.onerror = (event) => {

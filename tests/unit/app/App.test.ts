@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createProductMusicRequest } from '../../../src/app/DiagnosticsApp';
 import {
+  artifactCacheNoticeMessage,
   artifactCacheUiReducer,
+  artifactErrorMessage,
   artifactDownloadActionLabel,
   createArtifactCacheUiState,
   describeArtifactCacheStatus,
@@ -10,8 +12,11 @@ import {
   formatEta,
   formatRate,
 } from '../../../src/app/artifact-cache-ui';
+import { messages, type Language } from '../../../src/app/i18n';
+import { persistenceWarningMessage } from '../../../src/app/artifact-cache-ui';
+import type { PersistenceWarning } from '../../../src/runtime/model/artifact-cache-management';
 import { FIXED_COMPARISON_CASE } from '../../../src/runtime/reference/fixed-comparison';
-import type { ArtifactCacheStatus } from '../../../src/workers/protocol';
+import type { ArtifactCacheStatus, ArtifactErrorCode } from '../../../src/workers/protocol';
 
 const status = (overrides: Partial<ArtifactCacheStatus> = {}): ArtifactCacheStatus => ({
   manifestHash: 'release',
@@ -176,13 +181,13 @@ describe('model file state transitions', () => {
     });
     const warned = artifactCacheUiReducer(requesting, {
       type: 'persistence-resolved',
-      warning: 'Persistent storage was denied.',
+      warning: 'denied',
     });
     const downloading = artifactCacheUiReducer(warned, { type: 'download-started' });
 
     expect(downloading).toMatchObject({
       operation: 'download',
-      persistenceWarning: 'Persistent storage was denied.',
+      persistenceWarning: 'denied',
       lastError: null,
     });
   });
@@ -228,6 +233,44 @@ describe('model file state transitions', () => {
     expect(completed).toMatchObject({ status: ready, operation: null, downloadProgress: null });
   });
 
+  it('keeps the last known rate and ETA when a later report carries neither', () => {
+    const downloading = artifactCacheUiReducer(createArtifactCacheUiState(status()), {
+      type: 'download-started',
+    });
+    const measured = artifactCacheUiReducer(downloading, {
+      type: 'progress-received',
+      progress: {
+        type: 'progress',
+        stage: 'artifact',
+        detail: 'weights/a.onnx',
+        currentFile: 'weights/a.onnx',
+        completedBytes: 1_024,
+        totalBytes: 4_096,
+        rate: 512,
+        etaMs: 6_000,
+      },
+    });
+    const unmeasured = artifactCacheUiReducer(measured, {
+      type: 'progress-received',
+      progress: {
+        type: 'progress',
+        stage: 'artifact',
+        detail: 'weights/b.onnx',
+        currentFile: 'weights/b.onnx',
+        completedBytes: 2_048,
+        totalBytes: 4_096,
+      },
+    });
+
+    expect(unmeasured.downloadProgress).toEqual({
+      currentFile: 'weights/b.onnx',
+      completedBytes: 2_048,
+      totalBytes: 4_096,
+      rate: 512,
+      etaMs: 6_000,
+    });
+  });
+
   it('retains a retryable download error after the immediate refresh', () => {
     const error = {
       message: 'Network interrupted',
@@ -269,7 +312,7 @@ describe('model file state transitions', () => {
       status: status({ state: 'partial', storedReferencedBytes: 512 }),
     });
 
-    expect(refreshed.notice).toBe('Download cancelled. Partial model files were kept.');
+    expect(refreshed.notice).toBe('download-cancelled');
     expect(refreshed.status?.state).toBe('partial');
   });
 
@@ -320,7 +363,7 @@ describe('model file state transitions', () => {
     ).toMatchObject({
       operation: null,
       lastError: null,
-      notice: 'Download cancelled. Partial model files were kept.',
+      notice: 'download-cancelled',
     });
   });
 });
@@ -426,5 +469,67 @@ describe('music generation UI request', () => {
         flowSteps: 30,
       },
     });
+  });
+});
+
+describe('model file wording', () => {
+  const languages: Language[] = ['ko', 'en'];
+  const codes: ArtifactErrorCode[] = [
+    'manifest-unavailable',
+    'manifest-invalid',
+    'storage-estimate-unavailable',
+    'quota-insufficient',
+    'cache-not-ready',
+    'download-failed',
+    'quota-exceeded',
+    'cache-inspection-failed',
+    'cache-delete-failed',
+  ];
+  const warnings: PersistenceWarning[] = ['unsupported', 'denied', 'failed'];
+
+  it.each(languages)('words every failure code distinctly in %s', (language) => {
+    const tr = messages[language];
+    const worded = codes.map((code) => artifactErrorMessage(tr, code, tr.errWorker));
+
+    expect(worded.every((text) => text.length > 0)).toBe(true);
+    expect(new Set(worded).size).toBe(codes.length);
+    expect(worded).not.toContain(tr.errWorker);
+  });
+
+  it.each(languages)('falls back to a worded failure when the worker sent no code in %s', (language) => {
+    const tr = messages[language];
+
+    expect(artifactErrorMessage(tr, undefined, tr.errWorker)).toBe(tr.errWorker);
+    expect(artifactErrorMessage(tr, undefined, tr.errGeneration)).toBe(tr.errGeneration);
+  });
+
+  it.each(languages)('words every persistence warning and notice in %s', (language) => {
+    const tr = messages[language];
+    const worded = warnings.map((warning) => persistenceWarningMessage(tr, warning));
+
+    expect(new Set(worded).size).toBe(warnings.length);
+    expect(artifactCacheNoticeMessage(tr, 'download-cancelled')).toBe(tr.dlCancelled);
+  });
+
+  it('keeps the Korean catalog free of the English wording', () => {
+    const shared = Object.entries(messages.ko).filter(
+      ([key, value]) => typeof value === 'string' && value === messages.en[key as keyof typeof messages.en],
+    );
+
+    expect(shared.map(([key]) => key)).toEqual([
+      'fineTab',
+      'rawTab',
+      'styleTag',
+      'vocalTag',
+      'arrTag',
+      'lyricsTitle',
+      'instrumental',
+      'instBadge',
+      'seedTitle',
+      'inst',
+      'dlUnknown',
+      'flowStepsLabel',
+      'kSeed',
+    ]);
   });
 });

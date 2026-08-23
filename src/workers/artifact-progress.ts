@@ -37,7 +37,11 @@ export function createArtifactProgressReporter({
           if (Number.isFinite(rate) && rate > 0 && Number.isFinite(etaMs)) next = { ...progress, rate, etaMs };
         }
       }
-      transferredBaseline = { bytes: transferredBytes, timestamp };
+      // A caller that reports less than it did before is behind, not slower. Holding the earlier
+      // baseline lets the next larger reading measure across the whole span instead of losing the
+      // rate for one report and then overstating it on the next.
+      if (transferredBaseline === undefined || transferredBytes >= transferredBaseline.bytes)
+        transferredBaseline = { bytes: transferredBytes, timestamp };
     }
     send(next);
     lastProgress = next;

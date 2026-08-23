@@ -1,5 +1,13 @@
+import { Fragment } from 'react';
 import type { ArtifactCacheControls, ArtifactCacheUiState } from '../artifact-cache-ui';
-import { formatBytes, formatEta, formatRate } from '../artifact-cache-ui';
+import {
+  artifactCacheNoticeMessage,
+  artifactErrorMessage,
+  formatBytes,
+  formatEta,
+  formatRate,
+  persistenceWarningMessage,
+} from '../artifact-cache-ui';
 import type { Messages } from '../i18n';
 
 export type DownloadCardProps = {
@@ -13,10 +21,6 @@ export type DownloadCardProps = {
 };
 
 const secondaryButton = 'rounded-lg border border-line bg-transparent px-3.5 py-1.5 text-sm text-muted';
-
-function detailLine(key: string, value: string) {
-  return `${key.padEnd(14)}${value}`;
-}
 
 export function DownloadCard({
   tr,
@@ -34,14 +38,19 @@ export function DownloadCard({
   const totalBytes = progress?.totalBytes ?? status?.totalArtifactBytes ?? 0;
   const percent = totalBytes > 0 ? Math.floor((completedBytes / totalBytes) * 100) : 0;
   const actionLabel = controls.canRetry ? tr.dlRetry : status?.state === 'partial' ? tr.dlResume : tr.dlAction;
-  const details = downloading
-    ? [
-        progress ? detailLine(tr.dlFile, progress.currentFile) : null,
-        progress?.rate !== undefined ? detailLine(tr.dlSpeed, formatRate(progress.rate)) : null,
-        progress?.etaMs !== undefined ? detailLine(tr.dlRemain, formatEta(progress.etaMs)) : null,
-        detailLine(tr.dlVerified, `${formatBytes(completedBytes)} / ${formatBytes(totalBytes)}`),
-      ].filter((line): line is string => line !== null)
-    : [detailLine(tr.dlVerified, `${formatBytes(completedBytes)} / ${formatBytes(totalBytes)}`)];
+  // Every row stays on screen for the whole download and falls back to a placeholder, so a report
+  // that arrives without transfer metrics cannot make a row vanish and reflow the card.
+  const details = [
+    { label: tr.dlFile, value: progress?.currentFile ?? tr.dlUnknown, title: progress?.currentFile },
+    { label: tr.dlSpeed, value: progress?.rate === undefined ? tr.dlUnknown : formatRate(progress.rate) },
+    { label: tr.dlRemain, value: progress?.etaMs === undefined ? tr.dlUnknown : formatEta(progress.etaMs) },
+  ];
+  // The specific reason replaces the generic best-effort note rather than stacking on top of it.
+  const persistenceNote = cacheState.persistenceWarning
+    ? persistenceWarningMessage(tr, cacheState.persistenceWarning)
+    : status?.persistence === 'best-effort'
+      ? tr.dlBestEffort
+      : null;
 
   return (
     <div className="mx-auto mt-12 flex max-w-[520px] flex-col gap-[18px] rounded-[14px] border border-line bg-panel px-7 py-[26px]">
@@ -69,12 +78,24 @@ export function DownloadCard({
               }}
             />
           </div>
-          <div className="whitespace-pre-wrap font-mono text-sm leading-loose text-muted">{details.join('\n')}</div>
+          {downloading && (
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-5 gap-y-2 font-mono text-sm">
+              {details.map((detail) => (
+                <Fragment key={detail.label}>
+                  <dt className="text-muted2">{detail.label}</dt>
+                  <dd className="min-w-0 truncate text-muted" title={detail.title}>
+                    {detail.value}
+                  </dd>
+                </Fragment>
+              ))}
+            </dl>
+          )}
         </>
       )}
       {cacheState.lastError && (
         <div role="alert" className="text-sm leading-normal text-danger">
-          {cacheState.lastError.message}
+          {artifactErrorMessage(tr, cacheState.lastError.code, tr.errWorker)}
+          <div className="mt-1 font-mono text-xs leading-normal text-muted2">{cacheState.lastError.message}</div>
         </div>
       )}
       {status && status.sufficient === false && (
@@ -84,13 +105,12 @@ export function DownloadCard({
           {formatBytes(status.requiredHeadroomBytes)} {tr.dlRequired}
         </div>
       )}
-      {cacheState.persistenceWarning && (
-        <div className="text-xs leading-normal text-muted2">{cacheState.persistenceWarning}</div>
+      {persistenceNote && <div className="text-xs leading-normal text-muted2">{persistenceNote}</div>}
+      {cacheState.notice && (
+        <div aria-live="polite" className="text-xs leading-normal text-muted2">
+          {artifactCacheNoticeMessage(tr, cacheState.notice)}
+        </div>
       )}
-      {status?.persistence === 'best-effort' && (
-        <div className="text-xs leading-normal text-muted2">{tr.dlBestEffort}</div>
-      )}
-      {cacheState.notice && <div className="text-xs leading-normal text-muted2">{cacheState.notice}</div>}
       <div className="text-xs leading-relaxed text-muted2">{tr.dlNote}</div>
       <div className="flex flex-wrap gap-2">
         {(controls.canDownload || controls.canRetry) && (

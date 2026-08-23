@@ -27,8 +27,14 @@ export interface ProjectCacheUsage {
   storedBytes: number;
 }
 
+/**
+ * Why the browser refused a durable grant. The UI turns the code into localised prose, so the
+ * runtime never hands a user-facing English sentence to a Korean screen.
+ */
+export type PersistenceWarning = 'unsupported' | 'denied' | 'failed';
+
 export type PersistenceRequestResult =
-  { state: 'persistent'; warning?: never } | { state: 'best-effort'; warning: string };
+  { state: 'persistent'; warning?: never } | { state: 'best-effort'; warning: PersistenceWarning };
 
 const PROJECT_CACHE_NAME = /^minimax-music3-[a-f0-9]{64}$/;
 
@@ -90,26 +96,15 @@ export async function requestPersistentStorage(
     ? undefined
     : navigator.storage,
 ): Promise<PersistenceRequestResult> {
-  if (!storage) {
-    return {
-      state: 'best-effort',
-      warning: 'Persistent storage is unavailable. Downloads may be evicted by the browser.',
-    };
-  }
+  if (!storage) return { state: 'best-effort', warning: 'unsupported' };
   try {
     const requested = storage.persist();
     const existing = storage.persisted();
     const [granted, alreadyPersistent] = await Promise.all([requested, existing]);
     if (granted || alreadyPersistent) return { state: 'persistent' };
-    return {
-      state: 'best-effort',
-      warning: 'Persistent storage was denied. Downloads may be evicted by the browser.',
-    };
+    return { state: 'best-effort', warning: 'denied' };
   } catch {
-    return {
-      state: 'best-effort',
-      warning: 'Persistent storage could not be requested. Downloads may be evicted by the browser.',
-    };
+    return { state: 'best-effort', warning: 'failed' };
   }
 }
 

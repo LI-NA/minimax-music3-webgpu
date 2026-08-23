@@ -152,6 +152,25 @@ describe('artifact progress reporting', () => {
     );
   });
 
+  it('holds the transfer baseline when an aggregate report falls behind', () => {
+    const events: unknown[] = [];
+    let now = 0;
+    const reporter = createArtifactProgressReporter({
+      totalBytes: 100,
+      send: (event) => events.push(event),
+      now: () => now,
+    });
+
+    reporter.report('a.bin', 10, 100, 0, 30);
+    now = 500;
+    reporter.report('a.bin', 20, 100, 0, 10);
+    now = 1_000;
+    reporter.report('a.bin', 40, 100, 0, 80);
+
+    expect(events[1]).not.toHaveProperty('rate');
+    expect(events[2]).toEqual(expect.objectContaining({ rate: 50, etaMs: 1_200 }));
+  });
+
   it('emits a successful final after a callback already reached the file total', () => {
     const events: unknown[] = [];
     const reporter = createArtifactProgressReporter({

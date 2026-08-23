@@ -16,7 +16,9 @@ import { createMusicGenerationRequest } from '../workers/protocol';
 import { FIXED_COMPARISON_CASE } from '../runtime/reference/fixed-comparison';
 import { createArtifactCacheClient } from './artifact-cache-client';
 import {
+  artifactCacheNoticeMessage,
   artifactCacheUiReducer,
+  artifactErrorMessage,
   artifactDownloadActionLabel,
   createArtifactCacheUiState,
   describeArtifactCacheStatus,
@@ -24,7 +26,9 @@ import {
   formatBytes,
   formatEta,
   formatRate,
+  persistenceWarningMessage,
 } from './artifact-cache-ui';
+import { messages } from './i18n';
 import { localReleaseManifestUrl, selectedRelease } from './manifest-url';
 
 type CapabilityState = WebGpuCapability | null;
@@ -348,15 +352,18 @@ export function DiagnosticsApp() {
           <p aria-live="polite" className="cache-status">
             {describeArtifactCacheStatus(cacheState)}
           </p>
-          {cacheState.persistenceWarning && <p className="cache-warning">{cacheState.persistenceWarning}</p>}
+          {cacheState.persistenceWarning && (
+            <p className="cache-warning">{persistenceWarningMessage(messages.en, cacheState.persistenceWarning)}</p>
+          )}
           {cacheState.lastError && (
             <p role="alert" className="cache-error">
+              {artifactErrorMessage(messages.en, cacheState.lastError.code, messages.en.errWorker)}{' '}
               {cacheState.lastError.message}
             </p>
           )}
           {cacheState.notice && (
             <p aria-live="polite" className="cache-warning">
-              {cacheState.notice}
+              {artifactCacheNoticeMessage(messages.en, cacheState.notice)}
             </p>
           )}
           <div className="cache-actions">

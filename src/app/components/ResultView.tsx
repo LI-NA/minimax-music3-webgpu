@@ -1,4 +1,5 @@
 import type { MouseEvent } from 'react';
+import { artifactErrorMessage } from '../artifact-cache-ui';
 import { formatClock, formatTimeOfDay } from '../format';
 import type { Messages } from '../i18n';
 import { lyricsFromSettings, promptFromSettings, type Track } from '../tracks';
@@ -84,9 +85,10 @@ export function ResultView({
         </div>
       </div>
 
-      {failed && track.error && (
+      {failed && (
         <div role="alert" className="text-sm leading-normal text-danger">
-          {track.error}
+          {artifactErrorMessage(tr, track.errorCode, tr.errGeneration)}
+          {track.error && <div className="mt-1 font-mono text-xs leading-normal text-muted2">{track.error}</div>}
         </div>
       )}
 
