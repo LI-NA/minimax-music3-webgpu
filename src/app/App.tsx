@@ -74,16 +74,41 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+const MID_BREAKPOINT = 1180;
+const MOBILE_BREAKPOINT = 760;
+const RESIZER_WIDTH = 6;
+const STUDIO_MIN_WIDTH = 380;
+const COMPOSER_MIN_WIDTH = 280;
+/** Past this the fields only grow their line length; the studio column is the better home. */
+const COMPOSER_MAX_WIDTH = 560;
+const COMPOSER_WIDTH_SHARE = 0.34;
+
+const libraryWidth = (viewportWidth: number) => (viewportWidth < MID_BREAKPOINT ? 260 : 296);
+
+/** Widest the composer may be before the studio column is squeezed past its own minimum. */
+function composerLimit(viewportWidth: number): number {
+  return Math.max(COMPOSER_MIN_WIDTH, viewportWidth - libraryWidth(viewportWidth) - RESIZER_WIDTH - STUDIO_MIN_WIDTH);
+}
+
+/**
+ * The composer holds the prompt, the lyrics and every control, so it takes a share of the window
+ * instead of one fixed width that reads as a narrow strip as the display grows.
+ */
+function defaultComposerWidth(viewportWidth: number): number {
+  const share = Math.round(viewportWidth * COMPOSER_WIDTH_SHARE);
+  return Math.min(composerLimit(viewportWidth), Math.max(COMPOSER_MIN_WIDTH, Math.min(COMPOSER_MAX_WIDTH, share)));
+}
+
 export function App() {
   const [lang, setLang] = useState<Language>(() => detectLanguage(readStorage('mm3-lang')));
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (readStorage('mm3-theme') === 'light' ? 'light' : 'dark'));
   const tr = messages[lang];
 
   const [vw, setVw] = useState(() => window.innerWidth);
-  const [leftWidth, setLeftWidth] = useState(352);
+  const [leftWidth, setLeftWidth] = useState(() => defaultComposerWidth(window.innerWidth));
   const [mobileView, setMobileView] = useState<MobileView>('create');
-  const isMobile = vw < 760;
-  const isMid = vw < 1180;
+  const isMobile = vw < MOBILE_BREAKPOINT;
+  const isMid = vw < MID_BREAKPOINT;
 
   const [capability, setCapability] = useState<WebGpuCapability | null>(null);
   const [cacheState, dispatchCache] = useReducer(artifactCacheUiReducer, null, createArtifactCacheUiState);
@@ -508,8 +533,9 @@ export function App() {
     event.preventDefault();
     const startX = event.clientX;
     const startWidth = leftWidth;
-    const max = Math.max(280, vw - (isMid ? 260 : 296) - 6 - 380);
-    const move = (ev: PointerEvent) => setLeftWidth(Math.min(max, Math.max(280, startWidth + ev.clientX - startX)));
+    const max = composerLimit(vw);
+    const move = (ev: PointerEvent) =>
+      setLeftWidth(Math.min(max, Math.max(COMPOSER_MIN_WIDTH, startWidth + ev.clientX - startX)));
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
@@ -584,7 +610,11 @@ export function App() {
     );
   }
 
-  const gridColumns = isMobile ? 'minmax(0,1fr)' : `${leftWidth}px 6px minmax(0,1fr) ${isMid ? 260 : 296}px`;
+  // Narrowing the window must not leave a width chosen against a wider one overflowing the grid.
+  const composerWidth = Math.min(leftWidth, composerLimit(vw));
+  const gridColumns = isMobile
+    ? 'minmax(0,1fr)'
+    : `${composerWidth}px ${RESIZER_WIDTH}px minmax(0,1fr) ${libraryWidth(vw)}px`;
 
   return (
     <div className="flex h-dvh flex-col bg-bg font-sans text-ink">

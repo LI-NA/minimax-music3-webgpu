@@ -49,6 +49,10 @@ const inputClass =
 const textareaClass =
   'w-full resize-y rounded-lg border border-line bg-input px-2.5 py-2 text-sm leading-relaxed ' +
   'text-ink placeholder:text-muted2 focus:border-muted2 focus:outline-none';
+// Heights are a whole number of lines: 22.75px per line plus 18px of padding and border. A field
+// that ends mid-line reads as an accident, and the three prompt fields take the same text so they
+// take the same room.
+const promptFieldClass = `${textareaClass} h-[109px]`;
 const numberClass =
   'w-full rounded-[7px] border border-line bg-input px-2 py-[7px] font-mono text-sm ' +
   'text-ink focus:border-muted2 focus:outline-none';
@@ -236,7 +240,7 @@ export function Composer({
                 value={composer.fineMeta}
                 onChange={(event) => onPatch({ fineMeta: event.target.value })}
                 placeholder={tr.metaPh}
-                className={`${textareaClass} h-[88px]`}
+                className={promptFieldClass}
               />
             </div>
             <div className={dimmed}>
@@ -254,7 +258,7 @@ export function Composer({
                 onChange={(event) => onPatch({ fineVocal: event.target.value })}
                 disabled={composer.instrumental}
                 placeholder={tr.vocalPh}
-                className={`${textareaClass} h-[74px]`}
+                className={promptFieldClass}
               />
             </div>
             <div>
@@ -263,7 +267,7 @@ export function Composer({
                 value={composer.fineArrangement}
                 onChange={(event) => onPatch({ fineArrangement: event.target.value })}
                 placeholder={tr.arrPh}
-                className={`${textareaClass} h-[88px]`}
+                className={promptFieldClass}
               />
             </div>
             <div className="text-xs leading-normal text-muted2">{tr.fineNote}</div>
@@ -274,7 +278,7 @@ export function Composer({
               value={composer.rawPrompt}
               onChange={(event) => onPatch({ rawPrompt: event.target.value, rawTouched: true })}
               placeholder={tr.rawPh}
-              className={`${textareaClass} h-[220px]`}
+              className={`${textareaClass} h-[246px]`}
             />
             <div className="mt-1.5 text-xs leading-normal text-muted2">{tr.rawNote}</div>
           </div>
@@ -324,7 +328,7 @@ export function Composer({
           onChange={(event) => onPatch({ lyrics: event.target.value })}
           disabled={composer.instrumental}
           placeholder={tr.lyricsPh}
-          className={`${textareaClass} h-[150px] font-mono text-sm leading-[1.7]`}
+          className={`${textareaClass} h-[200px] font-mono`}
         />
         <div className="mt-1.5 text-xs text-muted2">{tr.lyricsNote}</div>
       </div>
@@ -381,7 +385,7 @@ export function Composer({
           onChange={(event) => onPatch({ seedInput: event.target.value.replace(/[^0-9]/g, '') })}
           inputMode="numeric"
           placeholder={tr.seedPh}
-          className={`${inputClass} font-mono text-sm`}
+          className={`${inputClass} font-mono`}
         />
         <div className="mt-1.5 text-xs leading-normal text-muted2">{tr.seedNote}</div>
       </div>
