@@ -2,13 +2,20 @@ import { formatProgress } from '../workers/music-progress';
 import type { MusicStage, WorkerProgress } from '../workers/protocol';
 
 export const GENERATION_STAGE_COUNT = 5;
-const LOG_LINES = 8;
+/** A run words about a dozen rows, so this only bounds a worker that reports something unforeseen. */
+const LOG_LINES = 40;
 
 export type StageCounter = {
   completed: number;
   total: number;
   rate?: number;
   stepMs?: number;
+};
+
+/** One rendered log row. The key is what a counter rewrites in place instead of appending. */
+export type GenerationLogRow = {
+  key: string;
+  line: string;
 };
 
 export type GenerationView = {
@@ -20,8 +27,7 @@ export type GenerationView = {
   acoustic?: StageCounter;
   flow?: StageCounter;
   vocoder?: StageCounter;
-  log: string[];
-  lastLogStage?: string;
+  log: GenerationLogRow[];
 };
 
 export function createGenerationView(): GenerationView {
@@ -37,11 +43,23 @@ const SESSION_STAGE: Record<MusicStage, number> = {
   wav: 4,
 };
 
-function appendLog(view: GenerationView, progress: WorkerProgress): Pick<GenerationView, 'log' | 'lastLogStage'> {
-  const line = formatProgress(progress);
-  const key = progress.stage === 'session' ? `session:${progress.name ?? ''}` : progress.stage;
-  const log = key === view.lastLogStage ? view.log.slice(0, -1) : view.log;
-  return { log: [...log, line].slice(-LOG_LINES), lastLogStage: key };
+const carriesCounter = (progress: WorkerProgress) =>
+  (progress.completed !== undefined && progress.total !== undefined) ||
+  (progress.completedBytes !== undefined && progress.totalBytes !== undefined);
+
+/**
+ * A counting report keeps one row and rewrites it wherever that row already sits, however many
+ * times the chunked pipeline re-enters its stage. Everything else happened once and is appended.
+ * So a climbing number never pushes the run's history out of the log.
+ */
+function appendLog(view: GenerationView, progress: WorkerProgress): Pick<GenerationView, 'log'> {
+  const row = {
+    key: progress.stage === 'session' ? `session:${progress.name ?? ''}` : progress.stage,
+    line: formatProgress(progress),
+  };
+  const at = carriesCounter(progress) ? view.log.findIndex((existing) => existing.key === row.key) : -1;
+  if (at === -1) return { log: [...view.log, row].slice(-LOG_LINES) };
+  return { log: view.log.map((existing, index) => (index === at ? row : existing)) };
 }
 
 function counter(progress: WorkerProgress): StageCounter | undefined {
@@ -58,47 +76,69 @@ export function applyGenerationProgress(view: GenerationView, progress: WorkerPr
   const next: GenerationView = { ...view, ...appendLog(view, progress) };
   const measured = counter(progress);
   const fraction = measured && measured.total > 0 ? measured.completed / measured.total : undefined;
+  // A chunked run does not walk the stages in order: it encodes one chunk's condition, runs that
+  // chunk's flow steps, reports the chunk complete, and starts over. Taken literally those reports
+  // drag the display back to an earlier stage once per chunk. So the stage index only moves
+  // forward, and a report may drive the shared fraction, ETA and indeterminate flag only while its
+  // own stage is the one on screen. Its own counter keeps updating either way.
+  const onScreen = (stageIndex: number) => {
+    next.stageIndex = Math.max(view.stageIndex, stageIndex);
+    return next.stageIndex === stageIndex;
+  };
   switch (progress.stage) {
     case 'session':
-      next.stageIndex = Math.max(view.stageIndex, progress.name ? SESSION_STAGE[progress.name] : 0);
-      next.stageFraction = next.stageIndex > view.stageIndex ? 0 : view.stageFraction;
-      next.indeterminate = true;
+      if (onScreen(progress.name ? SESSION_STAGE[progress.name] : 0)) {
+        next.stageFraction = next.stageIndex > view.stageIndex ? 0 : view.stageFraction;
+        next.indeterminate = true;
+      }
       break;
     case 'autoregressive':
-      next.stageIndex = 0;
-      next.stageFraction = fraction ?? view.stageFraction;
-      next.indeterminate = fraction === undefined;
       next.frames = measured ?? view.frames;
-      next.etaMs = progress.etaMs;
+      if (onScreen(0)) {
+        next.stageFraction = fraction ?? view.stageFraction;
+        next.indeterminate = fraction === undefined;
+        next.etaMs = progress.etaMs;
+      }
       break;
     case 'acoustic':
-    case 'condition':
-      next.stageIndex = 1;
-      next.stageFraction = progress.stage === 'acoustic' ? (fraction ?? 0) : view.stageFraction;
-      next.indeterminate = fraction === undefined;
       next.acoustic = measured ?? view.acoustic;
-      next.etaMs = undefined;
+      if (onScreen(1)) {
+        next.stageFraction = fraction ?? 0;
+        next.indeterminate = fraction === undefined;
+        next.etaMs = undefined;
+      }
+      break;
+    case 'condition':
+      // Condition counts the chunk it is starting, not one this stage has finished, so it names a
+      // row in the log without claiming a share of the stage bar.
+      if (onScreen(1)) {
+        next.indeterminate = true;
+        next.etaMs = undefined;
+      }
       break;
     case 'flow':
-      next.stageIndex = 2;
-      next.stageFraction = fraction ?? 0;
-      next.indeterminate = fraction === undefined;
       next.flow = measured ?? view.flow;
-      next.etaMs = progress.etaMs;
+      if (onScreen(2)) {
+        next.stageFraction = fraction ?? 0;
+        next.indeterminate = fraction === undefined;
+        next.etaMs = progress.etaMs;
+      }
       break;
     case 'vocoder':
-      next.stageIndex = 3;
-      next.stageFraction = fraction ?? 0;
-      next.indeterminate = fraction === undefined;
       next.vocoder = measured ?? view.vocoder;
-      next.etaMs = undefined;
+      if (onScreen(3)) {
+        next.stageFraction = fraction ?? 0;
+        next.indeterminate = fraction === undefined;
+        next.etaMs = undefined;
+      }
       break;
     case 'wav':
     case 'complete':
-      next.stageIndex = 4;
-      next.stageFraction = progress.stage === 'complete' ? 1 : 0;
-      next.indeterminate = progress.stage !== 'complete';
-      next.etaMs = undefined;
+      if (onScreen(4)) {
+        next.stageFraction = progress.stage === 'complete' ? 1 : 0;
+        next.indeterminate = progress.stage !== 'complete';
+        next.etaMs = undefined;
+      }
       break;
     default:
       break;

@@ -1085,7 +1085,7 @@ async function runVariableMusicGeneration(
           initialLatents,
           flowGuidance: sampling.flowGuidance,
           flowSteps: sampling.flowSteps,
-          onConditionStart: () => tracker.condition(),
+          onConditionStart: (chunkIndex) => tracker.condition(chunkIndex + 1),
           onConditionComplete: ({ elapsedMs }) => {
             inferenceMs.condition += elapsedMs;
           },

@@ -17,6 +17,9 @@ function stageStats(tr: Messages, view: GenerationView): StatCell[] {
       value: `${view.acoustic.completed} / ${view.acoustic.total}`,
     });
   } else if (view.stageIndex === 2 && view.flow) {
+    // Chunks keep completing underneath the flow steps, and this stage is the only place that
+    // count is still on screen once the display stops following the interleaved reports.
+    if (view.acoustic) cells.push({ key: tr.statChunk, value: `${view.acoustic.completed} / ${view.acoustic.total}` });
     cells.push({ key: tr.statFlow, value: `${view.flow.completed} / ${view.flow.total}` });
     if (view.flow.stepMs !== undefined)
       cells.push({ key: tr.statStep, value: `${view.flow.stepMs.toFixed(0)} ms`, accent: true });
@@ -82,17 +85,8 @@ export function GenerationProgress({ tr, track, view, elapsedMs, onCancel }: Gen
             style={{ width: `${percent}%` }}
           />
         </div>
-        <div className="mt-2 flex font-mono text-xs text-muted">
-          <div>
-            {tr.elapsed} {elapsed}
-          </div>
-          <div className="flex-1" />
-          <div className="text-accent">{percent}%</div>
-          <div className="flex-1" />
-          <div>
-            {tr.remaining} {remaining}
-          </div>
-        </div>
+        {/* Elapsed and remaining have their own cells below, so the bar only carries the percent. */}
+        <div className="mt-2 font-mono text-xs text-accent">{percent}%</div>
       </div>
 
       <div className="grid grid-cols-[repeat(auto-fit,minmax(110px,1fr))] gap-2">
@@ -176,12 +170,11 @@ export function GenerationProgress({ tr, track, view, elapsedMs, onCancel }: Gen
 
       <div className="rounded-xl border border-line bg-input px-4 py-3">
         <div className="mb-2 font-mono text-xs tracking-[.12em] text-muted2">{tr.logLabel}</div>
-        <output
-          aria-live="polite"
-          className="block whitespace-pre-wrap break-all font-mono text-xs leading-[1.9] text-muted"
-        >
-          {view.log.join('\n')}
-        </output>
+        {/* Not a live region: the counter rows rewrite themselves several times a second, which a
+            screen reader would read out without end. */}
+        <div className="whitespace-pre-wrap break-all font-mono text-xs leading-[1.9] text-muted">
+          {view.log.map((row) => row.line).join('\n')}
+        </div>
       </div>
     </div>
   );

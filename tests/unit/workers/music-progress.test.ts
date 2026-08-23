@@ -36,6 +36,31 @@ describe('music generation progress', () => {
     expect(() => tracker.autoregressive(251)).toThrow(/total/);
   });
 
+  it('counts the chunk a condition encode is starting and leaves the fixed run uncounted', () => {
+    const events: WorkerProgress[] = [];
+    const tracker = createMusicProgressTracker(
+      (event) => events.push(event),
+      { durationSeconds: 10, promptTokens: 40 },
+      () => 0,
+    );
+
+    tracker.setRetainedFrames(250, 'max-frames');
+    tracker.condition();
+    tracker.condition(1);
+    tracker.condition(2);
+
+    const conditions = events.filter((event) => event.stage === 'condition');
+    expect(conditions[0]).toEqual({
+      type: 'progress',
+      stage: 'condition',
+      detail: 'Encoding frame condition',
+    });
+    expect(conditions[1]).toMatchObject({ completed: 1, total: 2, detail: 'Frame condition 1 of 2' });
+    expect(formatProgress(conditions[2]!)).toBe('Frame conditions 2/2');
+    expect(() => tracker.condition(1)).toThrow(/monotonic/);
+    expect(() => tracker.condition(3)).toThrow(/total/);
+  });
+
   it('derives acoustic, flow, and mono vocoder totals from actual retained frames', () => {
     let now = 0;
     const events: WorkerProgress[] = [];

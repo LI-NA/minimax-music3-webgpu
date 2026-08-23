@@ -32,6 +32,8 @@ export function formatProgress(progress: WorkerProgress) {
   }
   if (progress.stage === 'acoustic' && progress.completed !== undefined && progress.total !== undefined)
     return `Acoustic chunks ${progress.completed}/${progress.total}`;
+  if (progress.stage === 'condition' && progress.completed !== undefined && progress.total !== undefined)
+    return `Frame conditions ${progress.completed}/${progress.total}`;
   if (progress.stage === 'flow' && progress.completed !== undefined && progress.total !== undefined) {
     const speed = progress.stepMs === undefined ? '' : `, ${progress.stepMs.toFixed(0)} ms/step`;
     const eta = progress.etaMs === undefined ? '' : `, ${seconds(progress.etaMs)} remaining`;
@@ -96,6 +98,7 @@ export function createMusicProgressTracker(
   let flowPrevious: number | undefined;
   const flowDurations: number[] = [];
   let acousticCompleted = 0;
+  let conditionStarted = 0;
   let vocoderCompleted = 0;
 
   const requireActive = () => {
@@ -167,9 +170,25 @@ export function createMusicProgressTracker(
         total: retainedPlan.chunks.length,
       });
     },
-    condition() {
+    /**
+     * Reported as the encode starts, so the display is not silent through it. A chunked run counts
+     * the chunk it is starting; the fixed run has a single condition and counts nothing.
+     */
+    condition(startedChunks?: number) {
       requireActive();
-      send({ type: 'progress', stage: 'condition', detail: 'Encoding frame condition' });
+      if (startedChunks === undefined) {
+        send({ type: 'progress', stage: 'condition', detail: 'Encoding frame condition' });
+        return;
+      }
+      requireProgressCounter(startedChunks, conditionStarted, retainedPlan.chunks.length);
+      conditionStarted = startedChunks;
+      send({
+        type: 'progress',
+        stage: 'condition',
+        detail: `Frame condition ${startedChunks} of ${retainedPlan.chunks.length}`,
+        completed: startedChunks,
+        total: retainedPlan.chunks.length,
+      });
     },
     startFlowChunk(completedSteps: number) {
       requireActive();
