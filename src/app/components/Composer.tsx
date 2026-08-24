@@ -243,7 +243,7 @@ export function Composer({
                 className={promptFieldClass}
               />
             </div>
-            <div className={dimmed}>
+            <div>
               <div className="mb-1.5 flex items-baseline gap-2">
                 <div className="text-sm font-bold">{tr.vocalLabel}</div>
                 <div className="font-mono text-xs uppercase tracking-[.08em] text-muted2">{tr.vocalTag}</div>
@@ -256,7 +256,6 @@ export function Composer({
               <textarea
                 value={composer.fineVocal}
                 onChange={(event) => onPatch({ fineVocal: event.target.value })}
-                disabled={composer.instrumental}
                 placeholder={tr.vocalPh}
                 className={promptFieldClass}
               />
