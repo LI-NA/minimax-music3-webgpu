@@ -60,3 +60,9 @@ The persistent profile downloaded the release once, reported 5,357,619,746 bytes
 During the cached full run, `nvidia-smi` was sampled every 0.5 seconds. Total device usage rose from 3,615 MiB to 7,474 MiB during session creation, a 3,859 MiB delta. This leaves substantial room below the approved practical 12 GB ceiling on the RTX 4080 test machine.
 
 An unsuccessful gate must record the first allocation or unsupported-operator error and must not be described as feasible.
+
+## Active B32 release, 2026-08-24
+
+The active full Global release now uses symmetric Q4 block size 32 with accuracy level 4. Its manifest SHA-256 is `888dcc9c9230d18588f1af82eb16e4772e5ad15a3a4b44f574a819f1304c04fd`. It references 5,694,616,196 bytes across 54 hashed files. The decoder contains 36 GroupQueryAttention nodes, 180 `MatMulNBits` nodes, 72 KV pairs, and 32 external-data shards. Every Q4 node declares block size 32, and every referenced file is at or below 128 MiB.
+
+The B32 one-layer and full 36-layer WebGPU-only diagnostic gates passed before browser testing was paused for this handoff. The combined `music-variable` B32 release has not been run in Chrome yet. The B128 measurements above remain historical performance evidence and must not be treated as B32 timing or memory measurements.

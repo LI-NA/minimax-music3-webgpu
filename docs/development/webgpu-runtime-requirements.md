@@ -24,7 +24,7 @@ All gates used headed Chrome 151 on a 16 GiB RTX 4080. `nvidia-smi` sampled tota
 
 | Release evidence     | Workload                  | Outcome                                          | Baseline MiB | Raw peak MiB | Increase MiB |
 | -------------------- | ------------------------- | ------------------------------------------------ | -----------: | -----------: | -----------: |
-| Active `730293...`   | Combined 6 s and 10 s     | Both maxima reached with raw programmatic inputs |        2,987 |        8,800 |        5,813 |
+| Archived B128 `730293...` | Combined 6 s and 10 s | Both maxima reached with raw programmatic inputs |        2,987 |        8,800 |        5,813 |
 | Archived `12fe28...` | Fixed 5 s warm baseline   | Maximum reached                                  |        1,704 |        6,834 |        5,130 |
 | Archived `12fe28...` | Combined 6 s and 10 s     | Both maxima reached                              |        2,977 |        8,502 |        5,525 |
 | Archived `12fe28...` | 30 s                      | Maximum reached                                  |        2,898 |        8,600 |        5,702 |
@@ -43,7 +43,7 @@ Practical physical-memory recommendations are:
 
 Adapter limits, driver behavior, and Chromium allocation can differ even when nominal VRAM matches. Only the RTX 4080 is verified. Before a long generation, wait for Android emulators, virtual machines, or other applications that materially consume GPU memory. Ordinary baseline use is included in the spawn-adjacent measurement and is not subtracted twice.
 
-The WebGPU adapter must expose a 128 MiB storage-buffer binding and at least nine storage buffers per shader stage. The active variable release stores 8,083,501,198 referenced artifact bytes in the browser profile.
+The WebGPU adapter must expose a 128 MiB storage-buffer binding and at least nine storage buffers per shader stage. The active B32 variable release stores 8,523,161,899 referenced artifact bytes in the browser profile. Its five-second Chrome generation gate passes, while B32 memory and longer-duration timing measurements remain pending. The table above records preserved B128 release evidence.
 
 ## Memory ownership
 

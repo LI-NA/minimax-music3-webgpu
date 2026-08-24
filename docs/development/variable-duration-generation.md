@@ -23,7 +23,11 @@ Product generation requires the active release cache to be ready. Diagnostic rou
 
 ## Active release qualification
 
-The active programmatic-input release has manifest SHA-256 `730293c66360cc9a413446311d2fd7957b547423d38bf7f81b80d2d331f96232`. A headed Chrome gate passed 6 and 10-second requests using the raw product request contract, returned 150 and 250 retained frames, produced 1,056,812-byte and 1,763,372-byte WAV files, and fetched zero completed artifacts. Total dedicated GPU memory rose from 2,987 MiB to 8,800 MiB, an increase of 5,813 MiB.
+The active release has manifest SHA-256 `6e1874f3f6664f60557775ecbda39a2c47ac8c5c1f1d669af8229d5391d7b17b`. It references 8,523,161,899 bytes across 84 hashed files. Global and Flow linear weights use symmetric Q4 block size 32 with accuracy level 4, except that Flow `time_proj.weight` and `proj_out.weight` remain FP16. Structural validation found 219 Flow `MatMulNBits` nodes, both exact FP16 exception nodes, no dynamic-shape operators, a 60,940,800-byte maximum activation, and no file above 128 MiB.
+
+A headed Chrome 151 gate downloaded the new B32 cache, generated and decoded a five-second WAV, then generated again from the completed cache. It retained all 125 requested frames, ran 30 Flow steps, produced a finite 44.1 kHz stereo PCM16 WAV with 220,160 samples per channel and 880,684 bytes, and reported zero artifact fetches during generation. The WAV SHA-256 was `8add3dc0689fac6e43c6b38500871e4bfe1def5793f55f334726d5606609cd46`. A five-second OPFS write sample measured 77.1 MiB/s. The complete gate, including the initial 7.94 GiB cache population and the repeated generation, reported `1 passed (5.2m)`.
+
+The six-second and ten-second B32 qualification and subjective listening remain pending. The previous B128 programmatic-input release is preserved at `artifacts/archive/music-variable/be9ec729ae2f495cb06dd345a44c2dc5/release`. Its manifest SHA-256 is `730293c66360cc9a413446311d2fd7957b547423d38bf7f81b80d2d331f96232`. That release passed 6 and 10-second headed Chrome requests, returned 150 and 250 retained frames, produced 1,056,812-byte and 1,763,372-byte WAV files, fetched zero completed artifacts, and increased total dedicated GPU memory by 5,813 MiB. Those measurements are historical B128 evidence, not B32 qualification.
 
 ## Archived long-duration qualification
 
