@@ -45,9 +45,11 @@ import {
   createMusicGenerationResultPlan,
   createResolvedMusicGenerationRequest,
   validateArtifactCacheRequest,
+  validateArtifactDownloadCancelRequest,
   validateMusicCapacityDiagnosticRequest,
   validateMusicGenerationRequest,
   type ArtifactCacheRequest,
+  type ArtifactDownloadCancelRequest,
   type ArtifactErrorCode,
   type ArtifactOperation,
   type MusicGenerationRequest,
@@ -189,7 +191,22 @@ async function withOrtOwnedDevice<T>(
 }
 
 let workerRequestActive = false;
-self.onmessage = (event: MessageEvent<WorkerRequest>) => {
+let activeArtifactDownload: AbortController | undefined;
+self.onmessage = (event: MessageEvent<WorkerRequest | ArtifactDownloadCancelRequest>) => {
+  if (
+    typeof event.data === 'object' &&
+    event.data !== null &&
+    (event.data as { type?: unknown }).type === 'cancel-artifact-download'
+  ) {
+    try {
+      validateArtifactDownloadCancelRequest(event.data);
+      if (!activeArtifactDownload) throw new Error('No artifact download is in progress');
+      activeArtifactDownload.abort();
+    } catch (error) {
+      send(serializeWorkerError(error));
+    }
+    return;
+  }
   if (workerRequestActive) {
     send({ type: 'error', message: 'Worker request already in progress' });
     return;
@@ -411,10 +428,10 @@ async function readManifest(url: string, unavailable: string) {
   };
 }
 
-async function fetchManifest(url: string, unavailable: string) {
+async function fetchManifest(url: string, unavailable: string, signal?: AbortSignal) {
   let response: Response;
   try {
-    response = await fetch(url);
+    response = await fetch(url, signal ? { signal } : undefined);
   } catch (error) {
     // `fetch` reports a CORS block, a refused connection and a bad host identically, so the
     // requested URL and the browser's own wording are the only clues an operator gets.
@@ -506,9 +523,9 @@ async function inspectVariableArtifactStatus(
   };
 }
 
-async function fetchVariableMusicRelease(manifestUrl: string, operation: ArtifactOperation) {
+async function fetchVariableMusicRelease(manifestUrl: string, operation: ArtifactOperation, signal?: AbortSignal) {
   try {
-    return await fetchManifest(manifestUrl, 'Music release manifest is unavailable');
+    return await fetchManifest(manifestUrl, 'Music release manifest is unavailable', signal);
   } catch (error) {
     const detail = error instanceof Error && error.message ? error.message : 'Music release manifest is unavailable';
     throw new ArtifactOperationError(detail, 'manifest-unavailable', operation, true, { cause: error });
@@ -543,36 +560,47 @@ function operationFailureMessage(prefix: string, error: unknown) {
 
 async function runArtifactDownload(request: Extract<ArtifactCacheRequest, { type: 'download-artifacts' }>) {
   const operation = request.type;
+  const controller = new AbortController();
+  if (activeArtifactDownload) throw new Error('Artifact download is already in progress');
+  activeArtifactDownload = controller;
   try {
-    await withArtifactCacheMutationLock(async () => {
-      const release = await fetchVariableMusicRelease(request.manifestUrl, operation);
-      const manifest = parseVariableMusicRelease(release, operation);
-      const artifacts = collectVariableMusicArtifacts(manifest);
-      const root = await navigator.storage.getDirectory();
-      const status = await inspectVariableArtifactStatus(release, artifacts, root);
-      if (status.sufficient === undefined) {
-        throw new ArtifactOperationError(
-          'Storage estimate is unavailable',
-          'storage-estimate-unavailable',
-          operation,
-          true,
-        );
-      }
-      if (!status.sufficient) {
-        throw new ArtifactOperationError(
-          'Storage quota is insufficient for model artifacts',
-          'quota-insufficient',
-          operation,
-          true,
-        );
-      }
-      const cache = await OpfsArtifactStore.open(release.hash, root);
-      await cacheArtifacts(artifacts, release.base, cache);
-      const completed = await inspectVariableArtifactStatus(release, artifacts, root);
-      if (completed.state !== 'ready') throw new Error('Artifact cache is not ready after download');
-      send({ type: 'artifact-download-complete', status: completed });
-    });
+    await withArtifactCacheMutationLock(
+      async () => {
+        const release = await fetchVariableMusicRelease(request.manifestUrl, operation, controller.signal);
+        const manifest = parseVariableMusicRelease(release, operation);
+        const artifacts = collectVariableMusicArtifacts(manifest);
+        const root = await navigator.storage.getDirectory();
+        const status = await inspectVariableArtifactStatus(release, artifacts, root);
+        if (status.sufficient === undefined) {
+          throw new ArtifactOperationError(
+            'Storage estimate is unavailable',
+            'storage-estimate-unavailable',
+            operation,
+            true,
+          );
+        }
+        if (!status.sufficient) {
+          throw new ArtifactOperationError(
+            'Storage quota is insufficient for model artifacts',
+            'quota-insufficient',
+            operation,
+            true,
+          );
+        }
+        const cache = await OpfsArtifactStore.open(release.hash, root);
+        await cacheArtifacts(artifacts, release.base, cache, controller.signal);
+        const completed = await inspectVariableArtifactStatus(release, artifacts, root);
+        if (completed.state !== 'ready') throw new Error('Artifact cache is not ready after download');
+        send({ type: 'artifact-download-complete', status: completed });
+      },
+      undefined,
+      controller.signal,
+    );
   } catch (error) {
+    if (controller.signal.aborted) {
+      send({ type: 'artifact-download-cancelled' });
+      return;
+    }
     if (error instanceof ArtifactOperationError) throw error;
     if (hasErrorName(error, 'QuotaExceededError')) {
       throw new ArtifactOperationError(
@@ -590,6 +618,8 @@ async function runArtifactDownload(request: Extract<ArtifactCacheRequest, { type
       true,
       { cause: error },
     );
+  } finally {
+    if (activeArtifactDownload === controller) activeArtifactDownload = undefined;
   }
 }
 
@@ -629,6 +659,7 @@ async function cacheArtifacts(
   artifacts: readonly { path: string; bytes: number; sha256: string }[],
   base: URL,
   cache: OpfsArtifactStore,
+  signal?: AbortSignal,
 ) {
   let fetches = 0;
   let completedBytes = 0;
@@ -686,7 +717,7 @@ async function cacheArtifacts(
         async (input, init) => {
           fetched = true;
           fetches++;
-          return fetch(input, init);
+          return fetch(input, signal ? { ...init, signal } : init);
         },
       );
     } finally {
@@ -700,7 +731,7 @@ async function cacheArtifacts(
   // Stop handing out work on the first failure and let the running transfers settle, so nothing
   // keeps writing to the cache after the operation has already reported an error.
   const drain = async () => {
-    while (failure === undefined) {
+    while (failure === undefined && !signal?.aborted) {
       const index = nextIndex++;
       if (index >= artifacts.length) return;
       try {
@@ -713,6 +744,12 @@ async function cacheArtifacts(
   };
 
   await Promise.all(Array.from({ length: Math.min(ARTIFACT_DOWNLOAD_CONCURRENCY, artifacts.length) }, drain));
+  if (signal?.aborted) {
+    reporter.discard();
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new DOMException('Artifact download cancelled', 'AbortError');
+  }
   if (failure !== undefined) {
     reporter.discard();
     throw failure;

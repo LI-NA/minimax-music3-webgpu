@@ -1,5 +1,10 @@
 import { requestPersistentStorage } from '../runtime/model/artifact-cache-management';
-import type { ArtifactCacheRequest, ArtifactOperation, WorkerResponse } from '../workers/protocol';
+import type {
+  ArtifactCacheRequest,
+  ArtifactDownloadCancelRequest,
+  ArtifactOperation,
+  WorkerResponse,
+} from '../workers/protocol';
 import type {
   ArtifactCacheRetryTarget,
   ArtifactCacheUiAction,
@@ -50,11 +55,15 @@ export function createArtifactCacheClient({
   createWorker,
 }: ArtifactCacheClientOptions): ArtifactCacheClient {
   let active: Worker | null = null;
+  let activeOperation: ArtifactCacheClientOperation | null = null;
+  let cancellationRequested = false;
   let persistenceGeneration = 0;
 
   const finish = (worker: Worker): boolean => {
     if (active !== worker) return false;
     active = null;
+    activeOperation = null;
+    cancellationRequested = false;
     worker.terminate();
     return true;
   };
@@ -75,6 +84,8 @@ export function createArtifactCacheClient({
   const run = (request: ArtifactCacheRequest, operation: ArtifactCacheClientOperation) => {
     const previous = active;
     active = null;
+    activeOperation = null;
+    cancellationRequested = false;
     previous?.terminate();
     let next: Worker;
     try {
@@ -84,11 +95,18 @@ export function createArtifactCacheClient({
       return;
     }
     active = next;
+    activeOperation = operation;
     next.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
       if (active !== next) return;
       if (data.type === 'progress') {
-        if (operation === 'download' && data.stage === 'artifact')
+        if (operation === 'download' && !cancellationRequested && data.stage === 'artifact')
           dispatch({ type: 'progress-received', progress: data });
+        return;
+      }
+      if (data.type === 'artifact-download-cancelled') {
+        if (operation !== 'download' || !finish(next)) return;
+        dispatch({ type: 'download-cancelled' });
+        inspect();
         return;
       }
       if (
@@ -149,11 +167,17 @@ export function createArtifactCacheClient({
   };
 
   const cancelDownload = () => {
-    const previous = active;
-    active = null;
-    previous?.terminate();
-    dispatch({ type: 'download-cancelled' });
-    inspect();
+    const worker = active;
+    if (!worker || activeOperation !== 'download' || cancellationRequested) return;
+    cancellationRequested = true;
+    const request: ArtifactDownloadCancelRequest = { type: 'cancel-artifact-download' };
+    try {
+      worker.postMessage(request);
+    } catch {
+      if (!finish(worker)) return;
+      dispatch({ type: 'download-cancelled' });
+      inspect();
+    }
   };
 
   const remove = () => {
@@ -166,6 +190,8 @@ export function createArtifactCacheClient({
     persistenceGeneration++;
     const previous = active;
     active = null;
+    activeOperation = null;
+    cancellationRequested = false;
     previous?.terminate();
   };
 

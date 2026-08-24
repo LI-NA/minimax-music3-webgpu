@@ -4,6 +4,8 @@ import {
   createResolvedMusicGenerationRequest,
   createMusicGenerationResultPlan,
   validateArtifactCacheRequest,
+  validateArtifactDownloadCancelRequest,
+  type ArtifactDownloadCancelRequest,
   type ArtifactCacheRequest,
   type ArtifactCacheStatus,
   type ArtifactErrorCode,
@@ -23,6 +25,7 @@ describe('artifact cache worker protocol', () => {
       | { type: 'download-artifacts'; manifestUrl: string }
       | { type: 'delete-artifact-caches'; manifestUrl: string }
     >();
+    expectTypeOf<ArtifactDownloadCancelRequest>().toEqualTypeOf<{ type: 'cancel-artifact-download' }>();
     expectTypeOf<ArtifactOperation>().toEqualTypeOf<
       'inspect-artifact-cache' | 'download-artifacts' | 'delete-artifact-caches' | 'generate-music'
     >();
@@ -56,6 +59,7 @@ describe('artifact cache worker protocol', () => {
     const responses: WorkerResponse[] = [
       { type: 'artifact-cache-status', status },
       { type: 'artifact-download-complete', status },
+      { type: 'artifact-download-cancelled' },
       { type: 'artifact-cache-deleted', status },
       {
         type: 'error',
@@ -66,7 +70,16 @@ describe('artifact cache worker protocol', () => {
       },
     ];
 
-    expect(responses).toHaveLength(4);
+    expect(responses).toHaveLength(5);
+  });
+
+  it('accepts only the exact download cancellation request', () => {
+    expect(validateArtifactDownloadCancelRequest({ type: 'cancel-artifact-download' })).toEqual({
+      type: 'cancel-artifact-download',
+    });
+    expect(() => validateArtifactDownloadCancelRequest({ type: 'cancel-artifact-download', extra: true })).toThrow(
+      'Artifact download cancellation request fields are invalid',
+    );
   });
 
   it.each(['inspect-artifact-cache', 'download-artifacts', 'delete-artifact-caches'] as const)(

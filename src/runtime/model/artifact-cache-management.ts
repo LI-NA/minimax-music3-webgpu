@@ -78,9 +78,11 @@ export async function deleteProjectArtifactCaches(root: FileSystemDirectoryHandl
 export async function withArtifactCacheMutationLock<T>(
   action: () => Promise<T>,
   locks: Pick<LockManager, 'request'> | undefined = typeof navigator === 'undefined' ? undefined : navigator.locks,
+  signal?: AbortSignal,
 ): Promise<T> {
   if (!locks) throw new Error('artifact cache mutation lock is unavailable');
-  return locks.request('minimax-music3-artifact-cache', { mode: 'exclusive' }, action);
+  const options: LockOptions = signal ? { mode: 'exclusive', signal } : { mode: 'exclusive' };
+  return locks.request('minimax-music3-artifact-cache', options, action);
 }
 
 export async function withArtifactCacheReadLock<T>(

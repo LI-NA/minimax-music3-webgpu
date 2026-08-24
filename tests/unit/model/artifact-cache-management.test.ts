@@ -128,6 +128,21 @@ describe('withArtifactCacheMutationLock', () => {
     expect(action).toHaveBeenCalledTimes(1);
   });
 
+  it('allows an exclusive lock wait to be cancelled', async () => {
+    const action = vi.fn().mockResolvedValue('result');
+    const request = vi.fn(async (_name, _options, callback) => callback());
+    const controller = new AbortController();
+
+    await expect(
+      withArtifactCacheMutationLock(action, { request } as unknown as Pick<LockManager, 'request'>, controller.signal),
+    ).resolves.toBe('result');
+    expect(request).toHaveBeenCalledWith(
+      'minimax-music3-artifact-cache',
+      { mode: 'exclusive', signal: controller.signal },
+      expect.any(Function),
+    );
+  });
+
   it('fails closed before invoking the action when locks are unavailable', async () => {
     const action = vi.fn();
     vi.stubGlobal('navigator', {});

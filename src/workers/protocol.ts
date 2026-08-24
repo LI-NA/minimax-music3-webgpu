@@ -35,6 +35,7 @@ export type ArtifactCacheRequest =
   | { type: 'inspect-artifact-cache'; manifestUrl: string }
   | { type: 'download-artifacts'; manifestUrl: string }
   | { type: 'delete-artifact-caches'; manifestUrl: string };
+export type ArtifactDownloadCancelRequest = { type: 'cancel-artifact-download' };
 export type ArtifactErrorCode =
   | 'manifest-unavailable'
   | 'manifest-invalid'
@@ -123,6 +124,16 @@ export function validateArtifactCacheRequest(raw: unknown): ArtifactCacheRequest
   if (typeof request.manifestUrl !== 'string' || request.manifestUrl.length === 0)
     throw new Error('Artifact cache manifest URL must be a non-empty string');
   return request as ArtifactCacheRequest;
+}
+
+export function validateArtifactDownloadCancelRequest(raw: unknown): ArtifactDownloadCancelRequest {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+    throw new Error('Artifact download cancellation request must be an object');
+  const request = raw as Record<string, unknown>;
+  if (!sameKeys(request, ['type'])) throw new Error('Artifact download cancellation request fields are invalid');
+  if (request.type !== 'cancel-artifact-download')
+    throw new Error('Invalid artifact download cancellation request type');
+  return request as ArtifactDownloadCancelRequest;
 }
 
 function validateSampling(value: unknown): asserts value is MusicSamplingInput {
@@ -413,6 +424,7 @@ export type WorkerResponse =
   | WorkerProgress
   | { type: 'artifact-cache-status'; status: ArtifactCacheStatus }
   | { type: 'artifact-download-complete'; status: ArtifactCacheStatus }
+  | { type: 'artifact-download-cancelled' }
   | { type: 'artifact-cache-deleted'; status: ArtifactCacheStatus }
   | { type: 'result'; result: GlobalSmokeResult }
   | { type: 'rvq-result'; result: RvqSmokeResult }

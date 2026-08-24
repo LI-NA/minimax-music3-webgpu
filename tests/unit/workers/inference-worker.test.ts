@@ -28,6 +28,8 @@ const state = vi.hoisted(() => ({
   ortWebgpu: {} as { device?: unknown },
   cacheState: 'ready' as 'missing' | 'partial' | 'ready',
   ensureError: undefined as Error | undefined,
+  holdArtifactFetches: false,
+  artifactFetchSignals: [] as (AbortSignal | undefined)[],
   activeEnsureCount: 0,
   peakEnsureCount: 0,
   inspectionError: undefined as Error | undefined,
@@ -117,19 +119,22 @@ vi.mock('../../../src/runtime/model/artifact-cache', () => ({
       };
     }),
   },
-  ensureArtifact: vi.fn(async (artifact: { path: string }) => {
-    state.events.push(`artifact:${artifact.path}`);
-    state.activeEnsureCount++;
-    state.peakEnsureCount = Math.max(state.peakEnsureCount, state.activeEnsureCount);
-    try {
-      // Yield so overlapping transfers are observable; a synchronous body could never overlap.
-      await Promise.resolve();
-      if (state.ensureError) throw state.ensureError;
-      state.cacheState = 'ready';
-    } finally {
-      state.activeEnsureCount--;
-    }
-  }),
+  ensureArtifact: vi.fn(
+    async (artifact: { path: string }, _source: URL, _store: unknown, _onProgress: unknown, fetcher: typeof fetch) => {
+      state.events.push(`artifact:${artifact.path}`);
+      state.activeEnsureCount++;
+      state.peakEnsureCount = Math.max(state.peakEnsureCount, state.activeEnsureCount);
+      try {
+        // Yield so overlapping transfers are observable; a synchronous body could never overlap.
+        await Promise.resolve();
+        if (state.holdArtifactFetches) await fetcher(new URL(`http://worker.test/artifacts/${artifact.path}`));
+        if (state.ensureError) throw state.ensureError;
+        state.cacheState = 'ready';
+      } finally {
+        state.activeEnsureCount--;
+      }
+    },
+  ),
 }));
 vi.mock('../../../src/runtime/model/artifact-cache-management', () => {
   let tail = Promise.resolve();
@@ -466,6 +471,8 @@ describe('variable inference worker lifecycle', () => {
     state.preflightGate = undefined;
     state.cacheState = 'ready';
     state.ensureError = undefined;
+    state.holdArtifactFetches = false;
+    state.artifactFetchSignals.length = 0;
     state.activeEnsureCount = 0;
     state.peakEnsureCount = 0;
     state.inspectionError = undefined;
@@ -691,6 +698,44 @@ describe('variable inference worker lifecycle', () => {
     expect(started).toHaveLength(8);
     expect(expectedVariableArtifactPaths.length).toBeGreaterThan(started.length);
     expect(state.activeEnsureCount).toBe(0);
+  });
+
+  it('aborts active transfers and acknowledges cancellation only after they settle', async () => {
+    state.cacheState = 'missing';
+    state.holdArtifactFetches = true;
+    const rejectFetches: Array<(reason: unknown) => void> = [];
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/manifest.json')) return new Response(JSON.stringify({}), { status: 200 });
+      const signal = init?.signal ?? undefined;
+      state.artifactFetchSignals.push(signal);
+      return new Promise<Response>((_resolve, reject) => {
+        rejectFetches.push(reject);
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    });
+    const onmessage = (self as unknown as { onmessage(event: MessageEvent<unknown>): void }).onmessage;
+
+    onmessage({
+      data: {
+        type: 'download-artifacts',
+        manifestUrl: 'http://worker.test/music-variable/manifest.json',
+      },
+    } as MessageEvent);
+    await vi.waitFor(() => expect(rejectFetches).toHaveLength(8));
+
+    onmessage({ data: { type: 'cancel-artifact-download' } } as MessageEvent);
+    await Promise.resolve();
+    rejectFetches.forEach((reject) => reject(new Error('test cleanup')));
+    await vi.waitFor(() => expect(state.activeEnsureCount).toBe(0));
+
+    expect(state.artifactFetchSignals).toHaveLength(8);
+    expect(state.artifactFetchSignals.every((signal) => signal?.aborted === true)).toBe(true);
+    expect(state.messages.at(-1)?.message).toEqual({ type: 'artifact-download-cancelled' });
+    expect(
+      state.messages.some(
+        ({ message }) => message.type === 'error' && message.message === 'Worker request already in progress',
+      ),
+    ).toBe(false);
   });
 
   it('preserves persistent storage in the final download status', async () => {

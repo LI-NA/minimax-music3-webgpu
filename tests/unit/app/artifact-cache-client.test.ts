@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createArtifactCacheClient } from '../../../src/app/artifact-cache-client';
 import type { ArtifactCacheUiAction } from '../../../src/app/artifact-cache-ui';
 import type { ArtifactCacheStatus, WorkerResponse } from '../../../src/workers/protocol';
@@ -55,6 +55,10 @@ function harness() {
 }
 
 describe('artifact cache client', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('reports an inspected status and releases the worker', () => {
     const { actions, client, workers } = harness();
 
@@ -100,20 +104,40 @@ describe('artifact cache client', () => {
     expect(workers[1].posted).toEqual([{ type: 'inspect-artifact-cache', manifestUrl: MANIFEST_URL }]);
   });
 
-  it('ignores a terminated worker and keeps only the newest one active', () => {
+  it('waits for download cancellation before terminating the worker and refreshing status', async () => {
     const { actions, client, workers } = harness();
+    vi.stubGlobal('navigator', {
+      storage: {
+        persist: vi.fn(async () => true),
+        persisted: vi.fn(async () => true),
+      },
+    });
 
-    client.inspect();
+    await client.download();
     client.cancelDownload();
-    workers[0].respond({ type: 'artifact-cache-status', status: status() });
+
+    expect(workers[0].posted).toEqual([
+      { type: 'download-artifacts', manifestUrl: MANIFEST_URL },
+      { type: 'cancel-artifact-download' },
+    ]);
+    expect(workers[0].terminated).toBe(false);
+    expect(actions).not.toContainEqual({ type: 'download-cancelled' });
+
+    client.cancelDownload();
+    expect(workers[0].posted).toHaveLength(2);
+
+    workers[0].respond({ type: 'artifact-download-cancelled' });
 
     expect(workers[0].terminated).toBe(true);
     expect(actions).toEqual([
-      { type: 'operation-started', operation: 'inspect' },
+      { type: 'operation-started', operation: 'request-persistence' },
+      { type: 'persistence-resolved', warning: undefined },
+      { type: 'download-started' },
       { type: 'download-cancelled' },
       { type: 'operation-started', operation: 'inspect' },
     ]);
     expect(workers).toHaveLength(2);
+    expect(workers[1].posted).toEqual([{ type: 'inspect-artifact-cache', manifestUrl: MANIFEST_URL }]);
   });
 
   it('stops the active worker when the view is torn down', () => {
