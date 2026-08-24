@@ -20,13 +20,14 @@ jobs:
       # Project sites live under /<repo>/. Set the MINIMAX_BASE repository variable to "/" for a
       # user site or a custom domain.
       MINIMAX_BASE: ${{ vars.MINIMAX_BASE || format('/{0}/', github.event.repository.name) }}
-      VITE_MINIMAX_MANIFEST_URL: ${{ vars.MINIMAX_MANIFEST_URL }}
     steps:
       - uses: actions/checkout@v4
 
       # Without this the build silently falls back to the same-origin development release, which
       # does not exist on Pages, and every visitor gets a download that cannot start.
       - name: Require a hosted manifest
+        env:
+          VITE_MINIMAX_MANIFEST_URL: ${{ vars.MINIMAX_MANIFEST_URL }}
         run: |
           if [ -z "$VITE_MINIMAX_MANIFEST_URL" ]; then
             echo "Set the MINIMAX_MANIFEST_URL repository variable to the hosted manifest URL." >&2
@@ -44,6 +45,8 @@ jobs:
       - run: npm run lint
       - run: npm run test
       - run: npm run build
+        env:
+          VITE_MINIMAX_MANIFEST_URL: ${{ vars.MINIMAX_MANIFEST_URL }}
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
