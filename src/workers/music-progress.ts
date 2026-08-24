@@ -77,7 +77,7 @@ function requireProgressCounter(next: number, previous: number, total: number) {
 
 export function createMusicProgressTracker(
   send: SendProgress,
-  request: DurationPlanRequest = { durationSeconds: 5, promptTokens: 0 },
+  request: DurationPlanRequest,
   now: Now = () => performance.now(),
 ) {
   const requestedPlan = planDuration(request);

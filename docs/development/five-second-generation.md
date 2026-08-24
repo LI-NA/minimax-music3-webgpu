@@ -9,11 +9,12 @@ $env:MINIMAX_MUSIC_CHROME_PROFILE = 'artifacts/music-browser-profile'
 npx playwright test tests/browser/music-generation.spec.ts --project=chrome --workers=1
 ```
 
-The measurements below came from the `music-5s` fixed-slice release. The diagnostics button now
-dispatches the variable route, which rejects that release's manifest, so the gate opens
-`/diagnostics.html?release=music-variable` and reproduces the same 125 frames and 880,684-byte WAV.
+The measurements below came from the `music-5s` fixed-slice release. Its dedicated worker route has
+since been removed, and the diagnostics button dispatches the variable route, which rejects that
+release's manifest. The gate therefore opens `/diagnostics.html?release=music-variable` and
+reproduces the same 125 frames and 880,684-byte WAV.
 
-The worker runs the stages sequentially. Autoregressive and RVQ sessions share one device, retain 125 frames as 8,192,000 bytes of raw FP16, then release every session and destroy that device. Condition uses a new device and returns 1,761,280 raw FP16 bytes. Flow uses another new device, deterministic standard-normal seed 7 latents, and 30 GPU steps before returning 110,080 raw FP16 bytes. Vocoder uses a final new device and produces the WAV before its session and device are released. Only the final WAV `ArrayBuffer` crosses back to the UI. No GPU tensor crosses a stage boundary.
+The fixed-slice worker ran the stages sequentially. Autoregressive and RVQ sessions shared one device, retained 125 frames as 8,192,000 bytes of raw FP16, then released every session and destroyed that device. Condition used a new device and returned 1,761,280 raw FP16 bytes. Flow used another new device, deterministic standard-normal seed 7 latents, and 30 GPU steps before returning 110,080 raw FP16 bytes. Vocoder used a final new device and produced the WAV before its session and device were released. Only the final WAV `ArrayBuffer` crossed back to the UI. No GPU tensor crossed a stage boundary.
 
 ## Measured result
 

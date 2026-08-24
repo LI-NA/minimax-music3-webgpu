@@ -1,6 +1,7 @@
 import type * as ort from 'onnxruntime-web/jspi';
 import { readGpuFp16Bits } from '../model/fp16-readback';
 import type { DurationChunkPlan, RetainedFramesPlan } from './duration-plan';
+import { createDeterministicDraw } from './sampler';
 
 const defaultFlowSteps = 30;
 const defaultFlowGuidance = 1.7;
@@ -109,6 +110,19 @@ export function float32ToFloat16Bits(value: number) {
     return sign | (nextExponent >= 0x1f ? 0x7c00 : nextExponent << 10);
   }
   return sign | (halfExponent << 10) | (rounded >>> 13);
+}
+
+export function deterministicGaussianFp16(seed: number, length: number) {
+  if (!Number.isSafeInteger(length) || length < 0) throw new Error('Gaussian length must be non-negative');
+  const draw = createDeterministicDraw(seed);
+  const values = new Uint16Array(length);
+  for (let index = 0; index < length; index += 2) {
+    const radius = Math.sqrt(-2 * Math.log1p(-draw()));
+    const angle = 2 * Math.PI * draw();
+    values[index] = float32ToFloat16Bits(radius * Math.cos(angle));
+    if (index + 1 < length) values[index + 1] = float32ToFloat16Bits(radius * Math.sin(angle));
+  }
+  return values;
 }
 
 function requireFloat16(tensor: ort.Tensor, name: string, shape: readonly number[], requireGpu = false) {

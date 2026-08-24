@@ -10,7 +10,6 @@ import {
   type ArtifactOperation,
   validateMusicCapacityDiagnosticRequest,
   validateMusicGenerationRequest,
-  type LegacyFiveSecondMusicWorkerResult,
   type MusicGenerationEffectiveInput,
   type MusicGenerationResultPlan,
   type MusicGenerationWorkerResult,
@@ -96,14 +95,10 @@ describe('artifact cache worker protocol', () => {
 });
 
 describe('music generation worker protocol', () => {
-  it('requires resolved product metadata without imposing it on the legacy result', () => {
+  it('requires resolved product metadata on the product result', () => {
     expectTypeOf<MusicGenerationWorkerResult>().toMatchTypeOf<{
       effectiveInput: MusicGenerationEffectiveInput;
       plan: MusicGenerationResultPlan;
-    }>();
-    expectTypeOf<LegacyFiveSecondMusicWorkerResult>().toMatchTypeOf<{
-      effectiveInput?: never;
-      plan?: never;
     }>();
   });
 

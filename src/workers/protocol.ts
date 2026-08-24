@@ -277,8 +277,7 @@ export type WorkerRequest =
     }
   | MusicGenerationRequest
   | ArtifactCacheRequest
-  | MusicCapacityDiagnosticRequest
-  | { type: 'generate-music-5s'; manifestUrl: string; seed: number };
+  | MusicCapacityDiagnosticRequest;
 export type MusicStage = 'autoregressive' | 'acoustic' | 'condition' | 'flow' | 'vocoder' | 'wav';
 export type WorkerProgress = {
   type: 'progress';
@@ -403,21 +402,13 @@ export type MusicGenerationWorkerResult = MusicGenerationWorkerMetrics & {
   capacityDiagnostic?: never;
 };
 
-export type LegacyFiveSecondMusicWorkerResult = MusicGenerationWorkerMetrics & {
-  effectiveInput?: never;
-  plan?: never;
-  comparison?: never;
-  capacityDiagnostic?: never;
-};
-
 export type MusicCapacityDiagnosticWorkerResult = MusicGenerationWorkerMetrics & {
   effectiveInput?: never;
   plan: MusicGenerationResultPlan;
   comparison?: never;
   capacityDiagnostic: CapacityDiagnosticMetadata;
 };
-export type AnyMusicGenerationWorkerResult =
-  MusicGenerationWorkerResult | LegacyFiveSecondMusicWorkerResult | MusicCapacityDiagnosticWorkerResult;
+export type AnyMusicGenerationWorkerResult = MusicGenerationWorkerResult | MusicCapacityDiagnosticWorkerResult;
 export type WorkerResponse =
   | WorkerProgress
   | { type: 'artifact-cache-status'; status: ArtifactCacheStatus }

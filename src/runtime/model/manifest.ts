@@ -80,34 +80,6 @@ export interface VocoderManifest {
   };
   webgpu: ModelManifest['webgpu'];
 }
-export interface MusicManifest extends ModelManifest {
-  model: {
-    id: 'MiniMaxAI/MiniMax-Music3';
-    revision: 'fbdf52fbaaca799592917417eb05f1899f1255ec';
-    diffusersRevision: '3681e65996b4d2589219720101a6acbfd25073f8';
-  };
-  rvqDepth: OnnxGraphArtifact;
-  rvqEmbedding: Fp16EmbeddingTable;
-  feedback: OnnxGraphArtifact;
-  conditionEncoder: OnnxGraphArtifact;
-  flow: OnnxGraphArtifact;
-  vocoder: OnnxGraphArtifact;
-  tokenizerFiles: readonly ArtifactFile[];
-  licenseFile: ArtifactFile;
-  slice: {
-    semanticFrames: 125;
-    latentLength: 430;
-    outputSamples: 220160;
-    sampleRate: 44100;
-    channels: 2;
-    flowSteps: 30;
-    globalGuidance: 1.5;
-    flowGuidance: 1.7;
-  };
-  quantization: FlowManifest['quantization'];
-  precision: VocoderManifest['precision'];
-}
-
 export interface TensorContract {
   name: string;
   dtype: string;
@@ -117,10 +89,22 @@ export interface TensorContract {
 export interface ContractGraphArtifact extends OnnxGraphArtifact {
   inputs: readonly TensorContract[];
 }
-export interface MusicVariableManifest extends Omit<MusicManifest, 'conditionEncoder' | 'flow' | 'vocoder' | 'slice'> {
+export interface MusicVariableManifest extends ModelManifest {
+  model: {
+    id: 'MiniMaxAI/MiniMax-Music3';
+    revision: 'fbdf52fbaaca799592917417eb05f1899f1255ec';
+    diffusersRevision: '3681e65996b4d2589219720101a6acbfd25073f8';
+  };
+  rvqDepth: OnnxGraphArtifact;
+  rvqEmbedding: Fp16EmbeddingTable;
+  feedback: OnnxGraphArtifact;
   conditionEncoder: ContractGraphArtifact;
   flow: ContractGraphArtifact;
   vocoder: ContractGraphArtifact & { outputs: readonly TensorContract[] };
+  tokenizerFiles: readonly ArtifactFile[];
+  licenseFile: ArtifactFile;
+  quantization: FlowManifest['quantization'];
+  precision: VocoderManifest['precision'];
   acoustic: {
     maxSemanticFrames: 200;
     windowFrames: 200;
@@ -427,94 +411,6 @@ export function parseVocoderManifest(value: unknown): VocoderManifest {
       fp32Snakes: ['blocks.0.snake1', 'blocks.1.snake1'],
     },
     webgpu,
-  };
-}
-
-export function parseMusicManifest(value: unknown): MusicManifest {
-  const root = object(value, 'manifest');
-  const model = object(root.model, 'model');
-  if (model.id !== 'MiniMaxAI/MiniMax-Music3') throw new Error('model id is invalid');
-  if (model.revision !== 'fbdf52fbaaca799592917417eb05f1899f1255ec') throw new Error('model revision is invalid');
-  if (model.diffusersRevision !== '3681e65996b4d2589219720101a6acbfd25073f8')
-    throw new Error('Diffusers revision is invalid');
-  const global = parseModelManifest(root);
-  const rvq = parseRvqStageManifest(root);
-  const condition = parseConditionManifest(root);
-  const flow = parseFlowManifest(root);
-  const vocoder = graph(root.vocoder, 'vocoder');
-  if (vocoder.gpuOutputs.length) throw new Error('vocoder waveform must remain a CPU output');
-  const slice = object(root.slice, 'music slice');
-  if (
-    slice.semanticFrames !== 125 ||
-    slice.latentLength !== 430 ||
-    slice.outputSamples !== 220_160 ||
-    slice.sampleRate !== 44_100 ||
-    slice.channels !== 2 ||
-    slice.flowSteps !== 30 ||
-    slice.globalGuidance !== 1.5 ||
-    slice.flowGuidance !== 1.7
-  )
-    throw new Error('music slice does not match the fixed contract');
-  const precision = object(root.precision, 'music precision');
-  if (
-    precision.convolution !== 'float16' ||
-    !Array.isArray(precision.fp32Snakes) ||
-    precision.fp32Snakes.length !== 2 ||
-    precision.fp32Snakes[0] !== 'blocks.0.snake1' ||
-    precision.fp32Snakes[1] !== 'blocks.1.snake1'
-  )
-    throw new Error('music precision does not match the mixed contract');
-  if (!Array.isArray(root.tokenizerFiles) || !root.tokenizerFiles.length) throw new Error('tokenizerFiles are invalid');
-  const tokenizerFiles = root.tokenizerFiles.map((item) => artifact(item, 'tokenizer file'));
-  const licenseFile = artifact(root.licenseFile, 'license file');
-  const allArtifacts = [
-    global.graph,
-    global.reducedHead,
-    rvq.rvqDepth,
-    rvq.feedback,
-    condition.conditionEncoder,
-    flow.flow,
-    vocoder,
-    ...global.graph.externalData,
-    ...global.reducedHead.externalData,
-    ...rvq.rvqDepth.externalData,
-    ...rvq.feedback.externalData,
-    ...condition.conditionEncoder.externalData,
-    ...flow.flow.externalData,
-    ...vocoder.externalData,
-    ...global.embedding.shards,
-    ...rvq.rvqEmbedding.shards,
-    ...tokenizerFiles,
-    licenseFile,
-  ];
-  if (allArtifacts.some((item) => item.bytes > 128 * 1024 * 1024))
-    throw new Error('music release artifact exceeds 128 MiB');
-  return {
-    ...global,
-    model: model as MusicManifest['model'],
-    rvqDepth: rvq.rvqDepth,
-    rvqEmbedding: rvq.rvqEmbedding,
-    feedback: rvq.feedback,
-    conditionEncoder: condition.conditionEncoder,
-    flow: flow.flow,
-    vocoder,
-    tokenizerFiles,
-    licenseFile,
-    slice: {
-      semanticFrames: 125,
-      latentLength: 430,
-      outputSamples: 220_160,
-      sampleRate: 44_100,
-      channels: 2,
-      flowSteps: 30,
-      globalGuidance: 1.5,
-      flowGuidance: 1.7,
-    },
-    quantization: flow.quantization,
-    precision: {
-      convolution: 'float16',
-      fp32Snakes: ['blocks.0.snake1', 'blocks.1.snake1'],
-    },
   };
 }
 

@@ -208,7 +208,6 @@ vi.mock('../../../src/runtime/model/embedding-table', () => ({
 vi.mock('../../../src/runtime/model/manifest', () => ({
   parseConditionManifest: vi.fn(() => variableManifest),
   parseFlowManifest: vi.fn(() => variableManifest),
-  parseMusicManifest: vi.fn(() => variableManifest),
   parseMusicVariableManifest: vi.fn(() => variableManifest),
   parseModelManifest: vi.fn(() => variableManifest),
   parseRvqStageManifest: vi.fn(() => variableManifest),
@@ -290,9 +289,9 @@ vi.mock('../../../src/runtime/pipeline/rvq-generation', () => ({
   })),
 }));
 vi.mock('../../../src/runtime/pipeline/flow-generation', () => ({
-  runFixedFlowGeneration: vi.fn(async (_runtime, _initial, _condition, onStep) => {
-    for (let step = 1; step <= 30; step++) onStep?.(step);
-    return { dispose: vi.fn() };
+  deterministicGaussianFp16: vi.fn((_seed: number, length: number) => {
+    state.events.push(`noise:${length}`);
+    return new Uint16Array(length);
   }),
   runFlowSmoke: vi.fn(),
   runChunkedFlowGeneration: vi.fn(async (_runtime, request) => {
@@ -377,26 +376,6 @@ vi.mock('../../../src/runtime/pipeline/vocoder-generation', () => ({
     }
     return new ArrayBuffer(plan.wavBytes);
   }),
-}));
-vi.mock('../../../src/runtime/pipeline/music-generation', () => ({
-  deterministicGaussianFp16: vi.fn((_seed: number, length: number) => {
-    state.events.push(`noise:${length}`);
-    return new Uint16Array(length);
-  }),
-  generateFiveSecondMusic: vi.fn(async (runtime, seed, onProgress) => {
-    const frames = await runtime.autoregressive(seed);
-    const condition = await runtime.condition(frames.hiddenGroups);
-    const latents = await runtime.flow(condition, seed, (completed: number) => {
-      onProgress({ stage: 'flow', completedSteps: completed });
-    });
-    const wav = await runtime.vocoder(latents);
-    onProgress({ stage: 'wav' });
-    onProgress({ stage: 'complete' });
-    return { wav, attemptedSeeds: [seed] };
-  }),
-  readExactGpuFp16: vi.fn(
-    async (_tensor, shape: number[]) => new Uint16Array(shape.reduce((total, value) => total * value, 1)),
-  ),
 }));
 vi.mock('../../../src/runtime/pipeline/condition-smoke', () => ({ runConditionSmoke: vi.fn() }));
 vi.mock('../../../src/runtime/pipeline/global-smoke', () => ({
@@ -883,31 +862,6 @@ describe('variable inference worker lifecycle', () => {
     expect(state.events.filter((event) => event === 'device:destroy:ar')).toHaveLength(1);
     expect(state.ortWebgpu.device).toBeUndefined();
     expect(state.events).not.toContain('session:create:head');
-  });
-
-  it('uses four sequential ORT-owned devices for fixed five-second generation', async () => {
-    state.retainedPlan = planRetainedFrames({
-      retainedFrames: 125,
-      promptTokens: 40,
-      termination: 'max-frames',
-    });
-
-    await runWorkerRequest({
-      type: 'generate-music-5s',
-      manifestUrl: '/music/manifest.json',
-      seed: 7,
-    });
-
-    const creates = state.events.filter((event) => event.startsWith('device:create:'));
-    const destroys = state.events.filter((event) => event.startsWith('device:destroy:'));
-    expect(creates).toHaveLength(4);
-    expect(destroys).toHaveLength(4);
-    for (let index = 0; index < 3; index++) {
-      expect(state.events.indexOf(destroys[index])).toBeLessThan(state.events.indexOf(creates[index + 1]));
-    }
-    expect(state.ortWebgpu.device).toBeUndefined();
-    expect(state.messages.filter(({ message }) => message.type === 'music-result')).toHaveLength(1);
-    expect(state.events.some((event) => event.startsWith('artifact:'))).toBe(true);
   });
 
   it('rejects a concurrent worker message without entering a second ORT lifecycle', async () => {

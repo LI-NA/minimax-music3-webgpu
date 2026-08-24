@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import scheduleFixture from '../../fixtures/flow-schedule.json';
 import {
   areFiniteFlowValues,
+  deterministicGaussianFp16,
   exactFlowSchedule,
   runChunkedFlowGeneration,
   runFlowSmoke,
@@ -81,6 +82,27 @@ describe('fixed flow schedule', () => {
 
   it.each([0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])('rejects invalid step count %s', (stepCount) => {
     expect(() => exactFlowSchedule(stepCount)).toThrow('positive safe integer');
+  });
+});
+
+describe('deterministic flow noise', () => {
+  it('creates deterministic seeded Gaussian FP16 noise rather than an analytic alternating pattern', () => {
+    const first = deterministicGaussianFp16(7, 128 * 430);
+    const repeat = deterministicGaussianFp16(7, 128 * 430);
+    const nextSeed = deterministicGaussianFp16(8, 128 * 430);
+
+    expect(repeat).toEqual(first);
+    expect(nextSeed).not.toEqual(first);
+    expect(Array.from(first.slice(0, 8))).toEqual([0x308b, 0x2b74, 0xbaea, 0xc136, 0xbc07, 0x396f, 0x2c89, 0x3c79]);
+    expect(new Set(first.slice(0, 32)).size).toBeGreaterThan(8);
+    expect(first.some((value) => (value & 0x8000) === 0)).toBe(true);
+    expect(first.some((value) => (value & 0x8000) !== 0)).toBe(true);
+    expect(first.every((value) => (value & 0x7c00) !== 0x7c00)).toBe(true);
+  });
+
+  it('rejects an invalid noise length', () => {
+    expect(() => deterministicGaussianFp16(7, -1)).toThrow('non-negative');
+    expect(() => deterministicGaussianFp16(7, 1.5)).toThrow('non-negative');
   });
 });
 

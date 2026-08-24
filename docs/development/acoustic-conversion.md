@@ -18,7 +18,7 @@ This release supports the official acoustic windows up to 200 semantic frames an
 
 ## Legacy five-second release
 
-The browser generation gate uses one combined release at `artifacts/release/music-5s`. Build it only from the exact standalone `global`, `rvq`, `condition`, `flow`, and `vocoder` releases:
+The historical fixed-slice gate consumed one combined release at `artifacts/release/music-5s`. No current runtime route reads it, and its archives remain preserved. Rebuild it only from the exact standalone `global`, `rvq`, `condition`, `flow`, and `vocoder` releases:
 
 ```powershell
 uv run music3-convert build-music-5s --artifacts-dir artifacts
