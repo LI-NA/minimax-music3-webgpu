@@ -342,7 +342,7 @@ export function DiagnosticsApp() {
   return (
     <main className="app-shell">
       <section aria-labelledby="page-title" className="diagnostic-card">
-        <p className="eyebrow">MiniMax Music 3</p>
+        <p className="eyebrow">MiniMax Music 3 WebGPU</p>
         <h1 id="page-title">WebGPU feasibility diagnostic</h1>
         <p aria-live="polite" className={capability?.supported ? 'status supported' : 'status'}>
           {status}

@@ -166,6 +166,18 @@ export function ResultView({
           {lyricsFromSettings(settings)}
         </div>
       </div>
+
+      <div className="font-mono text-xs text-muted2">
+        {tr.aiGenerated} ·{' '}
+        <a
+          href="https://huggingface.co/MiniMaxAI/MiniMax-Music3/blob/main/LICENSE"
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-2 hover:text-muted"
+        >
+          MiniMax-Music3 Community License
+        </a>
+      </div>
     </div>
   );
 }
