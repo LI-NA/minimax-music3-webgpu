@@ -6,8 +6,16 @@ import numpy as np
 import onnx
 import pytest
 from onnx import TensorProto, helper, numpy_helper
+from onnxruntime.capi._pybind_state import quantize_matmul_4bits
+from safetensors.torch import save_file
+import torch
 
-from minimax_music3_webgpu.global_decoder import builder_arguments, rewrite_attention_mask_for_gqa, validate_global_decoder
+from minimax_music3_webgpu.global_decoder import (
+    builder_arguments,
+    requantize_global_decoder_from_template,
+    rewrite_attention_mask_for_gqa,
+    validate_global_decoder,
+)
 from minimax_music3_webgpu.manifest import emit_manifest, _kv_pairs, _source_shard
 from minimax_music3_webgpu.paths import ArtifactPaths
 from minimax_music3_webgpu import manifest
@@ -21,7 +29,7 @@ def test_builder_arguments_target_webgpu_q4(tmp_path) -> None:
     assert "exclude_embeds=true" in args
     assert "exclude_lm_head=true" in args
     assert "include_hidden_states=true" not in args
-    assert "block_size=128" in args
+    assert "block_size=32" in args
     assert "accuracy_level=4" in args
     assert "is_symmetric=true" in args
     assert "fuse_qk_norm_gqa=true" in args
@@ -31,6 +39,77 @@ def test_builder_arguments_can_disable_qk_norm_fusion_for_cpu_smoke(tmp_path) ->
     args = builder_arguments(tmp_path / "language_model", tmp_path / "output", tmp_path / "cache", fuse_qk_norm_gqa=False)
 
     assert "fuse_qk_norm_gqa=false" in args
+
+
+def test_streaming_template_requantization_uses_original_weights_and_b32(tmp_path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    weight_key = "model.layers.0.mlp.gate_proj.weight"
+    original = torch.linspace(-2, 2, 64, dtype=torch.float32).reshape(2, 32).to(torch.bfloat16)
+    save_file({weight_key: original}, source / "model-00001-of-00001.safetensors")
+    (source / "model.safetensors.index.json").write_text(
+        json.dumps({"weight_map": {weight_key: "model-00001-of-00001.safetensors"}}),
+        encoding="utf-8",
+    )
+    template_dir = tmp_path / "template"
+    template_dir.mkdir()
+    template = template_dir / "global_decoder.onnx"
+    packed_name = "model.layers.0.mlp.gate_proj.MatMul.weight_Q4"
+    scales_name = "model.layers.0.mlp.gate_proj.MatMul.weight_scales"
+    bias = np.array([3, 4], dtype=np.float16)
+    model = helper.make_model(
+        helper.make_graph(
+            [
+                helper.make_node(
+                    "MatMulNBits",
+                    ["input", packed_name, scales_name],
+                    ["linear"],
+                    name="/model/layers.0/mlp/gate_proj/MatMul_Q4",
+                    domain="com.microsoft",
+                    K=32,
+                    N=2,
+                    bits=4,
+                    block_size=128,
+                    accuracy_level=4,
+                ),
+                helper.make_node("Add", ["linear", "bias"], ["output"]),
+            ],
+            "template",
+            [helper.make_tensor_value_info("input", TensorProto.FLOAT16, [1, 32])],
+            [helper.make_tensor_value_info("output", TensorProto.FLOAT16, [1, 2])],
+            [
+                numpy_helper.from_array(np.full((2, 1, 64), 0xFF, dtype=np.uint8), packed_name),
+                numpy_helper.from_array(np.zeros((2, 1), dtype=np.float16), scales_name),
+                numpy_helper.from_array(bias, "bias"),
+            ],
+        ),
+        opset_imports=[helper.make_opsetid("", 21), helper.make_opsetid("com.microsoft", 1)],
+    )
+    onnx.save_model(
+        model,
+        template,
+        save_as_external_data=True,
+        all_tensors_to_one_file=True,
+        location="template.bin",
+        size_threshold=0,
+    )
+
+    repacked = requantize_global_decoder_from_template(template, source, tmp_path / "output")
+
+    converted = onnx.load_model(repacked.model_path, load_external_data=True)
+    initializers = {tensor.name: numpy_helper.to_array(tensor) for tensor in converted.graph.initializer}
+    expected_packed = np.zeros((2, 1, 16), dtype=np.uint8)
+    expected_scales = np.zeros((2, 1), dtype=np.float16)
+    zero_points = np.zeros((2, 1), dtype=np.uint8)
+    weight = np.ascontiguousarray(original.to(torch.float16).numpy().T)
+    quantize_matmul_4bits(expected_packed, weight, expected_scales, zero_points, 32, 2, 32, True)
+    node = converted.graph.node[0]
+    attributes = {item.name: helper.get_attribute_value(item) for item in node.attribute}
+    assert attributes["block_size"] == 32
+    assert np.array_equal(initializers[packed_name], expected_packed)
+    assert np.array_equal(initializers[scales_name], expected_scales)
+    assert np.array_equal(initializers["bias"], bias)
+    assert all(shard.size <= 128 * 1024 * 1024 for shard in repacked.shards)
 
 
 @pytest.mark.parametrize("layers", [1, 36])
@@ -158,7 +237,7 @@ def test_emit_global_release_assembles_all_browser_artifacts(tmp_path, monkeypat
     receipt = paths.receipts / f"global-release-{layers}.json"
     receipt.parent.mkdir(parents=True)
     receipt.write_text('{"generation":"previous"}', encoding="utf-8")
-    packed = paths.work / f"global-packed-{layers}"
+    packed = paths.work / f"global-packed-q4-b32-{layers}"
     packed.mkdir(parents=True)
     _write_external_decoder_fixture(packed / "global_decoder.onnx")
     monkeypatch.setattr(manifest, "VOCAB_SIZE", 1)
@@ -203,7 +282,7 @@ def test_emit_global_release_assembles_all_browser_artifacts(tmp_path, monkeypat
 
 def test_emit_global_release_keeps_existing_release_when_assembly_fails(tmp_path, monkeypatch) -> None:
     paths = ArtifactPaths(tmp_path, tmp_path / "source", tmp_path / "work", tmp_path / "release", tmp_path / "receipts")
-    packed = paths.work / "global-packed-1"
+    packed = paths.work / "global-packed-q4-b32-1"
     packed.mkdir(parents=True)
     _write_external_decoder_fixture(packed / "global_decoder.onnx")
     language = paths.source / "language_model"
@@ -401,7 +480,7 @@ def _write_decoder_fixture(path, layers: int, initializer_name: str = "qweight",
             helper.make_node("ReduceSum", ["mask_length_i32"], ["mask_sum"], keepdims=0),
             helper.make_node("Sub", ["mask_sum", "mask_length_i32"], ["mask_sequence"]),
         ])
-    nodes.append(helper.make_node("MatMulNBits", ["inputs_embeds", initializer_name], ["hidden_states"], domain="com.microsoft", bits=4, block_size=128))
+    nodes.append(helper.make_node("MatMulNBits", ["inputs_embeds", initializer_name], ["hidden_states"], domain="com.microsoft", bits=4, block_size=32, accuracy_level=4))
     initializer = numpy_helper.from_array(np.zeros((1,), dtype=np.uint8), initializer_name)
     model = helper.make_model(helper.make_graph(nodes, "decoder", inputs, outputs, [initializer]), opset_imports=[helper.make_opsetid("", 21), helper.make_opsetid("com.microsoft", 1)])
     onnx.save_model(model, path)

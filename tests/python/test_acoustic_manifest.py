@@ -88,7 +88,7 @@ def _standalone_releases(paths: ArtifactPaths) -> None:
     license_file = _file(global_root, "LICENSE", b"license")
     (global_root / "manifest.json").write_text(json.dumps({
         **_base(),
-        "quantization": {"bits": 4, "blockSize": 128, "accuracyLevel": 4, "symmetric": True},
+        "quantization": {"bits": 4, "blockSize": 32, "accuracyLevel": 4, "symmetric": True},
         "graph": _graph(global_root, "global.onnx", "hidden_states"),
         "reducedHead": _graph(global_root, "head/head.onnx", "last_state"),
         "embedding": {"rows": 1, "columns": 2, "rowBytes": 4, "shards": [embedding]},
@@ -119,7 +119,8 @@ def _standalone_releases(paths: ArtifactPaths) -> None:
     flow_root.mkdir()
     (flow_root / "manifest.json").write_text(json.dumps({
         **_base(),
-        "quantization": {"bits": 4, "blockSize": 128, "accuracyLevel": 4, "symmetric": True},
+        "quantization": {"bits": 4, "blockSize": 32, "accuracyLevel": 4, "symmetric": True},
+        "precision": {"float16Weights": ["time_proj.weight", "proj_out.weight"]},
         "slice": {"semanticFrames": 125, "latentLength": 430, "flowSteps": 30, "flowGuidance": 1.7},
         "flow": _graph(flow_root, "flow/flow.onnx", "next_latents"),
     }))
@@ -301,6 +302,17 @@ def test_build_music_variable_publishes_the_official_maximum_acoustic_contract(
             "maxStorageBufferBindingSize": 134217728,
             "maxStorageBuffersPerShaderStage": 9,
         },
+    }
+    assert manifest["quantization"] == {
+        "bits": 4,
+        "blockSize": 32,
+        "accuracyLevel": 4,
+        "symmetric": True,
+    }
+    assert manifest["precision"] == {
+        "convolution": "float16",
+        "fp32Snakes": ["blocks.0.snake1", "blocks.1.snake1"],
+        "flowFp16Weights": ["time_proj.weight", "proj_out.weight"],
     }
     assert sentinel.read_bytes() == before
     assert (paths.receipts / "music-variable.json").is_file()

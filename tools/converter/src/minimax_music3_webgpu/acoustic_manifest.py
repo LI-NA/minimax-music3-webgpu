@@ -18,8 +18,18 @@ from uuid import uuid4
 import onnx
 
 from .condition_encoder import export_condition_encoder
-from .constants import ARTIFACT_FILE_LIMIT, DIFFUSERS_REVISION, MODEL_ID, MODEL_REVISION
-from .constants import ACOUSTIC_SOURCE_FILES
+from .constants import (
+    ACOUSTIC_SOURCE_FILES,
+    ARTIFACT_FILE_LIMIT,
+    DIFFUSERS_REVISION,
+    FLOW_FP16_LINEAR_WEIGHTS,
+    MODEL_ID,
+    MODEL_REVISION,
+    Q4_ACCURACY_LEVEL,
+    Q4_BITS,
+    Q4_BLOCK_SIZE,
+    Q4_SYMMETRIC,
+)
 from .flow_transformer import export_maximum_flow_step, open_flow_state, validate_maximum_flow_graph
 from .paths import ArtifactPaths
 from .manifest import _atomic_json
@@ -135,7 +145,10 @@ def build_music_5s_release(paths: ArtifactPaths) -> Path:
             "schemaVersion": 1,
             "model": _MODEL,
             "quantization": flow_manifest["quantization"],
-            "precision": vocoder_manifest["precision"],
+            "precision": {
+                **vocoder_manifest["precision"],
+                "flowFp16Weights": list(FLOW_FP16_LINEAR_WEIGHTS),
+            },
             "webgpu": {"requiredFeatures": ["shader-f16"], "requiredLimits": limits},
             "slice": _SLICE,
             "graph": graph("global", global_manifest["graph"]),
@@ -252,7 +265,11 @@ def build_music_variable_release(
                 "schemaVersion": 1,
                 "model": _MODEL,
                 "quantization": global_manifest["quantization"],
-                "precision": {"convolution": "float16", "fp32Snakes": list(built.fp32_snakes)},
+                "precision": {
+                    "convolution": "float16",
+                    "fp32Snakes": list(built.fp32_snakes),
+                    "flowFp16Weights": list(FLOW_FP16_LINEAR_WEIGHTS),
+                },
                 "webgpu": {"requiredFeatures": ["shader-f16"], "requiredLimits": limits},
                 "acoustic": _ACOUSTIC,
                 "graph": reused_graph("global", global_manifest["graph"]),
@@ -307,10 +324,10 @@ def build_music_variable_release(
 
 def _validate_variable_contracts(manifests: dict[str, dict]) -> None:
     if manifests["global"].get("quantization") != {
-        "bits": 4,
-        "blockSize": 128,
-        "accuracyLevel": 4,
-        "symmetric": True,
+        "bits": Q4_BITS,
+        "blockSize": Q4_BLOCK_SIZE,
+        "accuracyLevel": Q4_ACCURACY_LEVEL,
+        "symmetric": Q4_SYMMETRIC,
     }:
         raise ValueError("Global release quantization contract is invalid")
 
@@ -657,10 +674,12 @@ def _prior_component_matches(prior: dict | None, name: str, fingerprint: str) ->
         return False
     if expected[1] is not None and entry.get("outputs") != expected[1]:
         return False
-    return name != "vocoder" or prior.get("precision") == {
-        "convolution": "float16",
-        "fp32Snakes": list(EXACT_FP32_SNAKES),
-    }
+    if name != "vocoder":
+        return True
+    precision = prior.get("precision", {})
+    return precision.get("convolution") == "float16" and precision.get(
+        "fp32Snakes"
+    ) == list(EXACT_FP32_SNAKES)
 
 
 def _stage_prior_graph(prior_root: Path | None, entry: dict, staging: Path) -> Path:
@@ -947,11 +966,20 @@ def _read_manifest(root: Path) -> dict:
 
 
 def _validate_contracts(manifests: dict[str, dict]) -> None:
-    quantization = {"bits": 4, "blockSize": 128, "accuracyLevel": 4, "symmetric": True}
+    quantization = {
+        "bits": Q4_BITS,
+        "blockSize": Q4_BLOCK_SIZE,
+        "accuracyLevel": Q4_ACCURACY_LEVEL,
+        "symmetric": Q4_SYMMETRIC,
+    }
     if manifests["global"].get("quantization") != quantization:
         raise ValueError("Global release quantization contract is invalid")
     if manifests["flow"].get("quantization") != quantization:
         raise ValueError("flow release quantization contract is invalid")
+    if manifests["flow"].get("precision") != {
+        "float16Weights": list(FLOW_FP16_LINEAR_WEIGHTS)
+    }:
+        raise ValueError("flow release precision contract is invalid")
     if manifests["flow"].get("slice") != {
         "semanticFrames": 125,
         "latentLength": 430,

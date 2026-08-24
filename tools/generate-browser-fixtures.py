@@ -30,11 +30,11 @@ onnx.save_model(
 
 packed = np.stack(
     (
-        np.full((1, 64), 0x99, dtype=np.uint8),
-        np.full((1, 64), 0xAA, dtype=np.uint8),
+        np.full((4, 16), 0x99, dtype=np.uint8),
+        np.full((4, 16), 0xAA, dtype=np.uint8),
     )
 )
-scales = np.ones((2, 1), dtype=np.float16)
+scales = np.ones((2, 4), dtype=np.float16)
 matmul = helper.make_model(
     helper.make_graph(
         [
@@ -44,7 +44,7 @@ matmul = helper.make_model(
                 ["output"],
                 domain="com.microsoft",
                 bits=4,
-                block_size=128,
+                block_size=32,
                 accuracy_level=4,
                 K=128,
                 N=2,

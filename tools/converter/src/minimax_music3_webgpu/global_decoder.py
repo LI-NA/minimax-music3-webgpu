@@ -1,17 +1,40 @@
 """ORT GenAI q4 Global decoder conversion and graph validation."""
 
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass
 import importlib.metadata
 import json
+import math
 from pathlib import Path
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 import time
+from uuid import uuid4
 
+import numpy as np
 import onnx
+from onnxruntime.capi._pybind_state import quantize_matmul_4bits
+from safetensors import safe_open
+import torch
 
-from .constants import ARTIFACT_FILE_LIMIT
-from .external_data import RepackedModel, repack_external_data
+from .constants import (
+    ARTIFACT_FILE_LIMIT,
+    Q4_ACCURACY_LEVEL,
+    Q4_BITS,
+    Q4_BLOCK_SIZE,
+    Q4_PROFILE,
+    Q4_SYMMETRIC,
+)
+from .external_data import (
+    ExternalDataShard,
+    RepackedModel,
+    TensorSource,
+    repack_external_data,
+    tensor_source,
+    validate_ranges,
+    write_staged_shards,
+)
 from .paths import ArtifactPaths
 
 
@@ -44,9 +67,9 @@ def builder_arguments(source: Path, output: Path, cache: Path, num_hidden_layers
         "exclude_embeds=true",
         "exclude_lm_head=true",
         "filename=global_decoder.onnx",
-        "block_size=128",
-        "accuracy_level=4",
-        "is_symmetric=true",
+        f"block_size={Q4_BLOCK_SIZE}",
+        f"accuracy_level={Q4_ACCURACY_LEVEL}",
+        f"is_symmetric={str(Q4_SYMMETRIC).lower()}",
         "op_types_to_quantize=MatMul",
         f"fuse_qk_norm_gqa={str(fuse_qk_norm_gqa).lower()}",
     ]
@@ -61,7 +84,7 @@ def builder_arguments(source: Path, output: Path, cache: Path, num_hidden_layers
 def build_global_decoder(paths: ArtifactPaths, num_hidden_layers: int = 36) -> GlobalDecoderReceipt:
     if num_hidden_layers not in {1, 36}:
         raise ValueError("num_hidden_layers must be 1 or 36")
-    output = paths.work / f"global-builder-{num_hidden_layers}"
+    output = paths.work / f"global-builder-{Q4_PROFILE}-{num_hidden_layers}"
     cache = paths.work / "ortgenai-cache"
     paths.validate_write_targets(output, cache, paths.receipts)
     output.mkdir(parents=True, exist_ok=True)
@@ -80,7 +103,7 @@ def build_global_decoder(paths: ArtifactPaths, num_hidden_layers: int = 36) -> G
     if not built.is_file():
         raise FileNotFoundError(f"ORT GenAI builder did not produce {built}")
     rewrite_attention_mask_for_gqa(built)
-    packed_dir = paths.work / f"global-packed-{num_hidden_layers}"
+    packed_dir = paths.work / f"global-packed-{Q4_PROFILE}-{num_hidden_layers}"
     paths.validate_write_targets(packed_dir)
     repacked = repack_external_data(built, packed_dir, ARTIFACT_FILE_LIMIT)
     report = validate_global_decoder(repacked.model_path, expected_layers=num_hidden_layers)
@@ -92,6 +115,172 @@ def build_global_decoder(paths: ArtifactPaths, num_hidden_layers: int = 36) -> G
     receipt_path = paths.receipts / f"global-decoder-{num_hidden_layers}.json"
     _atomic_json(receipt_path, _receipt_payload(receipt))
     return receipt
+
+
+class _GlobalSafetensorState:
+    def __init__(self, source_dir: Path):
+        self.source = source_dir.resolve()
+        index_path = self.source / "model.safetensors.index.json"
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        weight_map = index.get("weight_map")
+        if not isinstance(weight_map, dict) or not weight_map:
+            raise ValueError("Global safetensor index has no weight_map")
+        self.weight_map: dict[str, str] = weight_map
+        self._stack = ExitStack()
+        self._handles = {}
+        for shard_name in sorted(set(weight_map.values())):
+            shard = (self.source / shard_name).resolve()
+            if not shard.is_relative_to(self.source) or not shard.is_file():
+                raise ValueError(f"Global safetensor shard is invalid: {shard_name}")
+            self._handles[shard_name] = self._stack.enter_context(
+                safe_open(shard, framework="pt", device="cpu")
+            )
+
+    def close(self) -> None:
+        self._stack.close()
+
+    def tensor(self, key: str) -> torch.Tensor:
+        shard_name = self.weight_map.get(key)
+        if shard_name is None:
+            raise ValueError(f"Global source weight is missing: {key}")
+        handle = self._handles[shard_name]
+        if key not in handle.keys():
+            raise ValueError(f"Global safetensor index mismatch for {key}")
+        return handle.get_tensor(key)
+
+
+def requantize_global_decoder_from_template(
+    template_path: Path,
+    source_dir: Path,
+    output_dir: Path,
+    max_file_bytes: int = ARTIFACT_FILE_LIMIT,
+) -> RepackedModel:
+    template_path = template_path.resolve()
+    output_dir = output_dir.resolve()
+    if output_dir.exists():
+        raise FileExistsError(f"Global requantization output already exists: {output_dir}")
+    model = onnx.load_model(template_path, load_external_data=False)
+    q4_nodes = [node for node in model.graph.node if node.op_type == "MatMulNBits"]
+    if not q4_nodes:
+        raise ValueError("Global template has no MatMulNBits nodes")
+    q4_by_weight = {}
+    for node in q4_nodes:
+        if len(node.input) != 3:
+            raise ValueError(f"Global template q4 node {node.name} is not a symmetric three-input MatMulNBits")
+        if node.input[1] in q4_by_weight:
+            raise ValueError(f"Global template q4 weight {node.input[1]} feeds more than one node")
+        q4_by_weight[node.input[1]] = node
+    initializers = list(model.graph.initializer)
+    source_state = _GlobalSafetensorState(source_dir)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with TemporaryDirectory(prefix=f".{output_dir.name}-staging-", dir=output_dir.parent) as raw_staging:
+            staging = Path(raw_staging)
+            generation = f"weights-{uuid4().hex}"
+            sources = _requantized_global_sources(
+                initializers, q4_by_weight, template_path.parent, source_state
+            )
+            # The lazy generator rewrites initializer dims and node attributes while
+            # write_staged_shards drains it, so the model must be saved only afterwards.
+            shards = write_staged_shards(
+                sources, staging, max_file_bytes, generation, inline_threshold=0
+            )
+            staged_model = staging / template_path.name
+            onnx.save_model(model, staged_model)
+            validate_ranges(staged_model, max_file_bytes)
+            staging.replace(output_dir)
+        return RepackedModel(
+            output_dir / template_path.name,
+            tuple(
+                ExternalDataShard(output_dir / shard.path.name, shard.size) for shard in shards
+            ),
+        )
+    finally:
+        source_state.close()
+
+
+def _requantized_global_sources(
+    initializers: list[onnx.TensorProto],
+    q4_by_weight: dict[str, onnx.NodeProto],
+    template_dir: Path,
+    source_state: _GlobalSafetensorState,
+):
+    index = 0
+    seen = set()
+    while index < len(initializers):
+        tensor = initializers[index]
+        node = q4_by_weight.get(tensor.name)
+        if node is None:
+            yield tensor_source(tensor, template_dir)
+            index += 1
+            continue
+        if index + 1 >= len(initializers) or initializers[index + 1].name != node.input[2]:
+            raise ValueError("Global template q4 packed and scale initializers must be adjacent")
+        scales_tensor = initializers[index + 1]
+        attributes = {item.name: item for item in node.attribute}
+        if not all(name in attributes for name in ("K", "N", "bits", "block_size", "accuracy_level")):
+            raise ValueError("Global template q4 node attributes are incomplete")
+        rows = attributes["K"].i
+        columns = attributes["N"].i
+        weight = _global_source_weight(tensor.name, source_state)
+        if weight.shape != (rows, columns):
+            raise ValueError(f"Global source weight shape is invalid for {tensor.name}")
+        blocks = math.ceil(rows / Q4_BLOCK_SIZE)
+        packed = np.zeros(
+            (columns, blocks, Q4_BLOCK_SIZE * Q4_BITS // 8), dtype=np.uint8
+        )
+        scales = np.zeros((columns, blocks), dtype=np.float16)
+        zero_points = np.zeros((columns, math.ceil(blocks / 2)), dtype=np.uint8)
+        quantize_matmul_4bits(
+            packed,
+            weight,
+            scales,
+            zero_points,
+            Q4_BLOCK_SIZE,
+            columns,
+            rows,
+            Q4_SYMMETRIC,
+        )
+        attributes["bits"].i = Q4_BITS
+        attributes["block_size"].i = Q4_BLOCK_SIZE
+        attributes["accuracy_level"].i = Q4_ACCURACY_LEVEL
+        tensor.data_type = onnx.TensorProto.UINT8
+        del tensor.dims[:]
+        tensor.dims.extend(packed.shape)
+        scales_tensor.data_type = onnx.TensorProto.FLOAT16
+        del scales_tensor.dims[:]
+        scales_tensor.dims.extend(scales.shape)
+        yield TensorSource(tensor, None, 0, packed.nbytes, packed.tobytes())
+        yield TensorSource(
+            scales_tensor, None, 0, scales.nbytes, scales.tobytes()
+        )
+        seen.add(tensor.name)
+        index += 2
+    if seen != set(q4_by_weight):
+        raise ValueError("Global template q4 initializer set is incomplete")
+
+
+def _global_source_weight(
+    packed_name: str, source_state: _GlobalSafetensorState
+) -> np.ndarray:
+    suffix = ".MatMul.weight_Q4"
+    if not packed_name.endswith(suffix):
+        raise ValueError(f"Global q4 initializer name is invalid: {packed_name}")
+    prefix = packed_name[: -len(suffix)]
+    if prefix.endswith(".attn.qkv_proj"):
+        layer = prefix[: -len(".attn.qkv_proj")]
+        tensors = [
+            source_state.tensor(f"{layer}.self_attn.{part}_proj.weight")
+            for part in ("q", "k", "v")
+        ]
+        source = torch.cat(tensors, dim=0)
+    elif prefix.endswith(".attn.o_proj"):
+        source = source_state.tensor(
+            f"{prefix[: -len('.attn.o_proj')]}.self_attn.o_proj.weight"
+        )
+    else:
+        source = source_state.tensor(f"{prefix}.weight")
+    return np.ascontiguousarray(source.detach().cpu().to(torch.float16).numpy().T)
 
 
 def validate_global_decoder(model_path: Path, expected_layers: int = 36) -> GraphReport:
@@ -137,8 +326,12 @@ def validate_global_decoder(model_path: Path, expected_layers: int = 36) -> Grap
         raise ValueError("decoder has no q4 MatMulNBits nodes")
     for node in q4_nodes:
         attributes = {attribute.name: onnx.helper.get_attribute_value(attribute) for attribute in node.attribute}
-        if attributes.get("bits") != 4 or attributes.get("block_size") != 128:
-            raise ValueError("decoder q4 nodes must use block size 128")
+        if (
+            attributes.get("bits") != Q4_BITS
+            or attributes.get("block_size") != Q4_BLOCK_SIZE
+            or attributes.get("accuracy_level") != Q4_ACCURACY_LEVEL
+        ):
+            raise ValueError("decoder q4 nodes do not match the q4 contract")
     locations = set()
     for initializer in graph.initializer:
         lower = initializer.name.lower()

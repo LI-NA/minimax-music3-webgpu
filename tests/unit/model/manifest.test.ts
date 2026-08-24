@@ -160,9 +160,12 @@ describe('parseFlowManifest', () => {
     },
     quantization: {
       bits: 4,
-      blockSize: 128,
+      blockSize: 32,
       accuracyLevel: 4,
       symmetric: true,
+    },
+    precision: {
+      float16Weights: ['time_proj.weight', 'proj_out.weight'],
     },
     webgpu: {
       requiredFeatures: ['shader-f16'],
@@ -187,7 +190,7 @@ describe('parseFlowManifest', () => {
     expect(() =>
       parseFlowManifest({
         ...flow,
-        quantization: { ...flow.quantization, blockSize: 64 },
+        quantization: { ...flow.quantization, blockSize: 128 },
       }),
     ).toThrow('quantization');
     expect(() =>
@@ -283,10 +286,11 @@ describe('parseMusicVariableManifest', () => {
       revision: 'fbdf52fbaaca799592917417eb05f1899f1255ec',
       diffusersRevision: '3681e65996b4d2589219720101a6acbfd25073f8',
     },
-    quantization: { bits: 4, blockSize: 128, accuracyLevel: 4, symmetric: true },
+    quantization: { bits: 4, blockSize: 32, accuracyLevel: 4, symmetric: true },
     precision: {
       convolution: 'float16',
       fp32Snakes: ['blocks.0.snake1', 'blocks.1.snake1'],
+      flowFp16Weights: ['time_proj.weight', 'proj_out.weight'],
     },
     acoustic: {
       maxSemanticFrames: 200,
@@ -352,10 +356,23 @@ describe('parseMusicVariableManifest', () => {
     expect(parsed.conditionEncoder.inputs).toEqual(combined.conditionEncoder.inputs);
     expect(parsed.flow.inputs).toEqual(combined.flow.inputs);
     expect(parsed.acoustic).toMatchObject({ flowSteps: 30, flowGuidance: 1.7 });
+    expect(parsed.precision.flowFp16Weights).toEqual(['time_proj.weight', 'proj_out.weight']);
     expect(parsed.vocoder.outputs[0].shape).toEqual([1, 1, '512L']);
   });
 
   it('rejects any changed constant, input, hash, or required limit', () => {
+    expect(() =>
+      parseMusicVariableManifest({
+        ...combined,
+        quantization: { ...combined.quantization, blockSize: 128 },
+      }),
+    ).toThrow('quantization');
+    expect(() =>
+      parseMusicVariableManifest({
+        ...combined,
+        precision: { ...combined.precision, flowFp16Weights: ['time_proj.weight'] },
+      }),
+    ).toThrow('precision');
     expect(() =>
       parseMusicVariableManifest({
         ...combined,

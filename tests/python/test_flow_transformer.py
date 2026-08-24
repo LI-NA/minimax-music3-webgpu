@@ -403,7 +403,7 @@ def test_maximum_q4_graph_preserves_weights_and_has_bounded_static_contract(tmp_
         if tensor.name.endswith((".q4", ".scales"))
     }
 
-    assert report.matmul_nbits_nodes == 10
+    assert report.matmul_nbits_nodes == 9
     assert report.external_locations
     assert all(
         (maximum_graph.parent / location).stat().st_size <= 16 * 1024
@@ -441,7 +441,7 @@ def test_maximum_q4_graph_preserves_weights_and_has_bounded_static_contract(tmp_
     )
 
 
-def test_one_block_q4_graph_has_ten_symmetric_matmul_nbits_and_bounded_external_files(tmp_path: Path) -> None:
+def test_one_block_q4_graph_has_nine_b32_matmuls_and_two_fp16_linear_weights(tmp_path: Path) -> None:
     config = tiny_config()
     state = state_for(config)
     graph = export_flow_step(
@@ -456,7 +456,7 @@ def test_one_block_q4_graph_has_ten_symmetric_matmul_nbits_and_bounded_external_
     report = validate_flow_graph(graph, config=config, latent_length=6, quantized=True)
     model = onnx.load_model(graph, load_external_data=False)
 
-    assert report.matmul_nbits_nodes == 10
+    assert report.matmul_nbits_nodes == 9
     assert report.external_locations
     assert all((graph.parent / name).stat().st_size <= 16 * 1024 for name in report.external_locations)
     for node in model.graph.node:
@@ -470,9 +470,17 @@ def test_one_block_q4_graph_has_ten_symmetric_matmul_nbits_and_bounded_external_
             "N": output_dim,
             "accuracy_level": 4,
             "bits": 4,
-            "block_size": 128,
+            "block_size": 32,
         }
         assert len(node.input) == 3
+
+    nodes = {node.name: node for node in model.graph.node}
+    initializers = {tensor.name: tensor for tensor in model.graph.initializer}
+    for weight_key in ("time_proj.weight", "proj_out.weight"):
+        assert nodes[f"{weight_key}.MatMul"].op_type == "MatMul"
+        initializer = initializers[weight_key]
+        assert initializer.data_type == onnx.TensorProto.FLOAT16
+        assert tuple(initializer.dims) == tuple(reversed(expected_flow_shapes(config)[weight_key]))
 
     session = ort.InferenceSession(str(graph), providers=["CPUExecutionProvider"])
     generator = np.random.default_rng(11)
@@ -584,9 +592,12 @@ def test_flow_release_is_hashed_exact_and_failed_rebuild_preserves_it(tmp_path: 
     }
     assert payload["quantization"] == {
         "bits": 4,
-        "blockSize": 128,
+        "blockSize": 32,
         "accuracyLevel": 4,
         "symmetric": True,
+    }
+    assert payload["precision"] == {
+        "float16Weights": ["time_proj.weight", "proj_out.weight"],
     }
     assert payload["webgpu"]["requiredLimits"] == {
         "maxStorageBufferBindingSize": 128 * 1024 * 1024,
@@ -803,15 +814,20 @@ def test_full_pinned_q4_product_gate() -> None:
         onnx.checker.check_model(output)
         model = onnx.load_model(output, load_external_data=False)
         q4_nodes = [node for node in model.graph.node if node.op_type == "MatMulNBits"]
-        assert len(q4_nodes) == report.matmul_nbits_nodes == 220
+        assert len(q4_nodes) == report.matmul_nbits_nodes == 219
         assert report.dynamic_shape_ops == ()
         assert report.external_locations
         for node in q4_nodes:
             attributes = {item.name: onnx.helper.get_attribute_value(item) for item in node.attribute}
             assert len(node.input) == 3
             assert attributes["bits"] == 4
-            assert attributes["block_size"] == 128
+            assert attributes["block_size"] == 32
             assert attributes["accuracy_level"] == 4
+        nodes = {node.name: node for node in model.graph.node}
+        initializers = {tensor.name: tensor for tensor in model.graph.initializer}
+        for weight_key in ("time_proj.weight", "proj_out.weight"):
+            assert nodes[f"{weight_key}.MatMul"].op_type == "MatMul"
+            assert initializers[weight_key].data_type == onnx.TensorProto.FLOAT16
         external_files = [output.parent / location for location in report.external_locations]
         assert all(path.stat().st_size <= 128 * 1024 * 1024 for path in external_files)
         return external_files

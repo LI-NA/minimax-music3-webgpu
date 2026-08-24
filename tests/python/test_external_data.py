@@ -90,7 +90,7 @@ def test_repack_external_data_keeps_published_package_when_staging_copy_fails(
     def fail_validation(*args) -> None:
         raise ValueError("late validation failure")
 
-    monkeypatch.setattr(external_data, "_validate_ranges", fail_validation)
+    monkeypatch.setattr(external_data, "validate_ranges", fail_validation)
 
     with pytest.raises(ValueError, match="late validation"):
         repack_external_data(model_path, output_dir, max_file_bytes=16)

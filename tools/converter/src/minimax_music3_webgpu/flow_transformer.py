@@ -18,6 +18,14 @@ from safetensors import safe_open
 import torch
 import torch.nn.functional as torch_functional
 
+from .constants import (
+    FLOW_FP16_LINEAR_WEIGHTS,
+    Q4_ACCURACY_LEVEL,
+    Q4_BITS,
+    Q4_BLOCK_SIZE,
+    Q4_SYMMETRIC,
+)
+
 
 MAXIMUM_LATENT_LENGTH = 689
 FLOW_OVERLAP_LENGTH = 172
@@ -239,10 +247,13 @@ def maximum_flow_binding_bytes(
 ) -> tuple[int, int]:
     initializer_bytes = []
     for key, shape in expected_flow_shapes(config).items():
-        if quantized and len(shape) == 2 and key != "time_proj.weight":
+        if quantized and len(shape) == 2 and key not in FLOW_FP16_LINEAR_WEIGHTS:
             output_dim, input_dim = shape
-            blocks = (input_dim + 127) // 128
-            initializer_bytes.extend((output_dim * blocks * 64, output_dim * blocks * 2))
+            blocks = (input_dim + Q4_BLOCK_SIZE - 1) // Q4_BLOCK_SIZE
+            packed_block_bytes = Q4_BLOCK_SIZE * Q4_BITS // 8
+            initializer_bytes.extend(
+                (output_dim * blocks * packed_block_bytes, output_dim * blocks * 2)
+            )
         else:
             initializer_bytes.append(int(np.prod(shape, dtype=np.int64)) * 2)
 
@@ -375,11 +386,15 @@ class _FlowGraphBuilder:
         weight = self.tensor(key, transpose=True)
         if self.quantize and use_q4:
             rows, columns = weight.shape
-            blocks = (rows + 127) // 128
-            packed = np.zeros((columns, blocks, 64), dtype=np.uint8)
+            blocks = (rows + Q4_BLOCK_SIZE - 1) // Q4_BLOCK_SIZE
+            packed = np.zeros(
+                (columns, blocks, Q4_BLOCK_SIZE * Q4_BITS // 8), dtype=np.uint8
+            )
             scales = np.zeros((columns, blocks), dtype=np.float16)
             zero_points = np.zeros((columns, (blocks + 1) // 2), dtype=np.uint8)
-            quantize_matmul_4bits(packed, weight, scales, zero_points, 128, columns, rows, True)
+            quantize_matmul_4bits(
+                packed, weight, scales, zero_points, Q4_BLOCK_SIZE, columns, rows, Q4_SYMMETRIC
+            )
             packed_name = self.writer.add(f"{key}.q4", packed)
             scale_name = self.writer.add(f"{key}.scales", scales)
             self.nodes.append(
@@ -391,9 +406,9 @@ class _FlowGraphBuilder:
                     domain="com.microsoft",
                     K=rows,
                     N=columns,
-                    bits=4,
-                    block_size=128,
-                    accuracy_level=4,
+                    bits=Q4_BITS,
+                    block_size=Q4_BLOCK_SIZE,
+                    accuracy_level=Q4_ACCURACY_LEVEL,
                 )
             )
         else:
@@ -666,7 +681,9 @@ class _FlowGraphBuilder:
                 ["without_time_token"],
             )
         )
-        projected_output = self.linear("without_time_token", "proj_out.weight", "projected_output")
+        projected_output = self.linear(
+            "without_time_token", "proj_out.weight", "projected_output", use_q4=False
+        )
         self.nodes.extend(
             [
                 helper.make_node("Transpose", [projected_output], ["output_channels"], perm=[0, 2, 1]),
@@ -920,7 +937,7 @@ def validate_flow_graph(
     expected_q4_dimensions = {
         f"{key}.MatMulNBits": (shape[1], shape[0])
         for key, shape in expected_flow_shapes(config).items()
-        if len(shape) == 2 and key != "time_proj.weight"
+        if len(shape) == 2 and key not in FLOW_FP16_LINEAR_WEIGHTS
     }
     expected_q4 = len(expected_q4_dimensions) if quantized else 0
     if (
@@ -935,14 +952,32 @@ def validate_flow_graph(
         attributes = {item.name: helper.get_attribute_value(item) for item in node.attribute}
         if (
             len(node.input) != 3
-            or attributes.get("bits") != 4
-            or attributes.get("block_size") != 128
-            or attributes.get("accuracy_level") != 4
+            or attributes.get("bits") != Q4_BITS
+            or attributes.get("block_size") != Q4_BLOCK_SIZE
+            or attributes.get("accuracy_level") != Q4_ACCURACY_LEVEL
         ):
             raise ValueError("flow MatMulNBits node has an invalid q4 contract")
         expected_k, expected_n = expected_q4_dimensions[node.name]
         if attributes.get("K") != expected_k or attributes.get("N") != expected_n:
             raise ValueError("flow MatMulNBits node has invalid K/N dimensions")
+    if quantized:
+        nodes_by_name = {node.name: node for node in model.graph.node}
+        initializers_by_name = {tensor.name: tensor for tensor in model.graph.initializer}
+        shapes = expected_flow_shapes(config)
+        for key in FLOW_FP16_LINEAR_WEIGHTS:
+            node = nodes_by_name.get(f"{key}.MatMul")
+            tensor = initializers_by_name.get(key)
+            expected_shape = (shapes[key][1], shapes[key][0])
+            if (
+                node is None
+                or node.op_type != "MatMul"
+                or len(node.input) != 2
+                or node.input[1] != key
+                or tensor is None
+                or tensor.data_type != TensorProto.FLOAT16
+                or tuple(tensor.dims) != expected_shape
+            ):
+                raise ValueError("flow selective float16 weights do not match the contract")
     locations = set()
     external_ranges: dict[str, list[tuple[int, int]]] = {}
     max_initializer_bytes = 0

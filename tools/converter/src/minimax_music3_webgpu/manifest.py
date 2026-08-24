@@ -9,7 +9,20 @@ from uuid import uuid4
 
 import onnx
 
-from .constants import ARTIFACT_FILE_LIMIT, DIFFUSERS_REVISION, HIDDEN_SIZE, MODEL_ID, MODEL_REVISION, VOCAB_SIZE
+from .constants import (
+    ARTIFACT_FILE_LIMIT,
+    DIFFUSERS_REVISION,
+    FLOW_FP16_LINEAR_WEIGHTS,
+    HIDDEN_SIZE,
+    MODEL_ID,
+    MODEL_REVISION,
+    Q4_ACCURACY_LEVEL,
+    Q4_BITS,
+    Q4_BLOCK_SIZE,
+    Q4_PROFILE,
+    Q4_SYMMETRIC,
+    VOCAB_SIZE,
+)
 from .paths import ArtifactPaths
 from .embedding import export_embedding_table
 from .reduced_head import export_reduced_head
@@ -40,7 +53,12 @@ def emit_manifest(
     payload = {
         "schemaVersion": 1,
         "model": {"id": MODEL_ID, "revision": MODEL_REVISION, "diffusersRevision": DIFFUSERS_REVISION},
-        "quantization": {"bits": 4, "blockSize": 128, "accuracyLevel": 4, "symmetric": True},
+        "quantization": {
+            "bits": Q4_BITS,
+            "blockSize": Q4_BLOCK_SIZE,
+            "accuracyLevel": Q4_ACCURACY_LEVEL,
+            "symmetric": Q4_SYMMETRIC,
+        },
         "webgpu": {"requiredFeatures": ["shader-f16"], "requiredLimits": {"maxStorageBufferBindingSize": ARTIFACT_FILE_LIMIT, "maxStorageBuffersPerShaderStage": 9}},
         "graph": {**_file(graph, root), "externalData": external, "gpuOutputs": gpu_outputs},
         "embedding": {"rows": 200000, "columns": 4096, "rowBytes": 8192, "shards": [{**_file(file, root), "rowStart": start, "rowCount": count} for start, count, file in embedding_shards]},
@@ -178,11 +196,12 @@ def emit_flow_manifest(path: Path, *, flow_step: Path) -> Path:
             "diffusersRevision": DIFFUSERS_REVISION,
         },
         "quantization": {
-            "bits": 4,
-            "blockSize": 128,
-            "accuracyLevel": 4,
-            "symmetric": True,
+            "bits": Q4_BITS,
+            "blockSize": Q4_BLOCK_SIZE,
+            "accuracyLevel": Q4_ACCURACY_LEVEL,
+            "symmetric": Q4_SYMMETRIC,
         },
+        "precision": {"float16Weights": list(FLOW_FP16_LINEAR_WEIGHTS)},
         "webgpu": {
             "requiredFeatures": ["shader-f16"],
             "requiredLimits": {
@@ -358,7 +377,7 @@ def emit_global_release(paths: ArtifactPaths, num_hidden_layers: int = 36) -> Pa
         raise ValueError("num_hidden_layers must be 1 or 36")
     name = "global-one-layer" if num_hidden_layers == 1 else "global"
     release = paths.release / name
-    packed = paths.work / f"global-packed-{num_hidden_layers}"
+    packed = paths.work / f"global-packed-{Q4_PROFILE}-{num_hidden_layers}"
     graph = packed / "global_decoder.onnx"
     if not graph.is_file():
         raise FileNotFoundError(f"missing converted decoder: {graph}")

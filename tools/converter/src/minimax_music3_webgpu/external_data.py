@@ -1,6 +1,7 @@
 """ONNX external-data repacking with bounded artifact files."""
 
 from dataclasses import dataclass
+from collections.abc import Iterable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -22,7 +23,7 @@ class RepackedModel:
 
 
 @dataclass(frozen=True)
-class _TensorSource:
+class TensorSource:
     tensor: onnx.TensorProto
     path: Path | None
     offset: int
@@ -34,19 +35,16 @@ def repack_external_data(
     model_path: Path, output_dir: Path, max_file_bytes: int, inline_threshold: int = 0
 ) -> RepackedModel:
     model = onnx.load_model(model_path, load_external_data=False)
-    sources = [_tensor_source(tensor, model_path.parent) for tensor in model.graph.initializer]
-    for source in sources:
-        if source.length > max_file_bytes:
-            raise ValueError(f"initializer {source.tensor.name} exceeds artifact limit")
+    sources = [tensor_source(tensor, model_path.parent) for tensor in model.graph.initializer]
 
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix=f".{output_dir.name}-staging-", dir=output_dir.parent) as staging:
         staging_dir = Path(staging)
         generation = f"weights-{uuid4().hex}"
-        shards = _write_staged_shards(sources, staging_dir, max_file_bytes, generation, inline_threshold)
+        shards = write_staged_shards(sources, staging_dir, max_file_bytes, generation, inline_threshold)
         staged_model = staging_dir / model_path.name
         onnx.save_model(model, staged_model)
-        _validate_ranges(staged_model, max_file_bytes)
+        validate_ranges(staged_model, max_file_bytes)
         output_dir.mkdir(parents=True, exist_ok=True)
         packed_path = output_dir / model_path.name
         promoted = []
@@ -68,10 +66,10 @@ def repack_external_data(
         )
 
 
-def _tensor_source(tensor: onnx.TensorProto, model_dir: Path) -> _TensorSource:
+def tensor_source(tensor: onnx.TensorProto, model_dir: Path) -> TensorSource:
     if tensor.data_location != onnx.TensorProto.EXTERNAL:
         data = tensor.raw_data or numpy_helper.to_array(tensor).tobytes()
-        return _TensorSource(tensor, None, 0, len(data), data)
+        return TensorSource(tensor, None, 0, len(data), data)
 
     fields = {entry.key: entry.value for entry in tensor.external_data}
     if "location" not in fields:
@@ -82,7 +80,7 @@ def _tensor_source(tensor: onnx.TensorProto, model_dir: Path) -> _TensorSource:
     length = int(fields["length"]) if "length" in fields else file_size - offset
     if offset < 0 or length < 0 or offset + length > file_size:
         raise ValueError(f"initializer {tensor.name} has an invalid source range")
-    return _TensorSource(tensor, source_path, offset, length, None)
+    return TensorSource(tensor, source_path, offset, length, None)
 
 
 def _source_path(model_dir: Path, location: str) -> Path:
@@ -96,8 +94,8 @@ def _source_path(model_dir: Path, location: str) -> Path:
     return resolved
 
 
-def _write_staged_shards(
-    sources: list[_TensorSource], staging_dir: Path, max_file_bytes: int, generation: str,
+def write_staged_shards(
+    sources: Iterable[TensorSource], staging_dir: Path, max_file_bytes: int, generation: str,
     inline_threshold: int,
 ) -> list[ExternalDataShard]:
     shards: list[ExternalDataShard] = []
@@ -105,6 +103,8 @@ def _write_staged_shards(
     current_size = 0
     try:
         for source in sources:
+            if source.length > max_file_bytes:
+                raise ValueError(f"initializer {source.tensor.name} exceeds artifact limit")
             if source.length <= inline_threshold:
                 _set_inline_data(source)
                 continue
@@ -122,7 +122,7 @@ def _write_staged_shards(
     return [ExternalDataShard(shard.path, shard.path.stat().st_size) for shard in shards]
 
 
-def _set_inline_data(source: _TensorSource) -> None:
+def _set_inline_data(source: TensorSource) -> None:
     if source.data is not None:
         data = source.data
     else:
@@ -140,7 +140,7 @@ def _promote_shard(staged_path: Path, target: Path) -> None:
     staged_path.replace(target)
 
 
-def _copy_source(source: _TensorSource, destination) -> None:
+def _copy_source(source: TensorSource, destination) -> None:
     if source.data is not None:
         destination.write(source.data)
         return
@@ -173,7 +173,7 @@ def _copy_exact(source, destination, length: int) -> None:
         remaining -= len(chunk)
 
 
-def _validate_ranges(model_path: Path, max_file_bytes: int) -> None:
+def validate_ranges(model_path: Path, max_file_bytes: int) -> None:
     model = onnx.load_model(model_path, load_external_data=False)
     for tensor in model.graph.initializer:
         fields = {entry.key: entry.value for entry in tensor.external_data}

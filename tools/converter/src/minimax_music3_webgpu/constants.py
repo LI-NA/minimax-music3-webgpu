@@ -17,6 +17,12 @@ ACOUSTIC_SOURCE_FILES = (
     "vocoder/diffusion_pytorch_model.safetensors",
 )
 ARTIFACT_FILE_LIMIT = 128 * 1024 * 1024
+Q4_BITS = 4
+Q4_BLOCK_SIZE = 32
+Q4_ACCURACY_LEVEL = 4
+Q4_SYMMETRIC = True
+Q4_PROFILE = "q4-b32"
+FLOW_FP16_LINEAR_WEIGHTS = ("time_proj.weight", "proj_out.weight")
 HIDDEN_SIZE = 4096
 VOCAB_SIZE = 200_000
 AUDIO_END_TOKEN_ID = 151_670

@@ -58,9 +58,12 @@ export interface FlowManifest {
   };
   quantization: {
     bits: 4;
-    blockSize: 128;
+    blockSize: 32;
     accuracyLevel: 4;
     symmetric: true;
+  };
+  precision: {
+    float16Weights: readonly ['time_proj.weight', 'proj_out.weight'];
   };
   webgpu: ModelManifest['webgpu'];
 }
@@ -104,7 +107,9 @@ export interface MusicVariableManifest extends ModelManifest {
   tokenizerFiles: readonly ArtifactFile[];
   licenseFile: ArtifactFile;
   quantization: FlowManifest['quantization'];
-  precision: VocoderManifest['precision'];
+  precision: VocoderManifest['precision'] & {
+    flowFp16Weights: readonly ['time_proj.weight', 'proj_out.weight'];
+  };
   acoustic: {
     maxSemanticFrames: 200;
     windowFrames: 200;
@@ -340,11 +345,19 @@ export function parseFlowManifest(value: unknown): FlowManifest {
   const quantization = object(root.quantization, 'flow quantization');
   if (
     quantization.bits !== 4 ||
-    quantization.blockSize !== 128 ||
+    quantization.blockSize !== 32 ||
     quantization.accuracyLevel !== 4 ||
     quantization.symmetric !== true
   )
     throw new Error('flow quantization does not match the q4 contract');
+  const precision = object(root.precision, 'flow precision');
+  if (
+    !Array.isArray(precision.float16Weights) ||
+    precision.float16Weights.length !== 2 ||
+    precision.float16Weights[0] !== 'time_proj.weight' ||
+    precision.float16Weights[1] !== 'proj_out.weight'
+  )
+    throw new Error('flow precision does not match the selective float16 contract');
   const webgpu = webgpuContract(root.webgpu);
   if (
     webgpu.requiredLimits.maxStorageBufferBindingSize !== 128 * 1024 * 1024 ||
@@ -362,10 +375,11 @@ export function parseFlowManifest(value: unknown): FlowManifest {
     },
     quantization: {
       bits: 4,
-      blockSize: 128,
+      blockSize: 32,
       accuracyLevel: 4,
       symmetric: true,
     },
+    precision: { float16Weights: ['time_proj.weight', 'proj_out.weight'] },
     webgpu,
   };
 }
@@ -432,7 +446,7 @@ export function parseMusicVariableManifest(value: unknown): MusicVariableManifes
   const quantization = object(root.quantization, 'music variable quantization');
   if (
     quantization.bits !== 4 ||
-    quantization.blockSize !== 128 ||
+    quantization.blockSize !== 32 ||
     quantization.accuracyLevel !== 4 ||
     quantization.symmetric !== true
   )
@@ -443,7 +457,11 @@ export function parseMusicVariableManifest(value: unknown): MusicVariableManifes
     !Array.isArray(precision.fp32Snakes) ||
     precision.fp32Snakes.length !== 2 ||
     precision.fp32Snakes[0] !== 'blocks.0.snake1' ||
-    precision.fp32Snakes[1] !== 'blocks.1.snake1'
+    precision.fp32Snakes[1] !== 'blocks.1.snake1' ||
+    !Array.isArray(precision.flowFp16Weights) ||
+    precision.flowFp16Weights.length !== 2 ||
+    precision.flowFp16Weights[0] !== 'time_proj.weight' ||
+    precision.flowFp16Weights[1] !== 'proj_out.weight'
   )
     throw new Error('music variable precision is invalid');
   const acoustic = object(root.acoustic, 'music variable acoustic');
@@ -544,7 +562,11 @@ export function parseMusicVariableManifest(value: unknown): MusicVariableManifes
     tokenizerFiles,
     licenseFile,
     acoustic: expectedAcoustic,
-    quantization: { bits: 4, blockSize: 128, accuracyLevel: 4, symmetric: true },
-    precision: { convolution: 'float16', fp32Snakes: ['blocks.0.snake1', 'blocks.1.snake1'] },
+    quantization: { bits: 4, blockSize: 32, accuracyLevel: 4, symmetric: true },
+    precision: {
+      convolution: 'float16',
+      fp32Snakes: ['blocks.0.snake1', 'blocks.1.snake1'],
+      flowFp16Weights: ['time_proj.weight', 'proj_out.weight'],
+    },
   };
 }
