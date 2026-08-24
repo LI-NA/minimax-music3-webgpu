@@ -512,7 +512,7 @@ export function App() {
             mode: 'fine',
             fineMeta: EXAMPLES.instrumentalMeta,
             fineVocal: EXAMPLES.instrumentalVocal,
-            fineArrangement: EXAMPLES.arrangement,
+            fineArrangement: EXAMPLES.instrumentalArrangement,
             lyrics: INSTRUMENTAL_LYRICS,
             savedLyrics: '',
             instrumental: true,

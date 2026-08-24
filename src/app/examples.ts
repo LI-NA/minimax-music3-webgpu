@@ -11,35 +11,41 @@ export const DEFAULT_SAMPLING: MusicSamplingInput = {
 
 export const EXAMPLES = {
   meta: [
-    'Dream pop and shoegaze, 92 BPM, minor key.',
-    'Dreamy and intimate at the beginning, gradually becoming wide and uplifting.',
-    'Warm analog texture, soft high frequencies, deep but restrained bass.',
+    'Upbeat K-pop dance-pop, 124 BPM, major key.',
+    'Bright and energetic with a glossy, modern radio-ready mix.',
+    'Punchy drums, bouncy synth bass, sparkling plucks and airy pads.',
   ].join('\n'),
   vocal: [
-    'Soft female lead vocal with a breathy lower register.',
-    'Intimate delivery in the verses, opening into layered harmonies in the chorus.',
-    'Light plate reverb and subtle delay on phrase endings.',
+    'Bright female lead vocal, clean and agile with a light sweet tone.',
+    'Rhythmic, playful phrasing in the verses, wide layered harmonies in the chorus.',
+    'Doubled hook lines with short chant-style ad-libs and a touch of bright reverb.',
   ].join('\n'),
   arrangement: [
-    'The intro begins with filtered guitar and a distant pad.',
-    'The verse adds a restrained bass pulse and minimal drums.',
-    'The chorus opens with full drums, wide guitars and layered synths.',
-    'The bridge drops back to voice and piano before the final chorus.',
+    'The intro opens with a catchy synth hook over four-on-the-floor drums.',
+    'The verse grooves on a bouncy bass line with tight hi-hats and claps.',
+    'The pre-chorus lifts with rising synths, building drums and a vocal run.',
+    'The chorus bursts open with full drums, bright synth stabs and the chanted hook.',
   ].join('\n'),
   instrumentalMeta: [
-    'Ambient electronic, 60 BPM.',
-    'Slowly evolving granular textures over a deep sub pulse.',
-    'Spacious, cinematic, tactile.',
+    'Energetic EDM, progressive house, 128 BPM.',
+    'Euphoric festival-ready sound with a loud, punchy club mix.',
+    'Driving four-on-the-floor kick, sidechained supersaw leads, deep rolling bass.',
   ].join('\n'),
   instrumentalVocal: 'Instrumental. No vocals.',
+  instrumentalArrangement: [
+    'The intro sets a filtered synth loop over a steady four-on-the-floor kick.',
+    'The build-up layers rising white noise, snare rolls and a pitch-climbing lead.',
+    'The drop hits with massive supersaw chords, sidechain pumping and heavy bass.',
+    'The outro strips back to the filtered loop and fades on a long reverb tail.',
+  ].join('\n'),
   lyrics: [
     '[Verse]',
-    'City lights dissolve into the rain',
-    "Your voice is a signal I can't explain",
+    '반짝이는 불빛 사이로 두근대는 맘',
+    '오늘 밤엔 멈추지 않아 리듬에 맡겨봐',
     '',
     '[Chorus]',
-    "Hold the frequency, don't let go",
-    'We are the static turning into glow',
+    'Turn it up, turn it up, 더 크게 소리쳐',
+    '빛나는 우리 이 순간, never let it go',
   ].join('\n'),
 };
 
