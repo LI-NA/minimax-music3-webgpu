@@ -2,7 +2,7 @@ import { formatProgress } from '../workers/music-progress';
 import type { MusicStage, WorkerProgress } from '../workers/protocol';
 
 export const GENERATION_STAGE_COUNT = 5;
-/** A run words about a dozen rows, so this only bounds a worker that reports something unforeseen. */
+/** A run writes about a dozen rows, so this only bounds a worker that reports something unforeseen. */
 const LOG_LINES = 40;
 
 export type StageCounter = {

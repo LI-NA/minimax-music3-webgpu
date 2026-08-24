@@ -46,7 +46,9 @@ export async function runExternalDataOpfsSmoke() {
 }
 export async function runMatMulNBitsSmoke() {
   configure(await device());
-  const model = new Uint8Array(await (await fetch('/test-fixtures/matmul-nbits.onnx')).arrayBuffer());
+  const model = new Uint8Array(
+    await (await fetch(`${import.meta.env.BASE_URL}test-fixtures/matmul-nbits.onnx`)).arrayBuffer(),
+  );
   const session = await ort.InferenceSession.create(model, {
     executionProviders: ['webgpu'],
     extra: { session: { disable_cpu_ep_fallback: '1' } },

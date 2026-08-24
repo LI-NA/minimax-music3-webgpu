@@ -57,10 +57,6 @@ export function progressView(progress: WorkerProgress): ProgressView {
   };
 }
 
-export function initialProgressView(): ProgressView {
-  return { status: 'idle', text: 'Awaiting diagnostic command', indeterminate: false };
-}
-
 export function cancelProgress(): ProgressView {
   return { status: 'cancelled', text: 'Music generation cancelled', indeterminate: false };
 }

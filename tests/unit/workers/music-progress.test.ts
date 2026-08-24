@@ -4,7 +4,6 @@ import {
   cancelWorker,
   createMusicProgressTracker,
   formatProgress,
-  initialProgressView,
   progressView,
 } from '../../../src/workers/music-progress';
 import type { WorkerProgress } from '../../../src/workers/protocol';
@@ -218,7 +217,6 @@ describe('music generation progress', () => {
         totalElapsedMs: 2_000,
       }),
     ).toBe('Complete: 1417260 WAV bytes in 2.0s');
-    expect(initialProgressView().status).toBe('idle');
     expect(cancelProgress()).toEqual({
       status: 'cancelled',
       text: 'Music generation cancelled',

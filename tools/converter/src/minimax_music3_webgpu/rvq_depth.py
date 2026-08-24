@@ -429,32 +429,6 @@ def _validate_feedback_graph(path: Path) -> None:
         raise ValueError("feedback graph output contract is invalid")
 
 
-def _expected_keys(num_layers: int, num_codebooks: int) -> set[str]:
-    keys = {
-        "audio_embeddings.weight",
-        "norm.weight",
-        "pos_embedding.weight",
-        "projection.weight",
-        *(f"audio_heads.{index}.weight" for index in range(num_codebooks - 1)),
-    }
-    for index in range(num_layers):
-        prefix = f"layers.{index}"
-        keys.update(
-            {
-                f"{prefix}.attn.to_q.weight",
-                f"{prefix}.attn.to_k.weight",
-                f"{prefix}.attn.to_v.weight",
-                f"{prefix}.attn.to_out.weight",
-                f"{prefix}.input_layernorm.weight",
-                f"{prefix}.post_attention_layernorm.weight",
-                f"{prefix}.gate_proj.weight",
-                f"{prefix}.up_proj.weight",
-                f"{prefix}.down_proj.weight",
-            }
-        )
-    return keys
-
-
 def _expected_shapes(config: dict[str, int]) -> dict[str, tuple[int, ...]]:
     hidden = config["hidden_size"]
     intermediate = config["intermediate_size"]
