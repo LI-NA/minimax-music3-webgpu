@@ -60,5 +60,20 @@ function localArtifacts(): Plugin {
 export default defineConfig({
   base,
   define: appBuildDefines,
+  // Lazy dependency discovery would re-optimize and reload the page when the
+  // dynamically imported ONNX Runtime entry loads mid-session, which aborts the
+  // long headed browser gates. Every dev-server dependency must be listed here.
+  optimizeDeps: {
+    noDiscovery: true,
+    include: [
+      '@huggingface/tokenizers',
+      '@noble/hashes/sha2.js',
+      '@noble/hashes/utils.js',
+      'onnxruntime-web/jspi',
+      'react',
+      'react-dom/client',
+      'react/jsx-dev-runtime',
+    ],
+  },
   plugins: [tailwindcss(), localJspiWasm(), localArtifacts()],
 });

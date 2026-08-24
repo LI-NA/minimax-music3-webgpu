@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('WebGPU symmetric q4 MatMulNBits matches the frozen known answer', async ({ page }) => {
+  test.setTimeout(120_000);
   await page.goto('/');
   const values = await page.evaluate(async () => {
     const moduleUrl = '/src/runtime/browser-smokes.ts';
