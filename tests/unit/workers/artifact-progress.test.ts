@@ -26,6 +26,25 @@ describe('artifact progress reporting', () => {
     );
   });
 
+  it('averages aggregate throughput over the latest five seconds', () => {
+    const events: Array<{ rate?: number; etaMs?: number }> = [];
+    let now = 0;
+    const reporter = createArtifactProgressReporter({
+      totalBytes: 2_000,
+      send: (event) => events.push(event),
+      now: () => now,
+    });
+
+    for (const transferredBytes of [10, 110, 210, 310, 410, 510]) {
+      reporter.report('a.bin', transferredBytes, 2_000, 0, transferredBytes);
+      now += 1_000;
+    }
+    reporter.report('a.bin', 810, 2_000, 0, 810);
+
+    expect(events.at(-1)?.rate).toBeCloseTo(140);
+    expect(events.at(-1)?.etaMs).toBeCloseTo(8_500);
+  });
+
   it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
     'omits rate and ETA for non-finite transferred bytes (%s)',
     (transferredBytes) => {

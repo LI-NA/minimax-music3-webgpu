@@ -623,7 +623,7 @@ async function runArtifactCacheDeletion(request: Extract<ArtifactCacheRequest, {
  * a few files keeps bytes moving through those gaps. It matters most against a hosted release,
  * where one HTTPS stream rarely saturates a link.
  */
-const ARTIFACT_DOWNLOAD_CONCURRENCY = 4;
+const ARTIFACT_DOWNLOAD_CONCURRENCY = 8;
 
 async function cacheArtifacts(
   artifacts: readonly { path: string; bytes: number; sha256: string }[],
@@ -647,7 +647,7 @@ async function cacheArtifacts(
 
   // Every report has to count the transfers still running as well as the finished ones. Counting
   // only the finished ones on a per-file completion would make the aggregate fall back by whatever
-  // the other three connections have already pulled, and the reporter reads a fall-back as no
+  // the other connections have already pulled, and the reporter reads a fall-back as no
   // measurable rate at all, blanking the speed and remaining-time rows.
   const transferredTotal = () => transferredBytes + total((entry) => entry.transferred);
 

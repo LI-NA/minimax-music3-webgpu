@@ -79,7 +79,7 @@ The pre-change warm baseline used the same persistent profile, seed 7, one heade
 
 The download rate was pinned by write granularity rather than by disk or server speed. Chrome hands a network response body to a reader in units of roughly 8 KiB, set by the transport and not by the server: the dev server's `/ort/` handler writes a 16 MB body in a single call and it still arrives that way, and pausing the reader for 500 ms still yields a 16 KiB chunk. A same-origin release is the worst case, because a remote CDN has enough latency to make each delivery larger, and Hugging Face measured a 16 KiB median against 8 KiB for localhost. Since every `FileSystemWritableFileStream.write` is an asynchronous round trip through a swap file, one write per delivered chunk meant one round trip per 8 KiB.
 
-Measured in a worker against the same release, 32 MiB per run: per-chunk `createWritable` reached 19.9 MB/s, 1 MiB batches reached 109.4 MB/s, and `createSyncAccessHandle` reached 90.0 MB/s per chunk. Batching alone recovers the transfer's own limit, so the write API is unchanged. Four concurrent transfers then cover the per-file gaps, which matters most against a hosted release where one HTTPS stream rarely saturates a link.
+Measured in a worker against the same release, 32 MiB per run: per-chunk `createWritable` reached 19.9 MB/s, 1 MiB batches reached 109.4 MB/s, and `createSyncAccessHandle` reached 90.0 MB/s per chunk. Batching alone recovers the transfer's own limit, so the write API is unchanged. The original measurement used four concurrent transfers to cover per-file gaps. The current runtime uses eight, which matters most against a hosted release where one HTTPS stream rarely saturates a link.
 
 The retained cache change trusts a completion receipt only inside the directory keyed by the complete manifest text hash and only when the artifact still has the declared byte length. Initial downloads and marker-less files remain SHA-256 verified. A size-mismatched completed artifact and its receipt are removed before a clean download, while ordinary partial downloads remain resumable.
 
@@ -91,7 +91,7 @@ No further graph split, custom WGSL, new quantization, duplicated sessions, or s
 
 The worker now exposes only progress that can be measured honestly:
 
-- artifact bytes, current file, cache-hit state, and a distinct verified-completion event, with intermediate download callbacks coalesced to at most one update per 100 ms;
+- artifact bytes, current file, cache-hit state, and a distinct verified-completion event, with intermediate download callbacks coalesced to at most one update per 100 ms and throughput averaged over the latest five seconds;
 - named session creation as indeterminate activity;
 - autoregressive retained frames over the requested maximum, rolling frames per second, elapsed time, and ETA after three samples;
 - condition completion for each acoustic chunk;

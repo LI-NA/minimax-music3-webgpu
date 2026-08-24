@@ -9,6 +9,7 @@ export interface ArtifactProgressReporterOptions {
 }
 
 const REPORT_INTERVAL_MS = 100;
+const RATE_AVERAGE_WINDOW_MS = 5_000;
 
 export function createArtifactProgressReporter({
   totalBytes,
@@ -18,7 +19,7 @@ export function createArtifactProgressReporter({
   let lastReportedAt: number | undefined;
   let lastProgress: ArtifactProgress | undefined;
   let reportedCompletedBytes = 0;
-  let transferredBaseline: { bytes: number; timestamp: number } | undefined;
+  const transferredSamples: Array<{ bytes: number; timestamp: number }> = [];
 
   const emit = (
     progress: ArtifactProgress,
@@ -28,20 +29,20 @@ export function createArtifactProgressReporter({
   ) => {
     let next = progress;
     if (transferredBytes !== undefined && Number.isFinite(transferredBytes) && transferredBytes > 0) {
-      if (transferredBaseline !== undefined) {
-        const transferredDelta = transferredBytes - transferredBaseline.bytes;
-        const elapsedMs = timestamp - transferredBaseline.timestamp;
+      const latest = transferredSamples.at(-1);
+      if (latest === undefined || transferredBytes >= latest.bytes) {
+        transferredSamples.push({ bytes: transferredBytes, timestamp });
+        const cutoff = timestamp - RATE_AVERAGE_WINDOW_MS;
+        while (transferredSamples.length > 1 && transferredSamples[1]!.timestamp <= cutoff) transferredSamples.shift();
+        const baseline = transferredSamples[0]!;
+        const transferredDelta = transferredBytes - baseline.bytes;
+        const elapsedMs = timestamp - baseline.timestamp;
         if (transferredDelta > 0 && elapsedMs > 0) {
           const rate = (transferredDelta * 1_000) / elapsedMs;
           const etaMs = ((totalBytes - currentCompletedBytes) * 1_000) / rate;
           if (Number.isFinite(rate) && rate > 0 && Number.isFinite(etaMs)) next = { ...progress, rate, etaMs };
         }
       }
-      // A caller that reports less than it did before is behind, not slower. Holding the earlier
-      // baseline lets the next larger reading measure across the whole span instead of losing the
-      // rate for one report and then overstating it on the next.
-      if (transferredBaseline === undefined || transferredBytes >= transferredBaseline.bytes)
-        transferredBaseline = { bytes: transferredBytes, timestamp };
     }
     send(next);
     lastProgress = next;

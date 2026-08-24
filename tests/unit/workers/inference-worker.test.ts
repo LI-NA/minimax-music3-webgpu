@@ -660,7 +660,7 @@ describe('variable inference worker lifecycle', () => {
     });
   });
 
-  it('overlaps transfers so a stalled file does not idle the connection', async () => {
+  it('overlaps up to eight transfers so a stalled file does not idle the connection', async () => {
     state.cacheState = 'missing';
 
     await runWorkerRequest({
@@ -668,7 +668,7 @@ describe('variable inference worker lifecycle', () => {
       manifestUrl: 'http://worker.test/music-variable/manifest.json',
     });
 
-    expect(state.peakEnsureCount).toBe(4);
+    expect(state.peakEnsureCount).toBe(8);
     expect(state.activeEnsureCount).toBe(0);
     expect(state.events.filter((event) => event.startsWith('artifact:'))).toHaveLength(
       expectedVariableArtifactPaths.length,
@@ -686,9 +686,9 @@ describe('variable inference worker lifecycle', () => {
       }),
     ).rejects.toMatchObject({ code: 'download-failed' });
 
-    // Only the transfers already in flight run; the remaining seven are never handed out.
+    // Only the transfers already in flight run; the remaining transfers are never handed out.
     const started = state.events.filter((event) => event.startsWith('artifact:'));
-    expect(started).toHaveLength(4);
+    expect(started).toHaveLength(8);
     expect(expectedVariableArtifactPaths.length).toBeGreaterThan(started.length);
     expect(state.activeEnsureCount).toBe(0);
   });
