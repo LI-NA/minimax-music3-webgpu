@@ -371,8 +371,8 @@ describe('model file state transitions', () => {
 describe('model file presentation', () => {
   it('shows missing verified bytes, sufficient headroom, and the best-effort warning', () => {
     expect(describeArtifactCacheStatus(createArtifactCacheUiState(status()))).toBe(
-      'Model files are not downloaded (0 B of 4.0 KiB verified). ' +
-        'Storage capacity is sufficient (19.5 KiB available, 6.0 KiB required headroom). ' +
+      'Model files are not downloaded (0 B of 4.0 KB verified). ' +
+        'Storage capacity is sufficient (19.5 KB available, 6.0 KB required headroom). ' +
         'Storage is best-effort and may be evicted.',
     );
   });
@@ -390,8 +390,8 @@ describe('model file presentation', () => {
         ),
       ),
     ).toBe(
-      'Model files are partially downloaded (1.0 KiB of 4.0 KiB verified). ' +
-        'Storage capacity is insufficient (5.0 KiB available, 6.0 KiB required headroom). ' +
+      'Model files are partially downloaded (1.0 KB of 4.0 KB verified). ' +
+        'Storage capacity is insufficient (5.0 KB available, 6.0 KB required headroom). ' +
         'Storage is best-effort and may be evicted.',
     );
   });
@@ -410,8 +410,8 @@ describe('model file presentation', () => {
         ),
       ),
     ).toBe(
-      'Model files are partially downloaded (1.0 KiB of 4.0 KiB verified). ' +
-        'Available storage is unavailable (6.0 KiB required headroom). ' +
+      'Model files are partially downloaded (1.0 KB of 4.0 KB verified). ' +
+        'Available storage is unavailable (6.0 KB required headroom). ' +
         'Storage is persistent.',
     );
   });
@@ -432,8 +432,8 @@ describe('model file presentation', () => {
         ),
       ),
     ).toBe(
-      'Model files are ready (4.0 KiB of 4.0 KiB verified). ' +
-        'Storage capacity is sufficient (19.5 KiB available, 0 B required headroom). ' +
+      'Model files are ready (4.0 KB of 4.0 KB verified). ' +
+        'Storage capacity is sufficient (19.5 KB available, 0 B required headroom). ' +
         'Persistence status is unavailable.',
     );
   });
@@ -444,8 +444,9 @@ describe('model file presentation', () => {
     expect(formatBytes(-1)).toBe('0 B');
     expect(formatBytes(Number.NaN)).toBe('0 B');
     expect(formatBytes(Number.POSITIVE_INFINITY)).toBe('0 B');
-    expect(formatBytes(1_536)).toBe('1.5 KiB');
-    expect(formatRate(1_048_576)).toBe('1.0 MiB/s');
+    expect(formatBytes(1_536)).toBe('1.5 KB');
+    expect(formatBytes(8_523_198_123)).toBe('7.9 GB');
+    expect(formatRate(1_048_576)).toBe('1.0 MB/s');
     expect(formatEta(6_000)).toBe('6s');
     expect(formatEta(65_000)).toBe('1m 5s');
   });

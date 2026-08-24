@@ -43,7 +43,7 @@ The VRAM guidance was measured on a single GPU with 16 GB of VRAM and is for ref
 
 The demo is available at <https://li-na.github.io/minimax-music3-webgpu/>.
 
-1. On first run you need to download about 8 GB of model files. They are cached in the browser, so you do not have to download them again.
+1. On first run you need to download about 8 GB of model files from [Hugging Face](https://huggingface.co/hyung778/minimax-music3-webgpu). They are cached in the browser, so you do not have to download them again.
 2. Then enter a prompt describing the music, and adjust the sampling values in the advanced controls if needed.
 3. Once a track is generated it is saved as WAV and starts playing automatically. Generated tracks are stored in the browser, so you can revisit or download them at any time.
 

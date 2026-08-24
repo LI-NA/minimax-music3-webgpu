@@ -204,9 +204,14 @@ export function artifactErrorMessage(tr: Messages, code: ArtifactErrorCode | und
   return wording[code];
 }
 
+/**
+ * Formats a byte count with 1024-based divisors under decimal labels, which is what Windows Explorer
+ * and Chrome's own storage settings both do. `GiB` and `MiB` would name the divisor honestly, but the
+ * figure beside the unit is the one a user compares against those two surfaces, and it has to match.
+ */
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const unit = Math.max(0, Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1));
   const value = bytes / 1024 ** unit;
   return `${unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
