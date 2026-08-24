@@ -86,7 +86,7 @@ The product worker accepts every intentional generation setting without relying 
 ```ts
 worker.postMessage({
   type: 'generate-music',
-  manifestUrl: 'http://127.0.0.1:5174/manifest.json',
+  manifestUrl: '/artifacts/music-variable/manifest.json',
   prompt: 'Warm female vocal, 96 BPM',
   lyrics: '[verse]\nHello',
   seed: 7,
