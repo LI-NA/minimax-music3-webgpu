@@ -97,7 +97,9 @@ export function Header({
           <div
             key={pill.slot}
             title={pill.title}
-            className="flex items-center gap-1.5 rounded-full border border-line bg-panel2 px-2.5 py-1"
+            className={`flex items-center gap-1.5 rounded-full border border-line bg-panel2 px-2.5 py-1 ${
+              pill.title ? 'cursor-help' : ''
+            }`}
           >
             <div
               className={`size-1.5 rounded-full ${DOT_TONES[pill.tone]} ${
@@ -110,14 +112,14 @@ export function Header({
         <button
           type="button"
           onClick={onToggleLang}
-          className="ml-1.5 rounded-full border border-line px-3 py-[5px] font-mono text-xs font-semibold text-muted"
+          className="ml-1.5 rounded-full border border-line px-3 py-[5px] font-mono text-xs font-semibold text-muted hover:border-muted2 hover:bg-panel2 hover:text-ink"
         >
           {lang === 'ko' ? 'EN' : 'KO'}
         </button>
         <button
           type="button"
           onClick={onToggleTheme}
-          className="rounded-full border border-line px-3 py-[5px] text-xs font-semibold text-muted"
+          className="rounded-full border border-line px-3 py-[5px] text-xs font-semibold text-muted hover:border-muted2 hover:bg-panel2 hover:text-ink"
         >
           {theme === 'dark' ? 'Light' : 'Dark'}
         </button>
@@ -150,7 +152,7 @@ export function MobileTabs({
           type="button"
           onClick={() => onChange(key)}
           className={`flex-1 rounded-lg border border-line py-[7px] text-sm font-semibold ${
-            view === key ? 'bg-panel2 text-ink' : 'bg-transparent text-muted'
+            view === key ? 'bg-panel2 text-ink' : 'bg-transparent text-muted hover:bg-panel2/60 hover:text-ink'
           }`}
         >
           {label}

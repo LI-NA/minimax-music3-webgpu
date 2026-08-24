@@ -34,14 +34,14 @@ export function EmptyView({ tr, onExample }: EmptyViewProps) {
         <button
           type="button"
           onClick={() => onExample(false)}
-          className="rounded-[9px] border border-line bg-panel px-4 py-[9px] text-sm font-semibold text-ink"
+          className="rounded-[9px] border border-line bg-panel px-4 py-[9px] text-sm font-semibold text-ink hover:border-muted2 hover:bg-panel2"
         >
           {tr.exVocal}
         </button>
         <button
           type="button"
           onClick={() => onExample(true)}
-          className="rounded-[9px] border border-line bg-panel px-4 py-[9px] text-sm font-semibold text-ink"
+          className="rounded-[9px] border border-line bg-panel px-4 py-[9px] text-sm font-semibold text-ink hover:border-muted2 hover:bg-panel2"
         >
           {tr.exInst}
         </button>

@@ -56,7 +56,7 @@ export function PlayerBar({
           onClick={onPrev}
           disabled={!hasReady}
           aria-label="previous"
-          className="flex size-8 items-center justify-center rounded-full border-none bg-transparent p-0 text-muted disabled:opacity-45"
+          className="flex size-8 items-center justify-center rounded-full border-none bg-transparent p-0 text-muted disabled:opacity-45 enabled:hover:bg-panel2 enabled:hover:text-ink"
         >
           <PrevIcon size={13} />
         </button>
@@ -65,7 +65,7 @@ export function PlayerBar({
           onClick={onTogglePlay}
           disabled={!track}
           aria-label={playing ? tr.pause : tr.play}
-          className="flex size-[42px] items-center justify-center rounded-full border-none bg-accent p-0 text-accent-fg disabled:opacity-45"
+          className="flex size-[42px] items-center justify-center rounded-full border-none bg-accent p-0 text-accent-fg disabled:opacity-45 enabled:hover:bg-accent2 enabled:active:scale-95"
         >
           {playing ? <PauseIcon size={15} /> : <PlayIcon size={15} />}
         </button>
@@ -74,7 +74,7 @@ export function PlayerBar({
           onClick={onNext}
           disabled={!hasReady}
           aria-label="next"
-          className="flex size-8 items-center justify-center rounded-full border-none bg-transparent p-0 text-muted disabled:opacity-45"
+          className="flex size-8 items-center justify-center rounded-full border-none bg-transparent p-0 text-muted disabled:opacity-45 enabled:hover:bg-panel2 enabled:hover:text-ink"
         >
           <NextIcon size={13} />
         </button>
@@ -89,8 +89,12 @@ export function PlayerBar({
       </div>
       <div className="flex min-w-0 flex-1 items-center gap-2.5">
         <div className="flex-none font-mono text-xs text-muted">{formatClock(Math.min(position, total))}</div>
-        <div onClick={handleSeek} className="flex h-5 flex-1 cursor-pointer items-center">
-          <div className="h-1 flex-1 overflow-hidden rounded-sm bg-panel2">
+        <div onClick={handleSeek} className={`group flex h-5 flex-1 items-center ${track ? 'cursor-pointer' : ''}`}>
+          <div
+            className={`h-1 flex-1 overflow-hidden rounded-sm bg-panel2 transition-[height] duration-150 ${
+              track ? 'group-hover:h-1.5' : ''
+            }`}
+          >
             <div className="h-full rounded-sm bg-accent" style={{ width: `${fraction * 100}%` }} />
           </div>
         </div>
@@ -112,7 +116,9 @@ export function PlayerBar({
             type="button"
             onClick={onToggleLoop}
             className={`rounded-[7px] border px-2.5 py-[5px] font-mono text-xs ${
-              loop ? 'border-accent bg-accent-soft text-accent' : 'border-line bg-transparent text-muted2'
+              loop
+                ? 'border-accent bg-accent-soft text-accent hover:bg-accent/25'
+                : 'border-line bg-transparent text-muted2 hover:border-muted2 hover:text-ink'
             }`}
           >
             LOOP
@@ -121,7 +127,7 @@ export function PlayerBar({
             type="button"
             onClick={onDownload}
             disabled={!track || track.status !== 'ready'}
-            className="rounded-[7px] border border-line bg-transparent px-2.5 py-[5px] font-mono text-xs text-muted disabled:opacity-45"
+            className="rounded-[7px] border border-line bg-transparent px-2.5 py-[5px] font-mono text-xs text-muted disabled:opacity-45 enabled:hover:border-muted2 enabled:hover:text-ink"
           >
             WAV
           </button>

@@ -45,17 +45,17 @@ const QUICK_DURATIONS = [10, 30, 60, 120, 300];
 
 const inputClass =
   'w-full rounded-lg border border-line bg-input px-2.5 py-2 text-sm text-ink ' +
-  'placeholder:text-muted2 focus:border-muted2 focus:outline-none';
+  'placeholder:text-muted2 enabled:hover:border-muted2/60 focus:border-muted2 focus:outline-none';
 const textareaClass =
   'w-full resize-y rounded-lg border border-line bg-input px-2.5 py-2 text-sm leading-relaxed ' +
-  'text-ink placeholder:text-muted2 focus:border-muted2 focus:outline-none';
+  'text-ink placeholder:text-muted2 enabled:hover:border-muted2/60 focus:border-muted2 focus:outline-none';
 // Heights are a whole number of lines: 22.75px per line plus 18px of padding and border. A field
 // that ends mid-line reads as an accident, and the three prompt fields take the same text so they
 // take the same room.
 const promptFieldClass = `${textareaClass} h-[109px]`;
 const numberClass =
   'w-full rounded-[7px] border border-line bg-input px-2 py-[7px] font-mono text-sm ' +
-  'text-ink focus:border-muted2 focus:outline-none';
+  'text-ink enabled:hover:border-muted2/60 focus:border-muted2 focus:outline-none';
 
 function FieldLabel({ label, tag }: { label: string; tag?: string }) {
   return (
@@ -224,7 +224,7 @@ export function Composer({
               type="button"
               onClick={onClick}
               className={`flex-1 rounded-[7px] border-none py-[7px] text-sm font-semibold ${
-                composer.mode === mode ? 'bg-panel2 text-ink' : 'bg-transparent text-muted'
+                composer.mode === mode ? 'bg-panel2 text-ink' : 'bg-transparent text-muted hover:text-ink'
               }`}
             >
               {label}
@@ -294,11 +294,11 @@ export function Composer({
           <button
             type="button"
             onClick={toggleInstrumental}
-            className="flex cursor-pointer items-center gap-2 border-none bg-transparent p-0"
+            className="group flex cursor-pointer items-center gap-2 border-none bg-transparent p-0"
           >
             <div
               className={`relative h-[19px] w-8 rounded-full transition-colors ${
-                composer.instrumental ? 'bg-accent' : 'bg-line'
+                composer.instrumental ? 'bg-accent group-hover:bg-accent2' : 'bg-line group-hover:bg-muted2/50'
               }`}
             >
               <div
@@ -306,7 +306,7 @@ export function Composer({
                 style={{ left: composer.instrumental ? 15 : 3 }}
               />
             </div>
-            <div className="text-sm text-muted">{tr.instrumental}</div>
+            <div className="text-sm text-muted transition-colors group-hover:text-ink">{tr.instrumental}</div>
           </button>
         </div>
         <div className="mb-2 flex flex-wrap gap-1">
@@ -316,7 +316,7 @@ export function Composer({
               type="button"
               onClick={() => insertTag(tag)}
               disabled={composer.instrumental}
-              className="rounded-md border border-line bg-panel2 px-2 py-[3px] font-mono text-xs text-muted"
+              className="rounded-md border border-line bg-panel2 px-2 py-[3px] font-mono text-xs text-muted enabled:hover:border-muted2 enabled:hover:text-ink disabled:opacity-45"
             >
               {tag}
             </button>
@@ -360,7 +360,7 @@ export function Composer({
               className={`flex-1 rounded-md border py-1 font-mono text-xs ${
                 composer.durationSeconds === value
                   ? 'border-accent bg-accent-soft text-accent'
-                  : 'border-line bg-transparent text-muted'
+                  : 'border-line bg-transparent text-muted hover:border-muted2 hover:text-ink'
               }`}
             >
               {value}s
@@ -394,11 +394,17 @@ export function Composer({
         <button
           type="button"
           onClick={() => onPatch({ advancedOpen: !composer.advancedOpen })}
-          className="flex w-full items-center gap-2.5 border-none bg-transparent p-0 text-ink"
+          className="group flex w-full items-center gap-2.5 border-none bg-transparent p-0 text-ink"
         >
           <div className="whitespace-nowrap text-sm font-bold">{tr.advanced}</div>
-          <div className="h-px flex-1 bg-line" />
-          <div className="font-mono text-xs text-muted">{composer.advancedOpen ? '▾' : '▸'}</div>
+          <div className="h-px flex-1 bg-line transition-colors group-hover:bg-muted2/50" />
+          <div
+            className={`font-mono text-xs text-muted transition-all duration-150 group-hover:text-accent ${
+              composer.advancedOpen ? 'rotate-90' : ''
+            }`}
+          >
+            ▸
+          </div>
         </button>
         {composer.advancedOpen && (
           <div className="mt-3.5 flex flex-col gap-3.5">
@@ -455,7 +461,7 @@ export function Composer({
             <button
               type="button"
               onClick={() => onPatch({ sampling: { ...DEFAULT_SAMPLING } })}
-              className="self-start rounded-[7px] border border-line bg-transparent px-3 py-[5px] text-sm text-muted"
+              className="self-start rounded-[7px] border border-line bg-transparent px-3 py-[5px] text-sm text-muted hover:border-muted2 hover:text-ink"
             >
               {tr.reset}
             </button>
@@ -468,11 +474,11 @@ export function Composer({
           type="button"
           onClick={onGenerate}
           disabled={!generating && !canGenerate}
-          className={`w-full rounded-[10px] border-none py-[13px] text-base font-bold disabled:cursor-not-allowed ${
+          className={`w-full rounded-[10px] border-none py-[13px] text-base font-bold ${
             generating
-              ? 'bg-transparent text-danger outline outline-1 outline-line'
+              ? 'bg-transparent text-danger outline outline-1 outline-line hover:bg-danger/10 hover:outline-danger/50'
               : canGenerate
-                ? 'bg-accent text-accent-fg'
+                ? 'bg-accent text-accent-fg hover:bg-accent2 hover:shadow-lg hover:shadow-accent/25'
                 : 'bg-panel2 text-muted2'
           }`}
         >

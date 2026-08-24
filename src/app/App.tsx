@@ -650,7 +650,9 @@ export function App() {
         </section>
         <div
           onPointerDown={startResize}
-          className={`-ml-px cursor-col-resize hover:bg-accent-soft ${isMobile ? 'hidden' : ''}`}
+          className={`-ml-px cursor-col-resize transition-colors hover:bg-accent-soft active:bg-accent/25 ${
+            isMobile ? 'hidden' : ''
+          }`}
         />
         <main className={`min-h-0 overflow-y-auto p-6 pb-10 ${!isMobile || mobileView === 'studio' ? '' : 'hidden'}`}>
           {main}

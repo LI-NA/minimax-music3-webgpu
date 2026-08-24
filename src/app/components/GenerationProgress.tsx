@@ -72,7 +72,7 @@ export function GenerationProgress({ tr, track, view, elapsedMs, onCancel }: Gen
         <button
           type="button"
           onClick={onCancel}
-          className="flex-none rounded-[9px] border border-line bg-transparent px-4 py-[7px] text-sm font-semibold text-danger"
+          className="flex-none rounded-[9px] border border-line bg-transparent px-4 py-[7px] text-sm font-semibold text-danger hover:border-danger/50 hover:bg-danger/10"
         >
           {tr.cancel}
         </button>

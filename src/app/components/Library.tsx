@@ -51,7 +51,7 @@ export function Library({
         <button
           type="button"
           onClick={onNew}
-          className="rounded-[7px] border border-line bg-accent-soft px-2.5 py-1 text-sm font-bold text-accent"
+          className="rounded-[7px] border border-line bg-accent-soft px-2.5 py-1 text-sm font-bold text-accent hover:border-accent/40 hover:bg-accent/25"
         >
           {tr.newBtn}
         </button>
@@ -70,8 +70,8 @@ export function Library({
             <div
               key={track.id}
               onClick={() => onSelect(track)}
-              className={`flex cursor-pointer items-center gap-2.5 rounded-[10px] border p-2.5 ${
-                selected ? 'border-line bg-panel2' : 'border-transparent bg-transparent'
+              className={`flex cursor-pointer items-center gap-2.5 rounded-[10px] border p-2.5 transition-colors ${
+                selected ? 'border-line bg-panel2' : 'border-transparent bg-transparent hover:bg-panel2/60'
               }`}
             >
               <button
@@ -80,7 +80,9 @@ export function Library({
                 disabled={track.status !== 'ready'}
                 aria-label={nowPlaying ? tr.pause : tr.play}
                 className={`flex size-[30px] flex-none items-center justify-center rounded-full border border-line p-0 disabled:opacity-45 ${
-                  isCurrent ? 'bg-accent text-accent-fg' : 'bg-transparent text-muted'
+                  isCurrent
+                    ? 'bg-accent text-accent-fg enabled:hover:bg-accent2'
+                    : 'bg-transparent text-muted enabled:hover:border-muted2 enabled:hover:text-ink'
                 }`}
               >
                 {nowPlaying ? <PauseIcon size={10} /> : <PlayIcon size={10} />}

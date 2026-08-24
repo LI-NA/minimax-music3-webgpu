@@ -7,7 +7,7 @@ import { PauseIcon, PlayIcon } from './icons';
 
 const actionButton =
   'rounded-[9px] border border-line bg-panel px-4 py-[9px] text-sm font-semibold text-ink ' +
-  'disabled:cursor-not-allowed disabled:opacity-45';
+  'enabled:hover:border-muted2 enabled:hover:bg-panel2 disabled:opacity-45';
 
 export type ResultViewProps = {
   tr: Messages;
@@ -94,8 +94,8 @@ export function ResultView({
 
       <div
         onClick={handleWaveClick}
-        className={`flex h-28 items-center gap-[2px] rounded-xl border border-line bg-panel px-4 py-[18px] ${
-          ready ? 'cursor-pointer' : ''
+        className={`flex h-28 items-center gap-[2px] rounded-xl border border-line bg-panel px-4 py-[18px] transition-colors ${
+          ready ? 'cursor-pointer hover:border-muted2' : ''
         }`}
       >
         {bars.map((height, index) => (
@@ -114,7 +114,7 @@ export function ResultView({
           type="button"
           onClick={onTogglePlay}
           disabled={!ready}
-          className="flex items-center gap-2 rounded-[9px] border-none bg-accent px-5 py-[9px] text-sm font-bold text-accent-fg disabled:cursor-not-allowed disabled:opacity-45"
+          className="flex items-center gap-2 rounded-[9px] border-none bg-accent px-5 py-[9px] text-sm font-bold text-accent-fg disabled:opacity-45 enabled:hover:bg-accent2"
         >
           {selPlaying ? <PauseIcon size={11} /> : <PlayIcon size={11} />}
           {selPlaying ? tr.pause : tr.play}
@@ -131,7 +131,7 @@ export function ResultView({
         <button
           type="button"
           onClick={onDelete}
-          className="rounded-[9px] border border-line bg-transparent px-4 py-[9px] text-sm font-semibold text-danger"
+          className="rounded-[9px] border border-line bg-transparent px-4 py-[9px] text-sm font-semibold text-danger hover:border-danger/50 hover:bg-danger/10"
         >
           {tr.del}
         </button>

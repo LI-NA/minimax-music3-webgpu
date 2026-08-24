@@ -20,7 +20,12 @@ export type DownloadCardProps = {
   onRefresh: () => void;
 };
 
-const secondaryButton = 'rounded-lg border border-line bg-transparent px-3.5 py-1.5 text-sm text-muted';
+const secondaryButton =
+  'rounded-lg border border-line bg-transparent px-3.5 py-1.5 text-sm text-muted ' +
+  'hover:border-muted2 hover:text-ink';
+const dangerButton =
+  'rounded-lg border border-line bg-transparent px-3.5 py-1.5 text-sm text-danger ' +
+  'hover:border-danger/50 hover:bg-danger/10';
 
 export function DownloadCard({
   tr,
@@ -117,7 +122,7 @@ export function DownloadCard({
           <button
             type="button"
             onClick={onDownload}
-            className="rounded-lg border-none bg-accent px-4 py-1.5 text-sm font-bold text-accent-fg"
+            className="rounded-lg border-none bg-accent px-4 py-1.5 text-sm font-bold text-accent-fg hover:bg-accent2"
           >
             {actionLabel}
           </button>
@@ -133,7 +138,7 @@ export function DownloadCard({
           </button>
         )}
         {controls.canDelete && (
-          <button type="button" onClick={onDelete} className={`${secondaryButton} text-danger`}>
+          <button type="button" onClick={onDelete} className={dangerButton}>
             {tr.dlDelete}
           </button>
         )}
